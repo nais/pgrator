@@ -19,11 +19,6 @@ spec:
       labels:
         {{- include "chart.labels" . | nindent 8 }}
         control-plane: controller-manager
-        {{- if and .Values.controllerManager.pod .Values.controllerManager.pod.labels }}
-        {{- range $key, $value := .Values.controllerManager.pod.labels }}
-        {{ $key }}: {{ $value }}
-        {{- end }}
-        {{- end }}
     spec:
       containers:
         - name: manager
@@ -36,13 +31,6 @@ spec:
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}
-          {{- end }}
-          {{- if .Values.controllerManager.container.env }}
-          env:
-            {{- range $key, $value := .Values.controllerManager.container.env }}
-            - name: {{ $key }}
-              value: {{ $value }}
-            {{- end }}
           {{- end }}
           livenessProbe:
             {{- toYaml .Values.controllerManager.container.livenessProbe | nindent 12 }}
@@ -66,9 +54,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.controllerManager.terminationGracePeriodSeconds }}
       {{- if and .Values.certmanager.enable .Values.metrics.enable }}
       volumes:
-        {{- if and .Values.metrics.enable .Values.certmanager.enable }}
         - name: metrics-certs
           secret:
             secretName: metrics-server-cert
-        {{- end }}
       {{- end }}
