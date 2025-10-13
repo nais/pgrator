@@ -23,7 +23,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
 		postgres := &data_nais_io_v1.Postgres{}
 
@@ -52,7 +52,6 @@ var _ = Describe("Postgres Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &data_nais_io_v1.Postgres{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
