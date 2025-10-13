@@ -1,0 +1,196 @@
+name: Build and deploy
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    paths-ignore:
+      - '*.md'
+
+env:
+  GOOGLE_REGISTRY: "europe-north1-docker.pkg.dev"
+
+jobs:
+  lint:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.4.0
+
+  test:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Running Tests
+        run: |
+          go mod tidy
+          make test
+
+  build:
+    name: Build and push
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # ratchet:sigstore/cosign-installer@v3.10.0
+        with:
+          cosign-release: 'v2.2.3'
+      - name: Verify runner image
+        run: cosign verify --certificate-identity keyless@distroless.iam.gserviceaccount.com --certificate-oidc-issuer https://accounts.google.com gcr.io/distroless/static-debian11
+      - uses: nais/platform-build-push-sign@main # ratchet:exclude
+        id: build-push-sign
+        with:
+          name: pgrator
+          google_service_account: gh-pgrator
+          push: ${{ github.actor != 'dependabot[bot]' }}
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          multi-platform: true
+          cache_from: type=gha
+          cache_to: type=gha,mode=max
+    outputs:
+      version: "${{ steps.build-push-sign.outputs.version }}"
+
+  test-chart:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install the latest version of kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+      - name: Verify kind installation
+        run: kind version
+      - name: Create kind cluster
+        run: kind create cluster
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
+        name: 'Setup Helm'
+        with:
+          version: '3.8.0'
+      - name: Set versions
+        run: |-
+          for chart in charts/*; do
+            yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "${chart}/Chart.yaml"
+            yq e '.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
+          done
+      - name: Lint Helm Chart
+        run: |
+          for chart in charts/*; do
+            helm lint "${chart}"
+          done
+      - name: Install cert-manager via Helm
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
+      - name: Wait for cert-manager to be ready
+        run: |
+          kubectl wait --namespace cert-manager --for=condition=available --timeout=300s deployment/cert-manager
+          kubectl wait --namespace cert-manager --for=condition=available --timeout=300s deployment/cert-manager-cainjector
+          kubectl wait --namespace cert-manager --for=condition=available --timeout=300s deployment/cert-manager-webhook
+      - name: Install Prometheus Operator CRDs
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm install prometheus-crds prometheus-community/prometheus-operator-crds
+      - name: Install Helm chart for project
+        run: |
+          helm install my-release ./chart/pgrator --create-namespace --namespace pgrator-system
+      - name: Check Helm release status
+        run: |
+          helm status my-release --namespace pgrator-system
+      - name: Check Presence of ServiceMonitor
+        run: |
+          kubectl wait --namespace pgrator-system --for=jsonpath='{.kind}'=ServiceMonitor servicemonitor/pgrator-controller-manager-metrics-monitor
+
+  chart:
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    name: Build and push chart
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - test-chart
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        if: github.ref == 'refs/heads/main'
+        uses: 'google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093' # ratchet:google-github-actions/auth@v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: 'gh-pgrator@nais-io.iam.gserviceaccount.com'
+          token_format: 'access_token'
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db' # ratchet:google-github-actions/setup-gcloud@v1
+      - name: 'Log in to Google Artifact Registry'
+        if: github.ref == 'refs/heads/main'
+        run: |-
+          echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://${{ env.GOOGLE_REGISTRY }}
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
+        name: 'Setup Helm'
+        with:
+          version: '3.8.0'
+      - name: Set versions
+        run: |-
+          for chart in charts/*; do
+            yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "${chart}/Chart.yaml"
+            yq e '.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
+          done
+      - name: Build Chart
+        run: |-
+          for chart in charts/*; do
+            helm package "$chart"
+          done
+      - name: Push Chart
+        if: github.ref == 'refs/heads/main'
+        run: |-
+          for chart in *.tgz; do
+            helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
+          done
+
+  rollout:
+    name: Rollout
+    if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/main'
+    needs:
+      - build
+      - chart
+      - test
+      - lint
+    runs-on: fasit-deploy
+    permissions:
+      id-token: write
+    steps:
+      - uses: nais/fasit-deploy@v2 # ratchet:exclude
+        with:
+          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/pgrator
+          version: ${{ needs.build.outputs.version }}
