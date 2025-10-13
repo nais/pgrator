@@ -1,0 +1,12 @@
+dependencies:
+  - allOf:
+      - nais-crds
+      - cert-manager
+      - monitoring-crds
+environmentKinds:
+  - tenant
+values:
+  controllerManager.container.image.tag:
+    displayName: Image tag
+    config:
+      type: string
