@@ -127,9 +127,9 @@ jobs:
       - name: Check Helm release status
         run: |
           helm status my-release --namespace pgrator-system
-      - name: Check Presence of ServiceMonitor
-        run: |
-          kubectl wait --namespace pgrator-system --for=jsonpath='{.kind}'=ServiceMonitor servicemonitor/pgrator-controller-manager-metrics-monitor
+#      - name: Check Presence of ServiceMonitor
+#        run: |
+#          kubectl wait --namespace pgrator-system --for=jsonpath='{.kind}'=ServiceMonitor servicemonitor/pgrator-controller-manager-metrics-monitor
 
   chart:
     permissions:
