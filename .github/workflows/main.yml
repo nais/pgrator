@@ -82,6 +82,21 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
+        name: 'Setup Helm'
+        with:
+          version: '3.8.0'
+      - name: Set versions
+        run: |-
+          for chart in charts/*; do
+            yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "${chart}/Chart.yaml"
+            yq e '.controllerManager.container.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
+          done
+      - name: Lint Helm Chart
+        run: |
+          for chart in charts/*; do
+            helm lint "${chart}"
+          done
       - name: Install the latest version of kind
         run: |
           curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
@@ -91,21 +106,6 @@ jobs:
         run: kind version
       - name: Create kind cluster
         run: kind create cluster
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
-        name: 'Setup Helm'
-        with:
-          version: '3.8.0'
-      - name: Set versions
-        run: |-
-          for chart in charts/*; do
-            yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "${chart}/Chart.yaml"
-            yq e '.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
-          done
-      - name: Lint Helm Chart
-        run: |
-          for chart in charts/*; do
-            helm lint "${chart}"
-          done
       - name: Install cert-manager via Helm
         run: |
           helm repo add jetstack https://charts.jetstack.io
