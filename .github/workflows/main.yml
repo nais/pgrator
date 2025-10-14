@@ -183,6 +183,7 @@ jobs:
     needs:
       - build
       - chart
+      - test-chart
       - test
       - lint
     runs-on: fasit-deploy
