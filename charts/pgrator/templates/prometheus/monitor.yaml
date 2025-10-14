@@ -23,13 +23,6 @@ spec:
           secret:
             name: pgrator-metrics-server-cert
             key: ca.crt
-        cert:
-          secret:
-            name: pgrator-metrics-server-cert
-            key: tls.crt
-        keySecret:
-          name: pgrator-metrics-server-cert
-          key: tls.key
         {{- else }}
         # Development/Test mode (insecure configuration)
         insecureSkipVerify: true

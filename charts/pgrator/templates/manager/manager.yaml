@@ -22,15 +22,11 @@ spec:
     spec:
       containers:
         - name: manager
-          args:
-            {{- range .Values.controllerManager.container.args }}
-            - {{ . }}
-            {{- end }}
+          env:
             {{- if and .Values.certmanager.enable .Values.metrics.enable }}
-            - --metrics-cert-path=/var/run/secrets/k8s-metrics-server/metrics-certs
+            - name: METRICS_CERT_PATH
+              value: /var/run/secrets/k8s-metrics-server/metrics-certs
             {{- end }}
-          command:
-            - /manager
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}

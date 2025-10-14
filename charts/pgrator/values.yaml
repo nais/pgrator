@@ -6,10 +6,6 @@ controllerManager:
       repository: europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator
       tag: "latest"
     imagePullPolicy: IfNotPresent
-    args:
-      - "--leader-elect"
-      - "--metrics-bind-address=:8443"
-      - "--health-probe-bind-address=:8081"
     resources:
       limits:
         cpu: 500m
