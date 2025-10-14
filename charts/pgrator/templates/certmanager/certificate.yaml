@@ -5,7 +5,7 @@ kind: Issuer
 metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
-  name: selfsigned-issuer
+  name: pgrator-selfsigned-issuer
   namespace: {{ .Release.Namespace }}
 spec:
   selfSigned: {}
@@ -17,7 +17,7 @@ kind: Certificate
 metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
-  name: metrics-certs
+  name: pgrator-metrics-certs
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
@@ -26,7 +26,7 @@ spec:
     - pgrator-metrics-service.{{ .Release.Namespace }}.svc
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
-  secretName: metrics-server-cert
+    name: pgrator-selfsigned-issuer
+  secretName: pgrator-metrics-server-cert
 {{- end }}
 {{- end }}

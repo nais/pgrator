@@ -56,5 +56,5 @@ spec:
       volumes:
         - name: metrics-certs
           secret:
-            secretName: metrics-server-cert
+            secretName: pgrator-metrics-server-cert
       {{- end }}
