@@ -26,6 +26,9 @@ spec:
             {{- range .Values.controllerManager.container.args }}
             - {{ . }}
             {{- end }}
+            {{- if and .Values.certmanager.enable .Values.metrics.enable }}
+            - --metrics-cert-path=/var/run/secrets/k8s-metrics-server/metrics-certs
+            {{- end }}
           command:
             - /manager
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
@@ -44,7 +47,7 @@ spec:
           volumeMounts:
             {{- if and .Values.metrics.enable .Values.certmanager.enable }}
             - name: metrics-certs
-              mountPath: /tmp/k8s-metrics-server/metrics-certs
+              mountPath: /var/run/secrets/k8s-metrics-server/metrics-certs
               readOnly: true
             {{- end }}
           {{- end }}
