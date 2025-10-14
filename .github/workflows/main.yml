@@ -163,7 +163,7 @@ jobs:
         run: |-
           for chart in charts/*; do
             yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "${chart}/Chart.yaml"
-            yq e '.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
+            yq e '.controllerManager.container.image.tag = "${{ needs.build.outputs.version }}"' --inplace "${chart}/values.yaml"
           done
       - name: Build Chart
         run: |-
