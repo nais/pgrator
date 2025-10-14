@@ -53,10 +53,15 @@ rules:
     - create
     - patch
 - apiGroups:
+    - authorization.k8s.io
+  resources:
+    - subjectaccessreviews
+  verbs:
+    - create
+- apiGroups:
     - authentication.k8s.io
   resources:
     - tokenreviews
-    - subjectaccessreviews
   verbs:
     - create
 {{- end -}}
