@@ -52,4 +52,11 @@ rules:
   verbs:
     - create
     - patch
+- apiGroups:
+    - authentication.k8s.io
+  resources:
+    - tokenreviews
+    - subjectaccessreviews
+  verbs:
+    - create
 {{- end -}}
