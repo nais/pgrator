@@ -36,6 +36,10 @@ run = "go fmt ./..."
 description = "Run go vet against code."
 run = "go vet ./..."
 
+[tasks.setup-envtest]
+description = "Setup envtest binaries"
+run = "setup-envtest use ${ENVTEST_K8S_VERSION} -p path"
+
 [tasks.test]
 depends = ["generate", "fmt", "vet"]
 description = "Run tests."
