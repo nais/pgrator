@@ -38,10 +38,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: jdx/mise-action@v2
       - name: Running Tests
         run: |
           go mod tidy
-          make test
+          mise run test
 
   build:
     name: Build and push image

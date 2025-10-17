@@ -2,8 +2,11 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/nais/liberator/pkg/crd"
@@ -57,8 +60,9 @@ var _ = BeforeSuite(func() {
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs
-	if getFirstFoundEnvTestBinaryDir() != "" {
-		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
+	envTestBinaryDir := getEnvTestBinaryDir()
+	if envTestBinaryDir != "" {
+		testEnv.BinaryAssetsDirectory = envTestBinaryDir
 	}
 
 	// cfg is defined in this file globally.
@@ -78,25 +82,75 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 })
 
-// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
+// getEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by
 // controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
+// build scripts to set things up for us, the 'BinaryAssetsDirectory' must be
+// explicitly configured.
 //
 // This function streamlines the process by finding the required binaries, similar to
 // setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
-func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		logf.Log.Error(err, "Failed to read directory", "path", basePath)
-		return ""
+// properly set up, run 'setup-envtest' beforehand.
+func getEnvTestBinaryDir() string {
+	assetDir := os.Getenv("KUBEBUILDER_ASSETS")
+	if assetDir != "" {
+		return assetDir
 	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
+
+	envtestK8sVersion := os.Getenv("ENVTEST_K8S_VERSION")
+
+	storeDir, err := defaultStoreDir()
+	if err != nil {
+		logf.Log.Error(err, "Failed to get default directory for envtest, looking locally")
+	}
+	candidates := []string{storeDir, filepath.Join("..", "..", "bin")}
+	for _, candidate := range candidates {
+		basePath := filepath.Join(candidate, "k8s")
+		entries, err := os.ReadDir(basePath)
+		if err != nil {
+			logf.Log.Error(err, "Failed to read directory", "path", basePath)
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() && strings.Contains(entry.Name(), envtestK8sVersion) {
+				return filepath.Join(basePath, entry.Name())
+			}
 		}
 	}
 	return ""
+}
+
+// defaultStoreDir returns the default location for the store.
+//
+// - Windows: %LocalAppData%\kubebuilder-envtest
+// - OSX: ~/Library/Application Support/io.kubebuilder.envtest
+// - Others: ${XDG_DATA_HOME:-~/.local/share}/kubebuilder-envtest
+func defaultStoreDir() (string, error) {
+	var baseDir string
+
+	// find the base data directory
+	switch runtime.GOOS {
+	case "darwin", "ios":
+		homeDir := os.Getenv("HOME")
+		if homeDir == "" {
+			return "", errors.New("$HOME is not defined")
+		}
+		return filepath.Join(homeDir, "Library/Application Support/io.kubebuilder.envtest"), nil
+	case "windows":
+		baseDir = os.Getenv("LocalAppData")
+		if baseDir == "" {
+			return "", errors.New("%LocalAppData% is not defined")
+		}
+	default:
+		baseDir = os.Getenv("XDG_DATA_HOME")
+		if baseDir == "" {
+			homeDir := os.Getenv("HOME")
+			if homeDir == "" {
+				return "", errors.New("neither $XDG_DATA_HOME nor $HOME are defined")
+			}
+			baseDir = filepath.Join(homeDir, ".local/share")
+		}
+	}
+
+	return filepath.Join(baseDir, "kubebuilder-envtest"), nil
 }
