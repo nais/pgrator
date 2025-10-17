@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
@@ -31,8 +32,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(data_nais_io_v1.AddToScheme(scheme))
-	// +kubebuilder:scaffold:scheme
+	_, err := liberator_scheme.AddAll(scheme)
+	utilruntime.Must(err)
 }
 
 // nolint:gocyclo
@@ -83,7 +84,7 @@ func main() {
 	postgresController := synchronizer.NewSynchronizer[
 		*data_nais_io_v1.Postgres,
 		controller.PreparedData,
-	](mgr.GetClient(), &controller.PostgresReconciler{})
+	](mgr.GetClient(), mgr.GetScheme(), &controller.PostgresReconciler{})
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
 		os.Exit(1)

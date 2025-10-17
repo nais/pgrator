@@ -65,7 +65,7 @@ var _ = Describe("Postgres Controller", func() {
 			controllerReconciler := synchronizer.NewSynchronizer[
 				*data_nais_io_v1.Postgres,
 				PreparedData,
-			](k8sClient, &PostgresReconciler{})
+			](k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
