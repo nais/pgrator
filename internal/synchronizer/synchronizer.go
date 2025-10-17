@@ -14,19 +14,19 @@ import (
 
 type MutateFn func()
 
-type Synchronizer struct {
+type Synchronizer[T NaisObject, P any] struct {
 	client     client.Client
-	reconciler reconciler.Reconciler[NaisObject, any]
+	reconciler reconciler.Reconciler[T, P]
 }
 
-func NewSynchronizer(client client.Client, reconciler reconciler.Reconciler[NaisObject, any]) *Synchronizer {
-	return &Synchronizer{
-		client:     client,
-		reconciler: reconciler,
+func NewSynchronizer[T NaisObject, P any](k8sClient client.Client, r reconciler.Reconciler[T, P]) *Synchronizer[T, P] {
+	return &Synchronizer[T, P]{
+		client:     k8sClient,
+		reconciler: r,
 	}
 }
 
-func (s *Synchronizer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -105,7 +105,15 @@ func (s *Synchronizer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	return ctrl.Result{}, nil
 }
 
-func (s *Synchronizer) PerformActions(actions []action.Action) (ctrl.Result, error) {
-	//TODO implement me
+func (s *Synchronizer[T, P]) PerformActions(actions []action.Action) (ctrl.Result, error) {
+	// TODO implement me
 	panic("implement me")
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(s.reconciler.New()).
+		Named("postgres").
+		Complete(s)
 }

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 
+	"github.com/nais/pgrator/internal/synchronizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -61,10 +62,10 @@ var _ = Describe("Postgres Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &PostgresReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			controllerReconciler := synchronizer.NewSynchronizer[
+				*data_nais_io_v1.Postgres,
+				PreparedData,
+			](k8sClient, &PostgresReconciler{})
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,

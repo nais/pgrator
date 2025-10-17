@@ -10,6 +10,7 @@ import (
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
+	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/sethvargo/go-envconfig"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -79,11 +80,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.PostgresReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Postgres")
+	postgresController := synchronizer.NewSynchronizer[
+		*data_nais_io_v1.Postgres,
+		controller.PreparedData,
+	](mgr.GetClient(), &controller.PostgresReconciler{})
+	if err := postgresController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
