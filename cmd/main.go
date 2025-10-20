@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
@@ -81,10 +80,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	postgresController := synchronizer.NewSynchronizer[
-		*data_nais_io_v1.Postgres,
-		controller.PreparedData,
-	](mgr.GetClient(), mgr.GetScheme(), &controller.PostgresReconciler{})
+	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), &controller.PostgresReconciler{})
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
 		os.Exit(1)

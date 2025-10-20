@@ -81,10 +81,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := synchronizer.NewSynchronizer[
-				*data_nais_io_v1.Postgres,
-				PreparedData,
-			](k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+			controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: resourceKey,
