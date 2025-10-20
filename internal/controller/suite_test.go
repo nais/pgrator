@@ -54,7 +54,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	crdPath := crd.YamlDirectory()
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join(crdPath, "data.nais.io_postgres.yaml")},
+		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
 	}
 

@@ -6,6 +6,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,18 +20,35 @@ import (
 var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
+		const postgresNamespace = "pg-default"
 
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
+		resourceKey := types.NamespacedName{
 			Name:      resourceName,
 			Namespace: "default",
 		}
 		postgres := &data_nais_io_v1.Postgres{}
 
+		namespaceKey := types.NamespacedName{
+			Name: postgresNamespace,
+		}
+		namespace := &v1.Namespace{}
+
 		BeforeEach(func() {
+			By("creating the postgres namespace")
+			err := k8sClient.Get(ctx, namespaceKey, namespace)
+			if err != nil && errors.IsNotFound(err) {
+				namespace := &v1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: postgresNamespace,
+					},
+				}
+				Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+			}
+
 			By("creating the custom resource for the Kind Postgres")
-			err := k8sClient.Get(ctx, typeNamespacedName, postgres)
+			err = k8sClient.Get(ctx, resourceKey, postgres)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &data_nais_io_v1.Postgres{
 					ObjectMeta: metav1.ObjectMeta{
@@ -54,12 +72,13 @@ var _ = Describe("Postgres Controller", func() {
 
 		AfterEach(func() {
 			resource := &data_nais_io_v1.Postgres{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			err := k8sClient.Get(ctx, resourceKey, resource)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Cleanup the specific resource instance Postgres")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
+
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := synchronizer.NewSynchronizer[
@@ -68,7 +87,7 @@ var _ = Describe("Postgres Controller", func() {
 			](k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+				NamespacedName: resourceKey,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
