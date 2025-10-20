@@ -6,8 +6,10 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
+	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
+	core_v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -21,6 +23,7 @@ var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 		const postgresNamespace = "pg-default"
+		const testClusterName = "test-cluster-name"
 
 		ctx := context.Background()
 
@@ -30,16 +33,21 @@ var _ = Describe("Postgres Controller", func() {
 		}
 		postgres := &data_nais_io_v1.Postgres{}
 
+		clusterKey := types.NamespacedName{
+			Name:      testClusterName,
+			Namespace: postgresNamespace,
+		}
+
 		namespaceKey := types.NamespacedName{
 			Name: postgresNamespace,
 		}
-		namespace := &v1.Namespace{}
+		namespace := &core_v1.Namespace{}
 
 		BeforeEach(func() {
 			By("creating the postgres namespace")
 			err := k8sClient.Get(ctx, namespaceKey, namespace)
 			if err != nil && errors.IsNotFound(err) {
-				namespace := &v1.Namespace{
+				namespace := &core_v1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: postgresNamespace,
 					},
@@ -57,6 +65,7 @@ var _ = Describe("Postgres Controller", func() {
 					},
 					Spec: data_nais_io_v1.PostgresSpec{
 						Cluster: data_nais_io_v1.PostgresCluster{
+							Name: testClusterName,
 							Resources: data_nais_io_v1.PostgresResources{
 								DiskSize: resource.MustParse("1G"),
 								Cpu:      resource.MustParse("1"),
@@ -89,6 +98,11 @@ var _ = Describe("Postgres Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
+				By("Checking for creation of dependent resource")
+				cluster := &acid_zalan_do_v1.Postgresql{}
+				err = k8sClient.Get(ctx, clusterKey, cluster)
+				Expect(err).NotTo(HaveOccurred())
+
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
@@ -112,6 +126,12 @@ var _ = Describe("Postgres Controller", func() {
 					NamespacedName: resourceKey,
 				})
 				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking that dependent resource is no longer found")
+				cluster := &acid_zalan_do_v1.Postgresql{}
+				err = k8sClient.Get(ctx, clusterKey, cluster)
+				Expect(err).NotTo(BeNil())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
