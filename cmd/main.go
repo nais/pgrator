@@ -80,7 +80,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), &controller.PostgresReconciler{})
+	reconciler := &controller.PostgresReconciler{
+		Config: cfg,
+	}
+	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), reconciler)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
 		os.Exit(1)

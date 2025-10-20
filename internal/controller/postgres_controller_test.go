@@ -3,12 +3,12 @@ package controller
 import (
 	"context"
 
+	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	core_v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,6 +24,7 @@ var _ = Describe("Postgres Controller", func() {
 		const resourceName = "test-resource"
 		const postgresNamespace = "pg-default"
 		const testClusterName = "test-cluster-name"
+		var reconcilerConfig config.Config
 
 		ctx := context.Background()
 
@@ -46,7 +47,7 @@ var _ = Describe("Postgres Controller", func() {
 		BeforeEach(func() {
 			By("creating the postgres namespace")
 			err := k8sClient.Get(ctx, namespaceKey, namespace)
-			if err != nil && errors.IsNotFound(err) {
+			if err != nil && apierrors.IsNotFound(err) {
 				namespace := &core_v1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: postgresNamespace,
@@ -57,7 +58,7 @@ var _ = Describe("Postgres Controller", func() {
 
 			By("creating the custom resource for the Kind Postgres")
 			err = k8sClient.Get(ctx, resourceKey, postgres)
-			if err != nil && errors.IsNotFound(err) {
+			if err != nil && apierrors.IsNotFound(err) {
 				resource := &data_nais_io_v1.Postgres{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -91,7 +92,7 @@ var _ = Describe("Postgres Controller", func() {
 
 			It("should successfully reconcile the resource", func() {
 				By("Reconciling the created resource")
-				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: resourceKey,
@@ -120,7 +121,7 @@ var _ = Describe("Postgres Controller", func() {
 
 			It("should successfully clean up dependent resources", func() {
 				By("Reconciling the deleted resource")
-				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: resourceKey,
@@ -130,7 +131,7 @@ var _ = Describe("Postgres Controller", func() {
 				By("Checking that dependent resource is no longer found")
 				cluster := &acid_zalan_do_v1.Postgresql{}
 				err = k8sClient.Get(ctx, clusterKey, cluster)
-				Expect(err).NotTo(BeNil())
+				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.

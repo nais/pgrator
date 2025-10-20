@@ -6,6 +6,7 @@ import (
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	"github.com/nais/liberator/pkg/namegen"
+	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -19,6 +20,7 @@ const (
 
 // PostgresReconciler reconciles a Postgres object
 type PostgresReconciler struct {
+	Config *config.Config
 }
 
 type PreparedData struct {
@@ -45,13 +47,13 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 
 	var actions []action.Action
 
-	cluster := resourcecreator.CreateClusterSpec(obj, pgClusterName, pgNamespace)
+	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(cluster))
-	//createNetworkPolicies(source, ast, pgClusterName, pgNamespace)
-	//err = createIAMPolicyMember(source, ast, cfg.GetGoogleProjectID(), pgNamespace)
-	//if err != nil {
-	//	return fmt.Errorf("failed to create IAMPolicyMember: %w", err)
-	//}
+	// createNetworkPolicies(source, ast, pgClusterName, pgNamespace)
+	// err = createIAMPolicyMember(source, ast, cfg.GetGoogleProjectID(), pgNamespace)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create IAMPolicyMember: %w", err)
+	// }
 
 	return actions, ctrl.Result{}, nil
 }

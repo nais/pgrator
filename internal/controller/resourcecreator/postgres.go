@@ -5,6 +5,7 @@ import (
 	"time"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	"github.com/nais/pgrator/internal/config"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,7 +56,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pg
 	}
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
 	cluster := MinimalCluster(postgres, pgClusterName, pgNamespace)
 
 	cpuLimit := postgres.Spec.Cluster.Resources.Cpu.DeepCopy()
@@ -128,7 +129,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string,
 		},
 		Volume: acid_zalan_do_v1.Volume{
 			Size:         postgres.Spec.Cluster.Resources.DiskSize.String(),
-			StorageClass: "", // TODO: cfg.PostgresStorageClass(),
+			StorageClass: cfg.PostgresStorageClass,
 		},
 		Patroni: acid_zalan_do_v1.Patroni{
 			InitDB: map[string]string{
@@ -149,7 +150,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string,
 			},
 		},
 		TeamID:             postgres.GetNamespace(),
-		DockerImage:        "", // TODO: cfg.PostgresImage(),
+		DockerImage:        cfg.PostgresImage,
 		NumberOfInstances:  numberOfInstances,
 		MaintenanceWindows: maintenanceWindows,
 		PreparedDatabases: map[string]acid_zalan_do_v1.PreparedDatabase{
