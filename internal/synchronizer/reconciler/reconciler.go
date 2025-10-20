@@ -16,13 +16,13 @@ type Reconciler[T client.Object, P any] interface {
 	// New creates a new instance of the type being reconciled
 	New() T
 
-	// Delete returns the actions needed to handle the reconciled object being deleted
-	Delete(context.Context, T) ([]action.Action, ctrl.Result, error)
-
 	// Prepare returns an object that can be used when doing updates
 	Prepare(context.Context, client.Reader, T) (P, ctrl.Result, error)
 
 	// Update returns the actions needed to handle an update of the reconciled object
 	// This includes the first time the object is seen (aka Create)
-	Update(context.Context, T, P) ([]action.Action, ctrl.Result, error)
+	Update(T, P) ([]action.Action, ctrl.Result, error)
+
+	// Delete returns the actions needed to handle the reconciled object being deleted
+	Delete(T) ([]action.Action, ctrl.Result, error)
 }

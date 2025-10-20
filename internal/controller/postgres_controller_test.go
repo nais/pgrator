@@ -70,25 +70,52 @@ var _ = Describe("Postgres Controller", func() {
 			}
 		})
 
-		AfterEach(func() {
-			resource := &data_nais_io_v1.Postgres{}
-			err := k8sClient.Get(ctx, resourceKey, resource)
-			Expect(err).NotTo(HaveOccurred())
+		When("the resource is created", func() {
+			AfterEach(func() {
+				resource := &data_nais_io_v1.Postgres{}
+				err := k8sClient.Get(ctx, resourceKey, resource)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance Postgres")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+				By("Cleanup the specific resource instance Postgres")
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			})
+
+			It("should successfully reconcile the resource", func() {
+				By("Reconciling the created resource")
+				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: resourceKey,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
+				// Example: If you expect a certain status condition after reconciliation, verify it here.
+			})
 		})
 
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+		When("the resource is deleted", func() {
+			BeforeEach(func() {
+				resource := &data_nais_io_v1.Postgres{}
+				err := k8sClient.Get(ctx, resourceKey, resource)
+				Expect(err).NotTo(HaveOccurred())
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: resourceKey,
+				By("Delete the resource")
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			It("should successfully clean up dependent resources", func() {
+				By("Reconciling the deleted resource")
+				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{})
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: resourceKey,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
+				// Example: If you expect a certain status condition after reconciliation, verify it here.
+			})
 		})
 	})
 })

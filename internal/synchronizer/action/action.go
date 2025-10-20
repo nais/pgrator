@@ -51,3 +51,16 @@ func CreateOrUpdate(obj client.Object) Action {
 		return nil
 	})
 }
+
+func DeleteIfExists(obj client.Object) Action {
+	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+		log := logf.FromContext(ctx)
+		log.Info(fmt.Sprintf("DeleteIfExists %s", liberator_scheme.TypeName(obj)))
+
+		err := c.Delete(ctx, obj)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	})
+}

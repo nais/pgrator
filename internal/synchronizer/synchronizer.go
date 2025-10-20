@@ -52,7 +52,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizers := obj.GetFinalizers()
 	if deletionTimestamp != nil {
 		if len(finalizers) > 0 && finalizers[0] == finalizer {
-			actions, result, err = s.reconciler.Delete(ctx, obj)
+			actions, result, err = s.reconciler.Delete(obj)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
 				return result, err
@@ -91,7 +91,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
-	actions, result, err = s.reconciler.Update(ctx, obj, prep)
+	actions, result, err = s.reconciler.Update(obj, prep)
 	if err != nil {
 		logger.Error(err, "failed to calculate update actions")
 		return result, err

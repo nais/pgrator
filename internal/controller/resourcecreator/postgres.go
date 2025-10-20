@@ -5,7 +5,6 @@ import (
 	"time"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	"github.com/nais/pgrator/internal/synchronizer/action"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,7 +36,7 @@ var defaultExtensions = []string{
 	"pgaudit",
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) action.Action {
+func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
 	objectMeta := CreateObjectMeta(postgres)
 	objectMeta.Name = pgClusterName
 	objectMeta.Namespace = pgNamespace
@@ -46,6 +45,18 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string,
 	if postgres.Spec.Cluster.AllowDeletion {
 		objectMeta.Annotations[allowDeletionAnnotation] = pgClusterName
 	}
+
+	return &acid_zalan_do_v1.Postgresql{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "postgresql",
+			APIVersion: "acid.zalan.do/v1",
+		},
+		ObjectMeta: objectMeta,
+	}
+}
+
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
+	cluster := MinimalCluster(postgres, pgClusterName, pgNamespace)
 
 	cpuLimit := postgres.Spec.Cluster.Resources.Cpu.DeepCopy()
 	cpuLimit.Mul(cpuLimitFactor)
@@ -85,85 +96,78 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string,
 		collation = fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
 	}
 
-	cluster := &acid_zalan_do_v1.Postgresql{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "postgresql",
-			APIVersion: "acid.zalan.do/v1",
-		},
-		ObjectMeta: objectMeta,
-		Spec: acid_zalan_do_v1.PostgresSpec{
-			EnableConnectionPooler:        ptr.To(true),
-			EnableReplicaConnectionPooler: ptr.To(false),
-			ConnectionPooler: &acid_zalan_do_v1.ConnectionPooler{
-				Resources: &acid_zalan_do_v1.Resources{
-					ResourceRequests: acid_zalan_do_v1.ResourceDescription{
-						CPU:    ptr.To("50m"),
-						Memory: ptr.To("50Mi"),
-					},
+	cluster.Spec = acid_zalan_do_v1.PostgresSpec{
+		EnableConnectionPooler:        ptr.To(true),
+		EnableReplicaConnectionPooler: ptr.To(false),
+		ConnectionPooler: &acid_zalan_do_v1.ConnectionPooler{
+			Resources: &acid_zalan_do_v1.Resources{
+				ResourceRequests: acid_zalan_do_v1.ResourceDescription{
+					CPU:    ptr.To("50m"),
+					Memory: ptr.To("50Mi"),
 				},
 			},
-			NodeAffinity: &v1.NodeAffinity{
-				RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
-					NodeSelectorTerms: []v1.NodeSelectorTerm{
-						{
-							MatchExpressions: []v1.NodeSelectorRequirement{
-								{
-									Key:      "nais.io/type",
-									Operator: "In",
-									Values:   []string{"postgres"},
-								},
+		},
+		NodeAffinity: &v1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
+				NodeSelectorTerms: []v1.NodeSelectorTerm{
+					{
+						MatchExpressions: []v1.NodeSelectorRequirement{
+							{
+								Key:      "nais.io/type",
+								Operator: "In",
+								Values:   []string{"postgres"},
 							},
 						},
 					},
 				},
 			},
-			PostgresqlParam: acid_zalan_do_v1.PostgresqlParam{
-				PgVersion:  postgres.Spec.Cluster.MajorVersion,
-				Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit),
-			},
-			Volume: acid_zalan_do_v1.Volume{
-				Size:         postgres.Spec.Cluster.Resources.DiskSize.String(),
-				StorageClass: "", // TODO: cfg.PostgresStorageClass(),
-			},
-			Patroni: acid_zalan_do_v1.Patroni{
-				InitDB: map[string]string{
-					"encoding": "UTF8",
-					"locale":   collation,
-				},
-				SynchronousMode:       true,
-				SynchronousModeStrict: true,
-			},
-			Resources: &acid_zalan_do_v1.Resources{
-				ResourceRequests: acid_zalan_do_v1.ResourceDescription{
-					CPU:    ptr.To(postgres.Spec.Cluster.Resources.Cpu.String()),
-					Memory: ptr.To(postgres.Spec.Cluster.Resources.Memory.String()),
-				},
-				ResourceLimits: acid_zalan_do_v1.ResourceDescription{
-					CPU:    ptr.To(cpuLimit.String()),
-					Memory: ptr.To(postgres.Spec.Cluster.Resources.Memory.String()),
-				},
-			},
-			TeamID:             postgres.GetNamespace(),
-			DockerImage:        "", // TODO: cfg.PostgresImage(),
-			NumberOfInstances:  numberOfInstances,
-			MaintenanceWindows: maintenanceWindows,
-			PreparedDatabases: map[string]acid_zalan_do_v1.PreparedDatabase{
-				defaultDatabaseName: {
-					DefaultUsers:    true,
-					Extensions:      extensions,
-					SecretNamespace: postgres.GetNamespace(),
-					PreparedSchemas: map[string]acid_zalan_do_v1.PreparedSchema{
-						defaultSchema: {},
-					},
-				},
-			},
-			SpiloRunAsUser:  ptr.To(runAsUser),
-			SpiloRunAsGroup: ptr.To(runAsGroup),
-			SpiloFSGroup:    ptr.To(fsGroup),
 		},
+		PostgresqlParam: acid_zalan_do_v1.PostgresqlParam{
+			PgVersion:  postgres.Spec.Cluster.MajorVersion,
+			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit),
+		},
+		Volume: acid_zalan_do_v1.Volume{
+			Size:         postgres.Spec.Cluster.Resources.DiskSize.String(),
+			StorageClass: "", // TODO: cfg.PostgresStorageClass(),
+		},
+		Patroni: acid_zalan_do_v1.Patroni{
+			InitDB: map[string]string{
+				"encoding": "UTF8",
+				"locale":   collation,
+			},
+			SynchronousMode:       true,
+			SynchronousModeStrict: true,
+		},
+		Resources: &acid_zalan_do_v1.Resources{
+			ResourceRequests: acid_zalan_do_v1.ResourceDescription{
+				CPU:    ptr.To(postgres.Spec.Cluster.Resources.Cpu.String()),
+				Memory: ptr.To(postgres.Spec.Cluster.Resources.Memory.String()),
+			},
+			ResourceLimits: acid_zalan_do_v1.ResourceDescription{
+				CPU:    ptr.To(cpuLimit.String()),
+				Memory: ptr.To(postgres.Spec.Cluster.Resources.Memory.String()),
+			},
+		},
+		TeamID:             postgres.GetNamespace(),
+		DockerImage:        "", // TODO: cfg.PostgresImage(),
+		NumberOfInstances:  numberOfInstances,
+		MaintenanceWindows: maintenanceWindows,
+		PreparedDatabases: map[string]acid_zalan_do_v1.PreparedDatabase{
+			defaultDatabaseName: {
+				DefaultUsers:    true,
+				Extensions:      extensions,
+				SecretNamespace: postgres.GetNamespace(),
+				PreparedSchemas: map[string]acid_zalan_do_v1.PreparedSchema{
+					defaultSchema: {},
+				},
+			},
+		},
+		SpiloRunAsUser:  ptr.To(runAsUser),
+		SpiloRunAsGroup: ptr.To(runAsGroup),
+		SpiloFSGroup:    ptr.To(fsGroup),
 	}
 
-	return action.CreateOrUpdate(cluster)
+	return cluster
 }
 
 func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {

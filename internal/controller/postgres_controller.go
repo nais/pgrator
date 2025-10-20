@@ -32,16 +32,43 @@ func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
 	return &data_nais_io_v1.Postgres{}
 }
 
-func (r *PostgresReconciler) Delete(ctx context.Context, obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
-	// TODO implement me
-	panic("implement me")
-}
-
 func (r *PostgresReconciler) Prepare(_ctx context.Context, _reader client.Reader, _obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
 	return PreparedData{}, ctrl.Result{}, nil
 }
 
-func (r *PostgresReconciler) Update(ctx context.Context, obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+	var err error
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+
+	var actions []action.Action
+
+	cluster := resourcecreator.CreateClusterSpec(obj, pgClusterName, pgNamespace)
+	actions = append(actions, action.CreateOrUpdate(cluster))
+	//createNetworkPolicies(source, ast, pgClusterName, pgNamespace)
+	//err = createIAMPolicyMember(source, ast, cfg.GetGoogleProjectID(), pgNamespace)
+	//if err != nil {
+	//	return fmt.Errorf("failed to create IAMPolicyMember: %w", err)
+	//}
+
+	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
+	var err error
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+
+	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
+	actions := []action.Action{action.DeleteIfExists(cluster)}
+	return actions, ctrl.Result{}, nil
+}
+
+func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, error) {
 	var err error
 	pgClusterName := obj.GetName()
 	if obj.Spec.Cluster.Name != "" {
@@ -50,19 +77,9 @@ func (r *PostgresReconciler) Update(ctx context.Context, obj *data_nais_io_v1.Po
 	if len(pgClusterName) > maxClusterNameLength {
 		pgClusterName, err = namegen.ShortName(pgClusterName, maxClusterNameLength)
 		if err != nil {
-			return nil, ctrl.Result{}, fmt.Errorf("failed to shorten PostgreSQL cluster name: %w", err)
+			return "", "", fmt.Errorf("failed to shorten PostgreSQL cluster name: %w", err)
 		}
 	}
 	pgNamespace := fmt.Sprintf("pg-%s", obj.GetNamespace())
-
-	var actions []action.Action
-
-	actions = append(actions, resourcecreator.CreateClusterSpec(obj, pgClusterName, pgNamespace))
-	//createNetworkPolicies(source, ast, pgClusterName, pgNamespace)
-	//err = createIAMPolicyMember(source, ast, cfg.GetGoogleProjectID(), pgNamespace)
-	//if err != nil {
-	//	return fmt.Errorf("failed to create IAMPolicyMember: %w", err)
-	//}
-
-	return actions, ctrl.Result{}, nil
+	return pgClusterName, pgNamespace, nil
 }
