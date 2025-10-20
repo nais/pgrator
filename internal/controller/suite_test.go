@@ -13,6 +13,8 @@ import (
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
+	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -49,13 +51,19 @@ var _ = BeforeSuite(func() {
 	_, err = liberator_scheme.AddAll(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = acid_zalan_do_v1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:scheme
+
+	pgCrd := acid_zalan_do_v1.PostgresCRD([]string{"all"})
 
 	By("bootstrapping test environment")
 	crdPath := crd.YamlDirectory()
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
+		CRDs:                  []*apiextensions_v1.CustomResourceDefinition{pgCrd},
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs
