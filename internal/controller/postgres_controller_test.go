@@ -130,6 +130,7 @@ var _ = Describe("Postgres Controller", func() {
 				_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: resourceKey,
 				})
+				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("should successfully reconcile the resource", func() {
