@@ -14,7 +14,7 @@ env:
 
 jobs:
   lint:
-    name: Lint project
+    name: Check project
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -23,10 +23,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Run linter
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.4.0
+      - uses: jdx/mise-action@v2
+      - name: Running Checks
+        run: |
+          go mod tidy
+          mise run checks
 
   test:
     name: Test project
