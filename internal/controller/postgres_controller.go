@@ -76,9 +76,6 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, error) {
 	var err error
 	pgClusterName := obj.GetName()
-	if obj.Spec.Cluster.Name != "" {
-		pgClusterName = obj.Spec.Cluster.Name
-	}
 	if len(pgClusterName) > maxClusterNameLength {
 		pgClusterName, err = namegen.ShortName(pgClusterName, maxClusterNameLength)
 		if err != nil {

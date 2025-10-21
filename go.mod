@@ -3,7 +3,7 @@ module github.com/nais/pgrator
 go 1.25.3
 
 require (
-	github.com/nais/liberator v0.0.0-20251021073339-e0b725df035f
+	github.com/nais/liberator v0.0.0-20251021194210-0b233ebf5b36
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/sethvargo/go-envconfig v1.3.0

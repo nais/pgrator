@@ -90,8 +90,8 @@ github.com/motomux/pretty v0.0.0-20161209205251-b2aad2c9a95d h1:LznySqW8MqVeFh+p
 github.com/motomux/pretty v0.0.0-20161209205251-b2aad2c9a95d/go.mod h1:u3hJ0kqCQu/cPpsu3RbCOPZ0d7V3IjPjv1adNRleM9I=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
-github.com/nais/liberator v0.0.0-20251021073339-e0b725df035f h1:F0TJJMPJm4RQHsdJ6P4q3J0GZCCj+kQfIj4B0bnv0F0=
-github.com/nais/liberator v0.0.0-20251021073339-e0b725df035f/go.mod h1:p6EA7AKqzH798N7yvG8GDHVMzzkpORoxoyfcFz5Oa7c=
+github.com/nais/liberator v0.0.0-20251021194210-0b233ebf5b36 h1:ePo6HaVdhNaJG6ZgMUZS3edy95pvPFmsonVapjDl4l8=
+github.com/nais/liberator v0.0.0-20251021194210-0b233ebf5b36/go.mod h1:p6EA7AKqzH798N7yvG8GDHVMzzkpORoxoyfcFz5Oa7c=
 github.com/onsi/ginkgo/v2 v2.26.0 h1:1J4Wut1IlYZNEAWIV3ALrT9NfiaGW2cDCJQSFQMs/gE=
 github.com/onsi/ginkgo/v2 v2.26.0/go.mod h1:qhEywmzWTBUY88kfO0BRvX4py7scov9yR+Az2oavUzw=
 github.com/onsi/gomega v1.38.2 h1:eZCjf2xjZAqe+LeWvKb5weQ+NcPwX84kqJ0cZNxok2A=
