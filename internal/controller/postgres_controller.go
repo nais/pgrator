@@ -59,6 +59,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 }
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
+	if !obj.Spec.Cluster.AllowDeletion {
+		return nil, ctrl.Result{}, nil
+	}
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
