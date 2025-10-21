@@ -1,13 +1,13 @@
 module github.com/nais/pgrator
 
-go 1.24.6
+go 1.25.3
 
 require (
 	github.com/nais/liberator v0.0.0-20251021073339-e0b725df035f
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/sethvargo/go-envconfig v1.3.0
-	github.com/zalando/postgres-operator v1.14.0
+	github.com/zalando/postgres-operator v1.15.0
 	golang.org/x/net v0.46.0
 	k8s.io/api v0.34.1
 	k8s.io/apiextensions-apiserver v0.34.1
