@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v3
       - name: Running Checks
         run: |
           go mod tidy
@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v3
       - name: Running Tests
         run: |
           go mod tidy
