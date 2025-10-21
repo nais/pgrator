@@ -27,6 +27,14 @@ spec:
             - name: METRICS_CERT_PATH
               value: /var/run/secrets/k8s-metrics-server/metrics-certs
             {{- end }}
+            - name: POSTGRES_STORAGE_CLASS
+              value: {{ .Values.postgresStorageClass }}
+            - name: POSTGRES_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  key: postgres_image
+                  name: postgres-image
+                  optional: true
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}

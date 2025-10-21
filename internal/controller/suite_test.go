@@ -10,8 +10,11 @@ import (
 	"testing"
 
 	"github.com/nais/liberator/pkg/crd"
+	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
+	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -19,8 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -47,16 +48,22 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
-	err = data_nais_io_v1.AddToScheme(scheme.Scheme)
+	_, err = liberator_scheme.AddAll(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = acid_zalan_do_v1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
+	pgCrd := acid_zalan_do_v1.PostgresCRD([]string{"all"})
+
 	By("bootstrapping test environment")
 	crdPath := crd.YamlDirectory()
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join(crdPath, "data.nais.io_postgres.yaml")},
+		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
+		CRDs:                  []*apiextensions_v1.CustomResourceDefinition{pgCrd},
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs

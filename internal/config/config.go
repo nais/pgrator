@@ -7,6 +7,9 @@ import (
 
 type Config struct {
 	MetricsCertPath string `env:"METRICS_CERT_PATH"`
+
+	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
+	PostgresImage        string `env:"POSTGRES_IMAGE"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {
