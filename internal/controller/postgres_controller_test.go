@@ -17,134 +17,77 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const (
+	resourceNamespace = "default"
+	postgresNamespace = "pg-default"
+	deletableName     = "deletable-resource"
+	undeletableName   = "undeletable-resource"
+)
+
+var (
+	deletableResourceKey = types.NamespacedName{
+		Name:      deletableName,
+		Namespace: resourceNamespace,
+	}
+
+	undeletableResourceKey = types.NamespacedName{
+		Name:      undeletableName,
+		Namespace: resourceNamespace,
+	}
+
+	deletableClusterKey = types.NamespacedName{
+		Name:      deletableName,
+		Namespace: postgresNamespace,
+	}
+
+	undeletableClusterKey = types.NamespacedName{
+		Name:      undeletableName,
+		Namespace: postgresNamespace,
+	}
+)
+
 var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
-		const postgresNamespace = "pg-default"
-		const undeletableName = "undeletable-resource"
 		var reconcilerConfig config.Config
+		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
 		ctx := context.Background()
 
-		resourceKey := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default",
-		}
-
-		undeletableResourceKey := types.NamespacedName{
-			Name:      undeletableName,
-			Namespace: "default",
-		}
-
-		postgres := &data_nais_io_v1.Postgres{}
-
-		clusterKey := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: postgresNamespace,
-		}
-
-		undeletableClusterKey := types.NamespacedName{
-			Name:      undeletableName,
-			Namespace: postgresNamespace,
-		}
-
-		namespaceKey := types.NamespacedName{
-			Name: postgresNamespace,
-		}
-		namespace := &core_v1.Namespace{}
-
 		BeforeEach(func() {
+			By("creating the synchronizer for postgres")
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
+
 			By("creating the postgres namespace")
-			err := k8sClient.Get(ctx, namespaceKey, namespace)
-			if err != nil && apierrors.IsNotFound(err) {
-				namespace := &core_v1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: postgresNamespace,
-					},
-				}
-				Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
-			}
+			ensureNamespaceExists(postgresNamespace)
 
 			By("creating the custom resource for the Kind Postgres")
-			err = k8sClient.Get(ctx, resourceKey, postgres)
-			if err != nil && apierrors.IsNotFound(err) {
-				resource := &data_nais_io_v1.Postgres{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					Spec: data_nais_io_v1.PostgresSpec{
-						Cluster: data_nais_io_v1.PostgresCluster{
-							Resources: data_nais_io_v1.PostgresResources{
-								DiskSize: resource.MustParse("1G"),
-								Cpu:      resource.MustParse("1"),
-								Memory:   resource.MustParse("1G"),
-							},
-							MajorVersion:  "17",
-							AllowDeletion: true,
-						},
-					},
-				}
-				err = k8sClient.Create(ctx, resource)
-				Expect(err).To(Succeed())
-			}
-			Expect(err).NotTo(HaveOccurred())
+			ensurePostgresExists(deletableResourceKey, true)
 
 			By("creating an undeletable resource for the Kind Postgres")
-			err = k8sClient.Get(ctx, undeletableResourceKey, postgres)
-			if err != nil && apierrors.IsNotFound(err) {
-				resource := &data_nais_io_v1.Postgres{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      undeletableName,
-						Namespace: "default",
-					},
-					Spec: data_nais_io_v1.PostgresSpec{
-						Cluster: data_nais_io_v1.PostgresCluster{
-							Resources: data_nais_io_v1.PostgresResources{
-								DiskSize: resource.MustParse("1G"),
-								Cpu:      resource.MustParse("1"),
-								Memory:   resource.MustParse("1G"),
-							},
-							MajorVersion: "17",
-						},
-					},
-				}
-				err = k8sClient.Create(ctx, resource)
-				Expect(err).To(Succeed())
-			}
-			Expect(err).NotTo(HaveOccurred())
+			ensurePostgresExists(undeletableResourceKey, false)
 		})
 
 		When("the resource is created", func() {
-
-			var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
-
 			AfterEach(func() {
 				resource := &data_nais_io_v1.Postgres{}
-				err := k8sClient.Get(ctx, resourceKey, resource)
+				err := k8sClient.Get(ctx, deletableResourceKey, resource)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("Cleanup the specific resource instance Postgres")
 				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-				controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
 				_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: resourceKey,
+					NamespacedName: deletableResourceKey,
 				})
 				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("should successfully reconcile the resource", func() {
 				By("Reconciling the created resource")
-				controllerReconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: resourceKey,
-				})
-				Expect(err).NotTo(HaveOccurred())
+				ensureReconciled(deletableResourceKey, controllerReconciler)
 
 				By("Checking for creation of dependent resource")
 				cluster := &acid_zalan_do_v1.Postgresql{}
-				err = k8sClient.Get(ctx, clusterKey, cluster)
+				err := k8sClient.Get(ctx, deletableClusterKey, cluster)
 				Expect(err).NotTo(HaveOccurred())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
@@ -153,56 +96,44 @@ var _ = Describe("Postgres Controller", func() {
 		})
 
 		When("the resource is deleted", func() {
-
-			var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
-
-			BeforeEach(func() {
+			It("should successfully clean up dependent resources when deletion is allowed", func() {
 				By("Ensure the resource is reconciled before deletion")
-				controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: resourceKey,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: undeletableResourceKey,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				By("Delete undeletable resource")
-				resource := &data_nais_io_v1.Postgres{}
-				err = k8sClient.Get(ctx, undeletableResourceKey, resource)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+				ensureReconciled(deletableResourceKey, controllerReconciler)
 
 				By("Delete the resource")
-				resource = &data_nais_io_v1.Postgres{}
-				err = k8sClient.Get(ctx, resourceKey, resource)
+				resource := &data_nais_io_v1.Postgres{}
+				err := k8sClient.Get(ctx, deletableResourceKey, resource)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-			})
 
-			It("should successfully clean up dependent resources", func() {
-				By("Reconciling the deleted resource")
+				By("Reconcile the deleted resource")
+				ensureReconciled(deletableResourceKey, controllerReconciler)
 
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: resourceKey,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: undeletableResourceKey,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				By("Checking that dependent resource is no longer found")
+				By("Checking that deletable cluster is no longer found")
 				cluster := &acid_zalan_do_v1.Postgresql{}
-				err = k8sClient.Get(ctx, clusterKey, cluster)
+				err = k8sClient.Get(ctx, deletableClusterKey, cluster)
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
-				By("Checking that undeletable resource is still present")
-				cluster = &acid_zalan_do_v1.Postgresql{}
+				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
+				// Example: If you expect a certain status condition after reconciliation, verify it here.
+			})
+
+			It("should orphan dependent resources when deletion is not allowed", func() {
+				By("Ensure the resource is reconciled before deletion")
+				ensureReconciled(undeletableResourceKey, controllerReconciler)
+
+				By("Delete undeletable resource")
+				resource := &data_nais_io_v1.Postgres{}
+				err := k8sClient.Get(ctx, undeletableResourceKey, resource)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+				By("Reconcile the deleted resource")
+				ensureReconciled(undeletableResourceKey, controllerReconciler)
+
+				By("Checking that undeletable cluster is still present")
+				cluster := &acid_zalan_do_v1.Postgresql{}
 				err = k8sClient.Get(ctx, undeletableClusterKey, cluster)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -212,3 +143,50 @@ var _ = Describe("Postgres Controller", func() {
 		})
 	})
 })
+
+func ensureReconciled(key types.NamespacedName, controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]) {
+	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: key,
+	})
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func ensurePostgresExists(key types.NamespacedName, allowDeletion bool) {
+	postgres := &data_nais_io_v1.Postgres{}
+	err := k8sClient.Get(ctx, key, postgres)
+	if err != nil && apierrors.IsNotFound(err) {
+		postgres = &data_nais_io_v1.Postgres{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      key.Name,
+				Namespace: key.Namespace,
+			},
+			Spec: data_nais_io_v1.PostgresSpec{
+				Cluster: data_nais_io_v1.PostgresCluster{
+					Resources: data_nais_io_v1.PostgresResources{
+						DiskSize: resource.MustParse("1G"),
+						Cpu:      resource.MustParse("1"),
+						Memory:   resource.MustParse("1G"),
+					},
+					MajorVersion:  "17",
+					AllowDeletion: allowDeletion,
+				},
+			},
+		}
+		err = k8sClient.Create(ctx, postgres)
+		Expect(err).To(Succeed())
+	}
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func ensureNamespaceExists(name string) {
+	namespace := &core_v1.Namespace{}
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, namespace)
+	if err != nil && apierrors.IsNotFound(err) {
+		namespace := &core_v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: postgresNamespace,
+			},
+		}
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+	}
+}
