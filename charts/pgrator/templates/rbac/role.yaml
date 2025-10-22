@@ -46,6 +46,42 @@ rules:
     - patch
     - delete
 - apiGroups:
+    - acid.zalan.do
+  resources:
+    - postgresql
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+- apiGroups:
+    - networking.k8s.io
+  resources:
+    - networkpolicy
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+- apiGroups:
+    - iam.cnrm.cloud.google.com
+  resources:
+    - iampolicymember
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+- apiGroups:
     - ""
   resources:
     - events
