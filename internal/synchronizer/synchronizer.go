@@ -66,22 +66,18 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				err = s.client.Update(ctx, obj)
 				if err != nil {
 					logger.Error(err, "failed to remove finalizer")
-					return ctrl.Result{
-						RequeueAfter: 10 * time.Second,
-					}, err
+					return ctrl.Result{}, err
 				}
 			}
 		}
-		return ctrl.Result{}, nil
+		return result, nil
 	}
 
 	if controllerutil.AddFinalizer(obj, finalizer) {
 		err = s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to add finalizer")
-			return ctrl.Result{
-				RequeueAfter: 1 * time.Second,
-			}, err
+			return result, err
 		}
 	}
 
@@ -105,7 +101,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// TODO update status
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
