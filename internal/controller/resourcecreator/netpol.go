@@ -30,8 +30,8 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 	spec := network_v1.NetworkPolicySpec{
 		PodSelector: v2.LabelSelector{
 			MatchLabels: map[string]string{
-				"application": "spilo",
-				"app":         postgres.GetName(),
+				"application":  "spilo",
+				"cluster-name": pgClusterName,
 			},
 		},
 		Egress: []network_v1.NetworkPolicyEgressRule{
@@ -40,8 +40,8 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 					{
 						PodSelector: &v2.LabelSelector{
 							MatchLabels: map[string]string{
-								"application": "spilo",
-								"app":         postgres.GetName(),
+								"application":  "spilo",
+								"cluster-name": pgClusterName,
 							},
 						},
 					},
@@ -54,8 +54,8 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 					{
 						PodSelector: &v2.LabelSelector{
 							MatchLabels: map[string]string{
-								"application": "spilo",
-								"app":         postgres.GetName(),
+								"application":  "spilo",
+								"cluster-name": pgClusterName,
 							},
 						},
 					},
@@ -66,8 +66,8 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 					{
 						PodSelector: &v2.LabelSelector{
 							MatchLabels: map[string]string{
-								"application": "db-connection-pooler",
-								"app":         postgres.GetName(),
+								"application":  "db-connection-pooler",
+								"cluster-name": pgClusterName,
 							},
 						},
 					},
@@ -115,7 +115,7 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 						},
 						PodSelector: &v2.LabelSelector{
 							MatchLabels: map[string]string{
-								"app": postgres.GetName(),
+								"cluster-name": pgClusterName,
 							},
 						},
 					},
