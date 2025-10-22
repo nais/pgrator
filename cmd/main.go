@@ -12,6 +12,7 @@ import (
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/sethvargo/go-envconfig"
+	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -32,6 +33,9 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	_, err := liberator_scheme.AddAll(scheme)
+	utilruntime.Must(err)
+
+	err = acid_zalan_do_v1.AddToScheme(scheme)
 	utilruntime.Must(err)
 }
 
