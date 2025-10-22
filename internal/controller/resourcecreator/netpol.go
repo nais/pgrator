@@ -11,10 +11,6 @@ func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgN
 	objectMeta.Name = pgClusterName
 	objectMeta.Namespace = pgNamespace
 
-	if postgres.Spec.Cluster.AllowDeletion {
-		objectMeta.Annotations[allowDeletionAnnotation] = pgClusterName
-	}
-
 	return &network_v1.NetworkPolicy{
 		TypeMeta: v2.TypeMeta{
 			Kind:       "NetworkPolicy",
