@@ -49,7 +49,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(cluster))
-	// createNetworkPolicies(source, ast, pgClusterName, pgNamespace)
+
+	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
+	actions = append(actions, action.CreateOrUpdate(netpol))
 	// err = createIAMPolicyMember(source, ast, cfg.GetGoogleProjectID(), pgNamespace)
 	// if err != nil {
 	// 	return fmt.Errorf("failed to create IAMPolicyMember: %w", err)
@@ -68,8 +70,11 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 		return nil, ctrl.Result{}, err
 	}
 
+	actions := []action.Action{}
 	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
-	actions := []action.Action{action.DeleteIfExists(cluster)}
+	actions = append(actions, action.DeleteIfExists(cluster))
+	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
+	actions = append(actions, action.DeleteIfExists(netpol))
 	return actions, ctrl.Result{}, nil
 }
 

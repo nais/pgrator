@@ -6,21 +6,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func CreateObjectMeta(obj *data_nais_io_v1.Postgres) metav1.ObjectMeta {
+func CreateObjectMeta(postgres *data_nais_io_v1.Postgres) metav1.ObjectMeta {
 	labels := map[string]string{}
 
-	for k, v := range obj.GetLabels() {
+	for k, v := range postgres.GetLabels() {
 		labels[k] = v
 	}
 
-	labels["postgres.data.nais.io/name"] = obj.GetName()
+	labels["postgres.data.nais.io/name"] = postgres.GetName()
 
 	return metav1.ObjectMeta{
-		Name:      obj.GetName(),
-		Namespace: obj.GetNamespace(),
+		Name:      postgres.GetName(),
+		Namespace: postgres.GetNamespace(),
 		Labels:    labels,
 		Annotations: map[string]string{
-			nais_io_v1.DeploymentCorrelationIDAnnotation: obj.GetCorrelationId(),
+			nais_io_v1.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
 		},
 	}
 }

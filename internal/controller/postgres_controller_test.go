@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	core_v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,6 +91,10 @@ var _ = Describe("Postgres Controller", func() {
 				err := k8sClient.Get(ctx, deletableClusterKey, cluster)
 				Expect(err).NotTo(HaveOccurred())
 
+				netpol := &v1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, deletableClusterKey, netpol)
+				Expect(err).NotTo(HaveOccurred())
+
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
@@ -109,9 +114,21 @@ var _ = Describe("Postgres Controller", func() {
 				By("Reconcile the deleted resource")
 				ensureReconciled(deletableResourceKey, controllerReconciler)
 
+				By("Checking that the resource is deleted")
+				test := &data_nais_io_v1.Postgres{}
+				err = k8sClient.Get(ctx, deletableResourceKey, test)
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
 				By("Checking that deletable cluster is no longer found")
 				cluster := &acid_zalan_do_v1.Postgresql{}
 				err = k8sClient.Get(ctx, deletableClusterKey, cluster)
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+				By("Checking that dependent resources are deleted")
+				netpol := &v1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, deletableClusterKey, netpol)
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
@@ -135,6 +152,11 @@ var _ = Describe("Postgres Controller", func() {
 				By("Checking that undeletable cluster is still present")
 				cluster := &acid_zalan_do_v1.Postgresql{}
 				err = k8sClient.Get(ctx, undeletableClusterKey, cluster)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking dependent resources are still present")
+				netpol := &v1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, undeletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
