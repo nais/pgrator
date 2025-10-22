@@ -109,7 +109,7 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 	for _, a := range actions {
 		err = a.Do(ctx, s.client, s.scheme)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: 1 * time.Minute}, err
+			return ctrl.Result{}, err
 		}
 	}
 
