@@ -1,4 +1,6 @@
 postgresStorageClass: ""
+google:
+  projectId: ""
 
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:

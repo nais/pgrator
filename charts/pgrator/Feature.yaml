@@ -14,3 +14,7 @@ values:
     description: Storage class for Postgres ("standard-rwo" (default) or "premium-rwo")
     config:
       type: string
+  google.projectId:
+    displayName: Google project ID
+    computed:
+      template: '"{{.Env.project_id}}"'

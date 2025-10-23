@@ -27,6 +27,8 @@ spec:
             - name: METRICS_CERT_PATH
               value: /var/run/secrets/k8s-metrics-server/metrics-certs
             {{- end }}
+            - name: GOOGLE_PROJECT_ID
+              value: {{ .Values.google.projectId }}
             - name: POSTGRES_STORAGE_CLASS
               value: {{ .Values.postgresStorageClass }}
             - name: POSTGRES_IMAGE

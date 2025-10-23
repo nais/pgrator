@@ -8,6 +8,8 @@ import (
 type Config struct {
 	MetricsCertPath string `env:"METRICS_CERT_PATH"`
 
+	GoogleProjectID string `env:"GOOGLE_PROJECT_ID"`
+
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
 }

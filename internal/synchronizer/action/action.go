@@ -6,6 +6,7 @@ import (
 
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -34,18 +35,22 @@ func CreateOrUpdate(obj client.Object) Action {
 		}
 
 		key := client.ObjectKeyFromObject(obj)
-		if err := c.Get(ctx, key, existing.(client.Object)); err != nil {
+		if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
 			}
 
-			if err := c.Create(ctx, obj); err != nil {
+			if err = c.Create(ctx, obj); err != nil {
 				return err
 			}
 			return nil
 		}
 
-		if err := c.Update(ctx, obj); err != nil {
+		if err = copyMeta(obj, existing); err != nil {
+			return fmt.Errorf("copying metadata: %w", err)
+		}
+
+		if err = c.Update(ctx, obj); err != nil {
 			return err
 		}
 		return nil
@@ -63,4 +68,23 @@ func DeleteIfExists(obj client.Object) Action {
 		}
 		return nil
 	})
+}
+
+func copyMeta(dst, src runtime.Object) error {
+	srcacc, err := meta.Accessor(src)
+	if err != nil {
+		return err
+	}
+
+	dstacc, err := meta.Accessor(dst)
+	if err != nil {
+		return err
+	}
+
+	// Must always be present when updating a resource
+	dstacc.SetResourceVersion(srcacc.GetResourceVersion())
+	dstacc.SetUID(srcacc.GetUID())
+	dstacc.SetSelfLink(srcacc.GetSelfLink())
+
+	return err
 }

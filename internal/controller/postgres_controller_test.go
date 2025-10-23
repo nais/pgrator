@@ -4,6 +4,7 @@ import (
 	"context"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	iam_google_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer"
 	. "github.com/onsi/ginkgo/v2"
@@ -15,14 +16,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
-	resourceNamespace = "default"
-	postgresNamespace = "pg-default"
-	deletableName     = "deletable-resource"
-	undeletableName   = "undeletable-resource"
+	resourceNamespace        = "default"
+	postgresNamespace        = "pg-default"
+	deletableName            = "deletable-resource"
+	undeletableName          = "undeletable-resource"
+	serviceAccountsNamespace = "serviceaccounts"
 )
 
 var (
@@ -61,6 +64,9 @@ var _ = Describe("Postgres Controller", func() {
 			By("creating the postgres namespace")
 			ensureNamespaceExists(postgresNamespace)
 
+			By("creating the serviceaccounts namespace")
+			ensureNamespaceExists(serviceAccountsNamespace)
+
 			By("creating the custom resource for the Kind Postgres")
 			ensurePostgresExists(deletableResourceKey, true)
 
@@ -94,6 +100,11 @@ var _ = Describe("Postgres Controller", func() {
 				netpol := &v1.NetworkPolicy{}
 				err = k8sClient.Get(ctx, deletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
+
+				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(iamList.Items).NotTo(BeEmpty())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
@@ -132,6 +143,11 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
+				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(iamList.Items).NotTo(BeEmpty())
+
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
@@ -158,6 +174,11 @@ var _ = Describe("Postgres Controller", func() {
 				netpol := &v1.NetworkPolicy{}
 				err = k8sClient.Get(ctx, undeletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
+
+				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(iamList.Items).NotTo(BeEmpty())
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
@@ -204,9 +225,9 @@ func ensureNamespaceExists(name string) {
 	namespace := &core_v1.Namespace{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, namespace)
 	if err != nil && apierrors.IsNotFound(err) {
-		namespace := &core_v1.Namespace{
+		namespace = &core_v1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: postgresNamespace,
+				Name: name,
 			},
 		}
 		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
