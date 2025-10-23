@@ -2,17 +2,17 @@ package resourcecreator
 
 import (
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	network_v1 "k8s.io/api/networking/v1"
-	v2 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	networking_v1 "k8s.io/api/networking/v1"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *network_v1.NetworkPolicy {
+func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
 	objectMeta := CreateObjectMeta(postgres)
 	objectMeta.Name = pgClusterName
 	objectMeta.Namespace = pgNamespace
 
-	return &network_v1.NetworkPolicy{
-		TypeMeta: v2.TypeMeta{
+	return &networking_v1.NetworkPolicy{
+		TypeMeta: meta_v1.TypeMeta{
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
@@ -20,23 +20,21 @@ func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgN
 	}
 }
 
-func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *network_v1.NetworkPolicy {
+func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
 	netpol := MinimalNetpol(postgres, pgClusterName, pgNamespace)
 
-	spec := network_v1.NetworkPolicySpec{
-		PodSelector: v2.LabelSelector{
+	spec := networking_v1.NetworkPolicySpec{
+		PodSelector: meta_v1.LabelSelector{
 			MatchLabels: map[string]string{
-				"application":  "spilo",
 				"cluster-name": pgClusterName,
 			},
 		},
-		Egress: []network_v1.NetworkPolicyEgressRule{
+		Egress: []networking_v1.NetworkPolicyEgressRule{
 			{
-				To: []network_v1.NetworkPolicyPeer{
+				To: []networking_v1.NetworkPolicyPeer{
 					{
-						PodSelector: &v2.LabelSelector{
+						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
-								"application":  "spilo",
 								"cluster-name": pgClusterName,
 							},
 						},
@@ -44,13 +42,12 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				},
 			},
 		},
-		Ingress: []network_v1.NetworkPolicyIngressRule{
+		Ingress: []networking_v1.NetworkPolicyIngressRule{
 			{
-				From: []network_v1.NetworkPolicyPeer{
+				From: []networking_v1.NetworkPolicyPeer{
 					{
-						PodSelector: &v2.LabelSelector{
+						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
-								"application":  "spilo",
 								"cluster-name": pgClusterName,
 							},
 						},
@@ -58,26 +55,14 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				},
 			},
 			{
-				From: []network_v1.NetworkPolicyPeer{
+				From: []networking_v1.NetworkPolicyPeer{
 					{
-						PodSelector: &v2.LabelSelector{
-							MatchLabels: map[string]string{
-								"application":  "db-connection-pooler",
-								"cluster-name": pgClusterName,
-							},
-						},
-					},
-				},
-			},
-			{
-				From: []network_v1.NetworkPolicyPeer{
-					{
-						NamespaceSelector: &v2.LabelSelector{
+						NamespaceSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"kubernetes.io/metadata.name": "nais-system",
 							},
 						},
-						PodSelector: &v2.LabelSelector{
+						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"app.kubernetes.io/name": "postgres-operator",
 							},
@@ -86,14 +71,14 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				},
 			},
 			{
-				From: []network_v1.NetworkPolicyPeer{
+				From: []networking_v1.NetworkPolicyPeer{
 					{
-						NamespaceSelector: &v2.LabelSelector{
+						NamespaceSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"kubernetes.io/metadata.name": "nais-system",
 							},
 						},
-						PodSelector: &v2.LabelSelector{
+						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"app.kubernetes.io/name": "prometheus",
 							},
@@ -102,14 +87,14 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				},
 			},
 			{
-				From: []network_v1.NetworkPolicyPeer{
+				From: []networking_v1.NetworkPolicyPeer{
 					{
-						NamespaceSelector: &v2.LabelSelector{
+						NamespaceSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"kubernetes.io/metadata.name": postgres.GetNamespace(),
 							},
 						},
-						PodSelector: &v2.LabelSelector{
+						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
 								"cluster-name": pgClusterName,
 							},
@@ -118,9 +103,9 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				},
 			},
 		},
-		PolicyTypes: []network_v1.PolicyType{
-			network_v1.PolicyTypeEgress,
-			network_v1.PolicyTypeIngress,
+		PolicyTypes: []networking_v1.PolicyType{
+			networking_v1.PolicyTypeEgress,
+			networking_v1.PolicyTypeIngress,
 		},
 	}
 	netpol.Spec = spec
