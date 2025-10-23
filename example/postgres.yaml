@@ -1,0 +1,12 @@
+apiVersion: data.nais.io/v1
+kind: Postgres
+metadata:
+  name: example
+  namespace: platting
+spec:
+  cluster:
+    majorVersion: "16"
+    resources:
+      diskSize: "2Gi"
+      cpu: "100m"
+      memory: "1Gi"
