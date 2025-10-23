@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	github.com/nais/liberator v0.0.0-20251021194210-0b233ebf5b36
-	github.com/onsi/ginkgo/v2 v2.26.0
+	github.com/onsi/ginkgo/v2 v2.27.1
 	github.com/onsi/gomega v1.38.2
 	github.com/sethvargo/go-envconfig v1.3.0
 	github.com/zalando/postgres-operator v1.15.0
