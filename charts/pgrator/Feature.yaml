@@ -3,6 +3,8 @@ dependencies:
       - nais-crds
       - cert-manager
       - monitoring-crds
+      - postgres-operator
+      - postgres-image
 environmentKinds:
   - tenant
 values:
