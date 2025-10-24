@@ -7,6 +7,8 @@ import (
 
 type NaisObject interface {
 	client.Object
+	GetStatus() *data_nais_io_v1.PostgresStatus
+	GetCorrelationId() string
 }
 
 var _ NaisObject = &data_nais_io_v1.Postgres{}

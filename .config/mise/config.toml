@@ -62,7 +62,7 @@ run = """
 #!/usr/bin/env bash
 KUBEBUILDER_ASSETS="$(setup-envtest use ${ENVTEST_K8S_VERSION} -p path)"
 export KUBEBUILDER_ASSETS
-go test -coverprofile=coverage.out $(go list ./...)
+go test  $(go list ./...)
 """
 
 ### Build

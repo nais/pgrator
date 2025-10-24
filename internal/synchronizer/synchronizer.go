@@ -6,7 +6,9 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,6 +45,19 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// on deleted requests.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	status := obj.GetStatus()
+	status.ReconcileTime = ptr.To(meta_v1.NewTime(time.Now()))
+	status.ObservedGeneration = obj.GetGeneration()
+	status.CorrelationID = obj.GetCorrelationId()
+	updateStatus := func() {
+		err = s.client.Status().Update(ctx, obj)
+		if err != nil {
+			logger.Error(err, "failed to update status")
+		}
+	}
+
+	defer updateStatus()
 
 	var actions []action.Action
 	var result ctrl.Result
@@ -81,25 +96,29 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	status.ReconcilePhase = "Preparing"
+	updateStatus()
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
 		return result, err
 	}
 
+	status.ReconcilePhase = "Updating"
+	updateStatus()
 	actions, result, err = s.reconciler.Update(obj, prep)
 	if err != nil {
 		logger.Error(err, "failed to calculate update actions")
 		return result, err
 	}
 
+	status.ReconcilePhase = "PerformingActions"
+	updateStatus()
 	result, err = s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
 		return result, err
 	}
-
-	// TODO update status
 
 	return result, nil
 }
