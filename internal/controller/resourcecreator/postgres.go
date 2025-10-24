@@ -8,6 +8,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -128,7 +129,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit),
 		},
 		Volume: acid_zalan_do_v1.Volume{
-			Size:         postgres.Spec.Cluster.Resources.DiskSize.String(),
+			Size:         enforceMinimum2GiDisk(postgres.Spec.Cluster.Resources.DiskSize).String(),
 			StorageClass: cfg.PostgresStorageClass,
 		},
 		Patroni: acid_zalan_do_v1.Patroni{
@@ -169,6 +170,14 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 	}
 
 	return cluster
+}
+
+func enforceMinimum2GiDisk(diskSize resource.Quantity) *resource.Quantity {
+	TwoGi := resource.MustParse("2Gi")
+	if diskSize.Cmp(TwoGi) < 0 {
+		return &TwoGi
+	}
+	return &diskSize
 }
 
 func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {
