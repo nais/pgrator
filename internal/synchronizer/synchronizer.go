@@ -50,11 +50,13 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	status.ReconcileTime = ptr.To(meta_v1.NewTime(time.Now()))
 	status.ObservedGeneration = obj.GetGeneration()
 	status.CorrelationID = obj.GetCorrelationId()
+
 	updateStatus := func() {
 		err = s.client.Status().Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update status")
 		}
+		status = obj.GetStatus()
 	}
 
 	defer updateStatus()
@@ -120,6 +122,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
+	status.ReconcilePhase = "Completed"
 	return result, nil
 }
 
