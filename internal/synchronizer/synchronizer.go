@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/nais/pgrator/internal/metrics"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
+	start := time.Now()
+	resourceType := s.reconciler.Name()
+	metrics.ReconcileTotal.WithLabelValues(resourceType).Inc()
+
 	logger := logf.FromContext(ctx)
 
 	obj := s.reconciler.New()
@@ -52,14 +57,26 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	status.CorrelationID = obj.GetCorrelationId()
 
 	updateStatus := func() {
-		err = s.client.Status().Update(ctx, obj)
-		if err != nil {
+		if err = s.client.Status().Update(ctx, obj); err != nil {
 			logger.Error(err, "failed to update status")
 		}
-		status = obj.GetStatus()
 	}
 
-	defer updateStatus()
+	var reconcileErr error
+	defer func() {
+		metrics.ReconcileDuration.WithLabelValues(resourceType).Observe(time.Since(start).Seconds())
+
+		if reconcileErr != nil {
+			metrics.ReconcileErrors.WithLabelValues(resourceType).Inc()
+			status.RolloutStatus = "Failed"
+			status.ReconcilePhase = "Error"
+			updateStatus()
+		}
+	}()
+
+	// this will always be run, even if we already updated Completed status
+	// and overwrites whatever status.ReconcilePhase we had before, or what's in the cache
+	// defer updateStatus()
 
 	var actions []action.Action
 	var result ctrl.Result
@@ -68,7 +85,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizer := s.reconciler.Name()
 	finalizers := obj.GetFinalizers()
 	if deletionTimestamp != nil {
-		if len(finalizers) > 0 && finalizers[0] == finalizer {
+		if len(finalizers) > 0 && controllerutil.ContainsFinalizer(obj, finalizer) {
 			actions, result, err = s.reconciler.Delete(obj)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
@@ -94,6 +111,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err = s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to add finalizer")
+			reconcileErr = err
 			return result, err
 		}
 	}
@@ -103,6 +121,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
+		reconcileErr = err
 		return result, err
 	}
 
@@ -111,6 +130,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	actions, result, err = s.reconciler.Update(obj, prep)
 	if err != nil {
 		logger.Error(err, "failed to calculate update actions")
+		reconcileErr = err
 		return result, err
 	}
 
@@ -119,10 +139,14 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	result, err = s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
+		reconcileErr = err
 		return result, err
 	}
 
 	status.ReconcilePhase = "Completed"
+	status.RolloutStatus = "Succeeded"
+	metrics.ReconcileSuccess.WithLabelValues(resourceType).Inc()
+	updateStatus()
 	return result, nil
 }
 

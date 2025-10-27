@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pgrator-operator-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgrator.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pgrator-health
+      rules:
+        - alert: PgratorHighReconcileErrors
+          expr: rate(pgrator_reconcile_errors_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgrator reconciliation failures"
+            description: "One or more reconcile errors occurred in the last 10 minutes."
+
+        - alert: PgratorSlowReconcile
+          expr: histogram_quantile(0.9, sum(rate(pgrator_reconcile_duration_seconds_bucket[10m])) by (le, resource)) > 60
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Slow reconciliations"
+            description: "90th percentile reconcile time exceeds 60s for one or more resource types."
+
+        - alert: PgratorLowSuccessRate
+          expr: rate(pgrator_reconcile_success_total[10m]) / rate(pgrator_reconciliations_total[10m]) < 0.99
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pgrator low reconciliation success rate"
+            description: "Less than 99% of reconciles succeeded over the past 10 minutes."
