@@ -4,10 +4,10 @@ metadata:
   name: pgrator-operator-alerts
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pgrator.labels" . | nindent 4 }}
+    {{- include "chart.labels" . | nindent 4 }}
 spec:
   groups:
-    - name: pgrator-health
+    - name: pgrator-operator-reconciliation
       rules:
         - alert: PgratorHighReconcileErrors
           expr: rate(pgrator_reconcile_errors_total[5m]) > 0
@@ -35,3 +35,57 @@ spec:
           annotations:
             summary: "pgrator low reconciliation success rate"
             description: "Less than 99% of reconciles succeeded over the past 10 minutes."
+
+    - name: pgrator-manager-resources
+      rules:
+        - alert: PgratorManagerMemoryOverRequest
+          expr: |
+            sum(container_memory_working_set_bytes{
+              namespace="{{ .Release.Namespace }}",
+              container="pgrator-manager",
+            }) by (namespace, pod)
+            /
+            sum(kube_pod_container_resource_requests{
+              namespace="{{ .Release.Namespace }}",
+              container="pgrator-manager"
+            }) by (namespace, pod)
+            * 100 > 150
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: {{ "Memory usage >150% of request `{{ $labels.pod }}`" }}
+            description: {{ "Memory usage for pgrator-manager pod `{{ $labels.pod }}` in namespace `{{ $labels.namespace }}` is over 150% of the requested memory for more than 10 minutes. Investigate potential memory leaks or adjust resource requests." }}
+
+        - alert: PgratorManagerHighCPUOverRequest
+          expr: |
+            (
+              sum(rate(container_cpu_usage_seconds_total{
+                namespace="{{ .Release.Namespace }}",
+                container="pgrator-manager",
+              }[5m])) by (namespace, pod)
+              /
+              sum(kube_pod_container_resource_requests{
+                namespace="{{ .Release.Namespace }}",
+                container="pgrator-manager"
+              }) by (namespace, pod)
+            ) * 100 > 150
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{ "CPU usage >150% of request `{{ $labels.pod }}`" }}
+            description: {{ "pgrator-manager pod `{{ $labels.pod }}` in `{{ $labels.namespace }}` is using more than 150% of its requested CPU for 10 minutes, which may indicate CPU starvation or under-provisioning." }}
+
+        - alert: PgratorManagerRestartingFrequently
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="{{ .Release.Namespace }}",
+              container="pgrator-manager"
+            }[15m]) > 3
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: {{ "pgrator-manager restarting `{{ $labels.pod }}`" }}
+            description: {{ "pgrator-manager pod `{{ $labels.pod }}` in `{{ $labels.namespace }}` has restarted more than 3 times in the last 15 minutes. Likely OOMKilled or crashlooping." }}

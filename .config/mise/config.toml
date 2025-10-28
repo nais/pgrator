@@ -48,8 +48,12 @@ run = "golangci-lint run --fix"
 description = "Verify golangci-lint linter configuration"
 run = "golangci-lint config verify"
 
+[tasks.helm-lint]
+description = "Lint helm charts"
+run = "helm lint --strict ./charts/pgrator"
+
 [tasks.checks]
-depends = ["lint", "fmt", "vet"]
+depends = ["lint", "fmt", "vet", "helm-lint"]
 
 [tasks.setup-envtest]
 description = "Setup envtest binaries"
