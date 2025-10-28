@@ -1,6 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"reflect"
+
+	"github.com/go-logr/logr"
 	"github.com/sethvargo/go-envconfig"
 	"golang.org/x/net/context"
 )
@@ -12,6 +16,8 @@ type Config struct {
 
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
+
+	DryRun bool `env:"DRY_RUN"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {
@@ -25,4 +31,13 @@ func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error
 	}
 
 	return cfg, nil
+}
+
+func (f *Config) Log(logger logr.Logger) {
+	val := reflect.ValueOf(*f)
+	typeOfStruct := val.Type()
+
+	for i := 0; i < val.NumField(); i++ {
+		logger.Info(fmt.Sprintf("%s: %v", typeOfStruct.Field(i).Name, val.Field(i).Interface()))
+	}
 }
