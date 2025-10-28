@@ -89,7 +89,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 }
 
 func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
-	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
 
 	statusCondition := v1.Condition{}
@@ -140,18 +140,19 @@ func makeCondition(value bool) v1.ConditionStatus {
 }
 
 func existsConditionGetter(obj client.Object) []v1.Condition {
-	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	return []v1.Condition{
 		{
 			Type:               fmt.Sprintf("%s/Available", typePrefix),
 			Status:             makeCondition(obj != nil),
 			ObservedGeneration: obj.GetGeneration(),
+			Reason:             "Exists",
 		},
 	}
 }
 
 func postgresqlConditionGetter(obj client.Object) []v1.Condition {
-	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	pg := obj.(*acid_zalan_do_v1.Postgresql)
 
 	type conditionConfig struct {
