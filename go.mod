@@ -3,7 +3,8 @@ module github.com/nais/pgrator
 go 1.25.3
 
 require (
-	github.com/nais/liberator v0.0.0-20251024122323-12acf47265ab
+	github.com/go-logr/logr v1.4.3
+	github.com/nais/liberator v0.0.0-20251028172407-f2f523199f43
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/sethvargo/go-envconfig v1.3.0
@@ -26,7 +27,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
@@ -82,5 +82,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/nais/liberator => ../liberator
