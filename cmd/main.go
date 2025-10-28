@@ -47,6 +47,11 @@ func main() {
 	ctx, signalStop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer signalStop()
 
+	opts := zap.Options{
+		Development: false,
+	}
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
 	cfg, err := config.NewConfig(ctx, envconfig.OsLookuper())
 	if err != nil {
 		setupLog.Error(err, "unable to load configuration")
@@ -56,11 +61,6 @@ func main() {
 	setupLog.Info("--- Configuration ---")
 	cfg.Log(setupLog)
 	setupLog.Info("---------------------")
-
-	opts := zap.Options{
-		Development: false,
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	metricsServerOptions := metricsserver.Options{
 		SecureServing: true,
