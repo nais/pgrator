@@ -83,7 +83,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 		return nil, ctrl.Result{}, err
 	}
 	v1.SetMetaDataAnnotation(&iam.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(iam, obj, iamPolicyMemberConditionGetter))
+	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter))
 
 	return actions, ctrl.Result{}, nil
 }

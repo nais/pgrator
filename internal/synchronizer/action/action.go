@@ -33,6 +33,45 @@ func (d DoFunc) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme)
 	return d(ctx, c, scheme)
 }
 
+func CreateIfNotExists(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
+	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+		log := logf.FromContext(ctx)
+		log.Info(fmt.Sprintf("CreateIfNotExists %s", liberator_scheme.TypeName(obj)))
+
+		var conditions []meta_v1.Condition
+
+		existing, err := scheme.New(obj.GetObjectKind().GroupVersionKind())
+		if err != nil {
+			return fmt.Errorf("internal error: %w", err)
+		}
+
+		key := client.ObjectKeyFromObject(obj)
+		if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+
+			if err = c.Create(ctx, obj); err != nil {
+				return err
+			}
+			conditions = conditionGetter(obj)
+		} else {
+			conditions = conditionGetter(existing.(client.Object))
+		}
+
+		status := owner.GetStatus()
+		if status.Conditions == nil {
+			status.Conditions = new([]meta_v1.Condition)
+		}
+
+		for _, condition := range conditions {
+			meta.SetStatusCondition(status.Conditions, condition)
+		}
+
+		return nil
+	})
+}
+
 func CreateOrUpdate(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
 	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 		log := logf.FromContext(ctx)
