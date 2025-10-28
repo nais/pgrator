@@ -16,6 +16,15 @@ type Reconciler[T client.Object, P any] interface {
 	// New creates a new instance of the type being reconciled
 	New() T
 
+	// OwnedTypes returns a list of types this reconciler owns
+	// Such objects must reside in the same namespace as the main object, and have ownerReference set
+	OwnedTypes() []client.Object
+
+	// AdditionalTypes returns a list of additional types to watch
+	// Such object must have the annotation "<name>/owner" set to "<namespace>:<name>" of the owning object.
+	// They can reside in any namespace
+	AdditionalTypes() []client.Object
+
 	// Prepare returns an object that can be used when doing updates
 	Prepare(context.Context, client.Reader, T) (P, ctrl.Result, error)
 

@@ -2,17 +2,22 @@ package synchronizer
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type MutateFn func()
@@ -134,14 +139,37 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 			return ctrl.Result{}, err
 		}
 	}
-
+	// TODO: Each action attaches Condition to owner status, based on current (after action) dependent object status
+	// Progress is updated on each reconcile, triggered by changes to dependent objects
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New()).
-		Named("postgres").
+		Named("postgres")
+	for _, t := range s.reconciler.OwnedTypes() {
+		builder = builder.Owns(t)
+	}
+
+	annotation := fmt.Sprintf("%s/owner", s.reconciler.Name())
+	for _, t := range s.reconciler.AdditionalTypes() {
+		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+			if value, ok := object.GetAnnotations()[annotation]; ok {
+				parts := strings.Split(value, ":")
+				return []reconcile.Request{
+					{
+						NamespacedName: types.NamespacedName{
+							Namespace: parts[0],
+							Name:      parts[1],
+						},
+					},
+				}
+			}
+			return nil
+		}))
+	}
+	return builder.
 		Complete(s)
 }

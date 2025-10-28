@@ -5,10 +5,15 @@ import (
 	"fmt"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
 	"github.com/nais/liberator/pkg/namegen"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
+	networking_v1 "k8s.io/api/networking/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -22,6 +27,8 @@ const (
 type PostgresReconciler struct {
 	Config *config.Config
 }
+
+var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
 type PreparedData struct {
 }
@@ -38,6 +45,18 @@ func (r *PostgresReconciler) Prepare(_ctx context.Context, _reader client.Reader
 	return PreparedData{}, ctrl.Result{}, nil
 }
 
+func (r *PostgresReconciler) OwnedTypes() []client.Object {
+	return nil
+}
+
+func (r *PostgresReconciler) AdditionalTypes() []client.Object {
+	return []client.Object{
+		&acid_zalan_do_v1.Postgresql{},
+		&networking_v1.NetworkPolicy{},
+		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
+	}
+}
+
 func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
@@ -45,15 +64,23 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 		return nil, ctrl.Result{}, err
 	}
 
+	ownerAnnotationKey := fmt.Sprintf("%s/owner", r.Name())
+	ownerAnnotationValue := fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())
+
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+	v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(cluster))
+
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
+	v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol))
+
 	iam, err := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
+	v1.SetMetaDataAnnotation(&iam.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(iam))
 
 	return actions, ctrl.Result{}, nil
