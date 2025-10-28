@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,13 +23,13 @@ import (
 
 type MutateFn func()
 
-type Synchronizer[T NaisObject, P any] struct {
+type Synchronizer[T object.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
 }
 
-func NewSynchronizer[T NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P]) *Synchronizer[T, P] {
+func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P]) *Synchronizer[T, P] {
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
@@ -139,8 +140,7 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 			return ctrl.Result{}, err
 		}
 	}
-	// TODO: Each action attaches Condition to owner status, based on current (after action) dependent object status
-	// Progress is updated on each reconcile, triggered by changes to dependent objects
+
 	return ctrl.Result{}, nil
 }
 

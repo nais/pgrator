@@ -5,12 +5,21 @@ import (
 	"fmt"
 
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
+	"github.com/nais/pgrator/internal/synchronizer/object"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+type ConditionConfig struct {
+	Type          string
+	AvailablePath string
+}
+
+type ConditionGetter func(obj client.Object) []meta_v1.Condition
 
 type Action interface {
 	Do(context.Context, client.Client, *runtime.Scheme) error
@@ -24,7 +33,7 @@ func (d DoFunc) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme)
 	return d(ctx, c, scheme)
 }
 
-func CreateOrUpdate(obj client.Object) Action {
+func CreateOrUpdate(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
 	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 		log := logf.FromContext(ctx)
 		log.Info(fmt.Sprintf("CreateOrUpdate %s", liberator_scheme.TypeName(obj)))
@@ -53,11 +62,21 @@ func CreateOrUpdate(obj client.Object) Action {
 		if err = c.Update(ctx, obj); err != nil {
 			return err
 		}
+
+		status := owner.GetStatus()
+		if status.Conditions == nil {
+			status.Conditions = new([]meta_v1.Condition)
+		}
+
+		for _, condition := range conditionGetter(obj) {
+			meta.SetStatusCondition(status.Conditions, condition)
+		}
+
 		return nil
 	})
 }
 
-func DeleteIfExists(obj client.Object) Action {
+func DeleteIfExists(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
 	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 		log := logf.FromContext(ctx)
 		log.Info(fmt.Sprintf("DeleteIfExists %s", liberator_scheme.TypeName(obj)))
@@ -66,6 +85,16 @@ func DeleteIfExists(obj client.Object) Action {
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
+
+		status := owner.GetStatus()
+		if status.Conditions == nil {
+			status.Conditions = new([]meta_v1.Condition)
+		}
+
+		for _, condition := range conditionGetter(obj) {
+			meta.SetStatusCondition(status.Conditions, condition)
+		}
+
 		return nil
 	})
 }

@@ -3,10 +3,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
 	"github.com/nais/liberator/pkg/namegen"
+	liberator_strings "github.com/nais/liberator/pkg/strings"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
@@ -70,20 +72,119 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(cluster))
+	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter))
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(netpol))
+	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter))
 
 	iam, err := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
 	v1.SetMetaDataAnnotation(&iam.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(iam))
+	actions = append(actions, action.CreateOrUpdate(iam, obj, iamPolicyMemberConditionGetter))
 
 	return actions, ctrl.Result{}, nil
+}
+
+func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
+	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
+
+	statusCondition := v1.Condition{}
+	if len(iamPolicyMember.Status.Conditions) > 0 {
+		statusCondition = iamPolicyMember.Status.Conditions[0]
+	}
+
+	type conditionConfig struct {
+		Type   string
+		Status bool
+	}
+	conditions := []conditionConfig{
+		{
+			Type:   "Available",
+			Status: statusCondition.Status == v1.ConditionTrue && liberator_strings.ContainsString([]string{"UpToDate", "Updating"}, statusCondition.Reason),
+		},
+		{
+			Type:   "Progressing",
+			Status: liberator_strings.ContainsString([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason),
+		},
+		{
+			Type:   "Degraded",
+			Status: strings.Contains(statusCondition.Reason, "Failed"),
+		},
+	}
+
+	result := make([]v1.Condition, 0, len(conditions))
+	for _, condition := range conditions {
+		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
+		result = append(result, v1.Condition{
+			Type:               t,
+			Status:             makeCondition(condition.Status),
+			ObservedGeneration: obj.GetGeneration(),
+			Reason:             statusCondition.Reason,
+			Message:            statusCondition.Message,
+		})
+	}
+
+	return result
+}
+
+func makeCondition(value bool) v1.ConditionStatus {
+	if value {
+		return v1.ConditionTrue
+	} else {
+		return v1.ConditionFalse
+	}
+}
+
+func existsConditionGetter(obj client.Object) []v1.Condition {
+	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	return []v1.Condition{
+		{
+			Type:               fmt.Sprintf("%s/Available", typePrefix),
+			Status:             makeCondition(obj != nil),
+			ObservedGeneration: obj.GetGeneration(),
+		},
+	}
+}
+
+func postgresqlConditionGetter(obj client.Object) []v1.Condition {
+	typePrefix := obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+	pg := obj.(*acid_zalan_do_v1.Postgresql)
+
+	type conditionConfig struct {
+		Type   string
+		Status bool
+	}
+	conditions := []conditionConfig{
+		{
+			Type:   "Available",
+			Status: pg.Status.PostgresClusterStatus == acid_zalan_do_v1.ClusterStatusRunning || pg.Status.PostgresClusterStatus == acid_zalan_do_v1.ClusterStatusUpdating,
+		},
+		{
+			Type:   "Progressing",
+			Status: pg.Status.PostgresClusterStatus == acid_zalan_do_v1.ClusterStatusCreating || pg.Status.PostgresClusterStatus == acid_zalan_do_v1.ClusterStatusUpdating,
+		},
+		{
+			Type:   "Degraded",
+			Status: !pg.Status.Success(),
+		},
+	}
+
+	result := make([]v1.Condition, 0, len(conditions))
+	for _, condition := range conditions {
+		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
+		result = append(result, v1.Condition{
+			Type:               t,
+			Status:             makeCondition(condition.Status),
+			ObservedGeneration: obj.GetGeneration(),
+			Reason:             pg.Status.String(),
+		})
+	}
+
+	return result
 }
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
@@ -98,9 +199,9 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 
 	var actions []action.Action
 	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
-	actions = append(actions, action.DeleteIfExists(cluster))
+	actions = append(actions, action.DeleteIfExists(cluster, obj, postgresqlConditionGetter))
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
-	actions = append(actions, action.DeleteIfExists(netpol))
+	actions = append(actions, action.DeleteIfExists(netpol, obj, existsConditionGetter))
 	return actions, ctrl.Result{}, nil
 }
 
