@@ -158,6 +158,9 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 			if value, ok := object.GetAnnotations()[annotation]; ok {
 				parts := strings.Split(value, ":")
+				if len(parts) != 2 {
+					return nil
+				}
 				return []reconcile.Request{
 					{
 						NamespacedName: types.NamespacedName{

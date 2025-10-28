@@ -67,7 +67,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	}
 
 	ownerAnnotationKey := fmt.Sprintf("%s/owner", r.Name())
-	ownerAnnotationValue := fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())
+	ownerAnnotationValue := fmt.Sprintf("%s:%s", obj.GetNamespace(), obj.GetName())
 
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
