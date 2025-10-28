@@ -53,15 +53,6 @@ func CreateIAMPolicyMemberSpec(postgres *data_nais_io_v1.Postgres, cfg *config.C
 	}
 
 	iamPolicyMember.Spec = spec
-	SetAnnotation(iamPolicyMember, ProjectIdAnnotation, cfg.GoogleProjectID)
+	v1.SetMetaDataAnnotation(&iamPolicyMember.ObjectMeta, ProjectIdAnnotation, cfg.GoogleProjectID)
 	return iamPolicyMember, nil
-}
-
-func SetAnnotation(resource v1.ObjectMetaAccessor, key, value string) {
-	m := resource.GetObjectMeta().GetAnnotations()
-	if m == nil {
-		m = make(map[string]string)
-	}
-	m[key] = value
-	resource.GetObjectMeta().SetAnnotations(m)
 }
