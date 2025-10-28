@@ -15,9 +15,11 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -38,9 +40,6 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 }
 
 func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
 	logger := logf.FromContext(ctx)
 
 	obj := s.reconciler.New()
@@ -146,8 +145,17 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
+	opts := controller.Options{
+		ReconciliationTimeout: 60 * time.Second,
+	}
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New()).
+		WithOptions(opts).
+		WithEventFilter(predicate.Or(
+			predicate.GenerationChangedPredicate{},
+			predicate.AnnotationChangedPredicate{},
+			predicate.LabelChangedPredicate{},
+		)).
 		Named("postgres")
 	for _, t := range s.reconciler.OwnedTypes() {
 		builder = builder.Owns(t)
