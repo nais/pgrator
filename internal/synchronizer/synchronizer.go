@@ -3,12 +3,14 @@ package synchronizer
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -56,15 +59,21 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	status.ObservedGeneration = obj.GetGeneration()
 	status.CorrelationID = obj.GetCorrelationId()
 
-	updateStatus := func() {
+	updateStatus := func() error {
 		err = s.client.Status().Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update status")
+			return err
 		}
 		status = obj.GetStatus()
+		return nil
 	}
 
-	defer updateStatus()
+	defer func() {
+		if err := updateStatus(); err != nil {
+			logger.Error(err, "deferred update of status failed")
+		}
+	}()
 
 	var actions []action.Action
 	var result ctrl.Result
@@ -104,7 +113,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	status.ReconcilePhase = "Preparing"
-	updateStatus()
+	if err = updateStatus(); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
@@ -112,7 +126,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	status.ReconcilePhase = "Updating"
-	updateStatus()
+	if err = updateStatus(); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
 	actions, result, err = s.reconciler.Update(obj, prep)
 	if err != nil {
 		logger.Error(err, "failed to calculate update actions")
@@ -120,7 +139,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	status.ReconcilePhase = "PerformingActions"
-	updateStatus()
+	if err = updateStatus(); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
 	result, err = s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
@@ -152,11 +176,14 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		For(s.reconciler.New()).
 		WithOptions(opts).
 		WithEventFilter(predicate.Or(
-			predicate.GenerationChangedPredicate{},
+			GenerationChangedPredicate{
+				Scheme:   mgr.GetScheme(),
+				MainKind: findKind(s.reconciler.New(), mgr.GetScheme()),
+			},
 			predicate.AnnotationChangedPredicate{},
 			predicate.LabelChangedPredicate{},
 		)).
-		Named("postgres")
+		Named(s.reconciler.Name())
 	for _, t := range s.reconciler.OwnedTypes() {
 		builder = builder.Owns(t)
 	}
@@ -183,4 +210,54 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return builder.
 		Complete(s)
+}
+
+type GenerationChangedPredicate struct {
+	predicate.TypedFuncs[client.Object]
+	Scheme   *runtime.Scheme
+	MainKind string
+}
+
+// Update allows events for secondary kinds while only accepting generational changes for main kind
+func (p GenerationChangedPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
+	if isNil(e.ObjectOld) {
+		return false
+	}
+	if isNil(e.ObjectNew) {
+		return false
+	}
+
+	objKind := findKind(e.ObjectNew, p.Scheme)
+	if objKind != p.MainKind {
+		return true
+	}
+
+	return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration()
+}
+
+func findKind(obj client.Object, scheme *runtime.Scheme) string {
+	gvks, _, err := scheme.ObjectKinds(obj)
+	if err != nil {
+		return ""
+	}
+
+	for _, gvk := range gvks {
+		if gvk.Kind != "" {
+			return gvk.Kind
+		}
+	}
+
+	return ""
+}
+
+func isNil(arg any) bool {
+	if v := reflect.ValueOf(arg); !v.IsValid() || ((v.Kind() == reflect.Ptr ||
+		v.Kind() == reflect.Interface ||
+		v.Kind() == reflect.Slice ||
+		v.Kind() == reflect.Map ||
+		v.Kind() == reflect.Chan ||
+		v.Kind() == reflect.Func) && v.IsNil()) {
+		return true
+	}
+	return false
 }
