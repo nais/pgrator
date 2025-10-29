@@ -56,7 +56,7 @@ description = "Setup envtest binaries"
 run = "setup-envtest use ${ENVTEST_K8S_VERSION} -p path"
 
 [tasks.test]
-depends = ["generate"]
+depends = ["checks", "generate"]
 description = "Run tests."
 run = """
 #!/usr/bin/env bash
@@ -68,12 +68,12 @@ go test  $(go list ./...)
 ### Build
 
 [tasks.build]
-depends = ["fmt", "vet"]
+depends = ["checks", "generate"]
 description = "Build manager binary."
 run = "go build -o bin/manager cmd/main.go"
 
 [tasks.run]
-depends = ["fmt", "vet"]
+depends = ["checks", "generate"]
 description = "Run a controller from your host."
 run = "go run ./cmd/main.go"
 
