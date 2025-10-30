@@ -46,6 +46,18 @@ rules:
     - patch
     - delete
 - apiGroups:
+    - monitoring.coreos.io
+  resources:
+    - prometheusrules
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+- apiGroups:
     - acid.zalan.do
   resources:
     - postgresqls
