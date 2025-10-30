@@ -17,7 +17,8 @@ type Config struct {
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
 
-	DryRun bool `env:"DRY_RUN"`
+	DryRun                  bool `env:"DRY_RUN"`
+	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

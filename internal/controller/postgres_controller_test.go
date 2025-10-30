@@ -52,7 +52,9 @@ var (
 
 var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
-		var reconcilerConfig config.Config
+		reconcilerConfig := config.Config{
+			PrometheusRulesDisabled: true,
+		}
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
 		ctx := context.Background()

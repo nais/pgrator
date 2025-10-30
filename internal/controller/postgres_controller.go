@@ -82,6 +82,13 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
+
+	if !r.Config.PrometheusRulesDisabled {
+		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
+		v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
+		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter))
+	}
+
 	v1.SetMetaDataAnnotation(&iam.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter))
 
@@ -203,6 +210,10 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 	actions = append(actions, action.DeleteIfExists(cluster, obj, postgresqlConditionGetter))
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.DeleteIfExists(netpol, obj, existsConditionGetter))
+	if !r.Config.PrometheusRulesDisabled {
+		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName, pgNamespace)
+		actions = append(actions, action.DeleteIfExists(prometheusRule, obj, existsConditionGetter))
+	}
 	return actions, ctrl.Result{}, nil
 }
 

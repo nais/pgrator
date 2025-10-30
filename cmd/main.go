@@ -11,6 +11,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
+	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -34,6 +34,9 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	_, err := liberator_scheme.AddAll(scheme)
+	utilruntime.Must(err)
+
+	err = pov1.AddToScheme(scheme)
 	utilruntime.Must(err)
 
 	err = acid_zalan_do_v1.AddToScheme(scheme)
