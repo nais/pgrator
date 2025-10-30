@@ -46,7 +46,7 @@ rules:
     - patch
     - delete
 - apiGroups:
-    - monitoring.coreos.io
+π    - monitoring.coreos.com
   resources:
     - prometheusrules
   verbs:
