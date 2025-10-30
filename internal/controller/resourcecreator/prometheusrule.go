@@ -35,7 +35,7 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 						Alert: "PostgresMemoryUsageHigh",
 						Expr: intstrFromString(fmt.Sprintf(
 							"(avg(container_memory_usage_bytes{container=\"postgres\", namespace=\"%s\", pod=~\"%s-[0-9]\"}) by (pod) / avg(kube_pod_container_resource_limits{container=\"postgres\", resource=\"memory\", namespace=\"%s\", pod=~\"%s-[0-9]\"}) by (pod)) > 0.9", pgNamespace, pgClusterName, pgNamespace, pgClusterName)),
-						For: ptr.To(monitoring_v1.Duration("10s")),
+						For: ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
 							"severity": "warning",
 						},
