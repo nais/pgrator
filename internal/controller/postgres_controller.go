@@ -211,7 +211,7 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.DeleteIfExists(netpol, obj, existsConditionGetter))
 	if !r.Config.PrometheusRulesDisabled {
-		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName, pgNamespace)
+		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
 		actions = append(actions, action.DeleteIfExists(prometheusRule, obj, existsConditionGetter))
 	}
 	return actions, ctrl.Result{}, nil

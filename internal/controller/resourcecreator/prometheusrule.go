@@ -10,9 +10,9 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *monitoring_v1.PrometheusRule {
+func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName string) *monitoring_v1.PrometheusRule {
 	objectMeta := CreateObjectMeta(postgres)
-	objectMeta.Name = pgClusterName
+	objectMeta.Name = fmt.Sprintf("pg-%s", pgClusterName)
 
 	return &monitoring_v1.PrometheusRule{
 		TypeMeta: metav1.TypeMeta{
@@ -24,7 +24,7 @@ func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName str
 }
 
 func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *monitoring_v1.PrometheusRule {
-	prometheusRule := MinimalPrometheusRule(postgres, pgClusterName, pgNamespace)
+	prometheusRule := MinimalPrometheusRule(postgres, pgClusterName)
 
 	prometheusRule.Spec = monitoring_v1.PrometheusRuleSpec{
 		Groups: []monitoring_v1.RuleGroup{
