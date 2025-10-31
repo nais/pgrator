@@ -68,7 +68,7 @@ spec:
               /
               sum(kube_pod_container_resource_requests{
                 namespace="{{ .Release.Namespace }}",
-                container="pgrator-manager"
+                container="pgrator-manager",
                 resource="cpu"
               }) by (namespace, pod)
             ) * 100 > 150
