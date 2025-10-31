@@ -20,7 +20,7 @@ go = """
 
 {{- exec(cache_key="go", command=command) -}}
 """
-tilt = "latest"
+helm = "latest"
 
 ### Development
 
@@ -36,6 +36,10 @@ run = "go fmt ./..."
 description = "Run go vet against code."
 run = "go vet ./..."
 
+[tasks.helm-lint]
+description = "Lint helm charts"
+run = "helm lint --strict ./charts/pgrator"
+
 [tasks.lint]
 description = "Run golangci-lint linter"
 run = "golangci-lint run"
@@ -49,7 +53,7 @@ description = "Verify golangci-lint linter configuration"
 run = "golangci-lint config verify"
 
 [tasks.checks]
-depends = ["lint", "fmt", "vet"]
+depends = ["lint", "fmt", "vet", "helm-lint"]
 
 [tasks.setup-envtest]
 description = "Setup envtest binaries"
