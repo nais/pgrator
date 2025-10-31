@@ -19,6 +19,7 @@ type ConditionGetter func(obj client.Object) []meta_v1.Condition
 type Action interface {
 	Do(context.Context, client.Client, *runtime.Scheme) error
 	GetObject() client.Object
+	GetOwner() object.NaisObject
 }
 
 type action struct {
@@ -29,6 +30,10 @@ type action struct {
 
 func (a *action) GetObject() client.Object {
 	return a.obj
+}
+
+func (a *action) GetOwner() object.NaisObject {
+	return a.owner
 }
 
 type createIfNotExists struct {

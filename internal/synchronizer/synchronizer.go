@@ -28,12 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type MutateFn func()
-
 type Synchronizer[T object.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
+
+	ownerAnnotationKey string
+	relevantListTypes  map[schema.GroupVersionKind]reflect.Type
 }
 
 func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P]) *Synchronizer[T, P] {
@@ -41,7 +42,34 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 		client:     k8sClient,
 		scheme:     scheme,
 		reconciler: r,
+
+		ownerAnnotationKey: fmt.Sprintf("%s/owner", r.Name()),
+		relevantListTypes:  findRelevantListTypes(r, scheme),
 	}
+}
+
+func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
+	relevantTypes := make([]client.Object, 0)
+	relevantTypes = append(relevantTypes, r.OwnedTypes()...)
+	relevantTypes = append(relevantTypes, r.AdditionalTypes()...)
+
+	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
+	for groupVersionKind, r := range scheme.AllKnownTypes() {
+		for _, relevantType := range relevantTypes {
+			relevantGvks, _, err := scheme.ObjectKinds(relevantType)
+			if err != nil {
+				return nil
+			}
+			for _, relevantGvk := range relevantGvks {
+				if relevantGvk.Group == groupVersionKind.Group &&
+					relevantGvk.Version == groupVersionKind.Version &&
+					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
+					listTypes[groupVersionKind] = r
+				}
+			}
+		}
+	}
+	return listTypes
 }
 
 func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -169,6 +197,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
 	var err error
 	for _, a := range actions {
+		// TODO: s.addOwnerAnnotation(a)
+		// Must handle IAMPolicyMember before adding owner annotation here
 		err = a.Do(ctx, s.client, s.scheme)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -177,6 +207,17 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 
 	return ctrl.Result{}, nil
 }
+
+// TODO: Must handle IAMPolicyMember before adding owner annotation
+// func (s *Synchronizer[T, P]) addOwnerAnnotation(a action.Action) {
+// 	obj := a.GetObject()
+// 	annotations := obj.GetAnnotations()
+// 	if annotations == nil {
+// 		annotations = make(map[string]string)
+// 		obj.SetAnnotations(annotations)
+// 	}
+// 	annotations[s.ownerAnnotationKey] = client.ObjectKeyFromObject(a.GetOwner()).String()
+// }
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
@@ -199,20 +240,18 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Owns(t)
 	}
 
-	annotation := fmt.Sprintf("%s/owner", s.reconciler.Name())
 	for _, t := range s.reconciler.AdditionalTypes() {
 		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			if value, ok := object.GetAnnotations()[annotation]; ok {
-				parts := strings.Split(value, ":")
-				if len(parts) != 2 {
+			if value, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok {
+				name, err := parseNamespacedName(value)
+				if err != nil {
+					mgr.GetLogger().Error(err, "unable to parse owner")
 					return nil
 				}
+
 				return []reconcile.Request{
 					{
-						NamespacedName: types.NamespacedName{
-							Namespace: parts[0],
-							Name:      parts[1],
-						},
+						NamespacedName: name,
 					},
 				}
 			}
@@ -224,33 +263,11 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
-	relevantTypes := make([]client.Object, 0)
-	relevantTypes = append(relevantTypes, s.reconciler.OwnedTypes()...)
-	relevantTypes = append(relevantTypes, s.reconciler.AdditionalTypes()...)
-
-	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
-	for groupVersionKind, r := range s.scheme.AllKnownTypes() {
-		for _, relevantType := range relevantTypes {
-			relevantGvks, _, err := s.scheme.ObjectKinds(relevantType)
-			if err != nil {
-				return nil, fmt.Errorf("unable to get objectkinds for %v: %w", relevantType, err)
-			}
-			for _, relevantGvk := range relevantGvks {
-				if relevantGvk.Group == groupVersionKind.Group &&
-					relevantGvk.Version == groupVersionKind.Version &&
-					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
-					listTypes[groupVersionKind] = r
-				}
-			}
-		}
-	}
-
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
-	annotation := fmt.Sprintf("%s/owner", s.reconciler.Name())
-	annotationValue := fmt.Sprintf("%s:%s", owner.GetNamespace(), owner.GetName())
+	annotationValue := client.ObjectKeyFromObject(owner).String()
 	allResources := make([]client.Object, 0)
-	for _, t := range listTypes {
+	for _, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
 		if err != nil {
@@ -259,7 +276,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
 				annotations := cObj.GetAnnotations()
-				if v, ok := annotations[annotation]; ok {
+				if v, ok := annotations[s.ownerAnnotationKey]; ok {
 					if v == annotationValue {
 						allResources = append(allResources, cObj)
 					}
@@ -346,4 +363,15 @@ func isNil(arg any) bool {
 		return true
 	}
 	return false
+}
+
+func parseNamespacedName(input string) (types.NamespacedName, error) {
+	parts := strings.Split(input, string(types.Separator))
+	if len(parts) != 2 {
+		return types.NamespacedName{}, fmt.Errorf("can not parse invalid NamespacedName, incorrect number of parts: %d", len(parts))
+	}
+	return types.NamespacedName{
+		Namespace: parts[0],
+		Name:      parts[1],
+	}, nil
 }
