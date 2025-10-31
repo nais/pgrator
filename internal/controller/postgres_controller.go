@@ -13,6 +13,7 @@ import (
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	networking_v1 "k8s.io/api/networking/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +57,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&acid_zalan_do_v1.Postgresql{},
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
+		&monitoring_v1.PrometheusRule{},
 	}
 }
 
@@ -206,14 +208,18 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 	}
 
 	var actions []action.Action
+
 	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.DeleteIfExists(cluster, obj, postgresqlConditionGetter))
+
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.DeleteIfExists(netpol, obj, existsConditionGetter))
+
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
 		actions = append(actions, action.DeleteIfExists(prometheusRule, obj, existsConditionGetter))
 	}
+
 	return actions, ctrl.Result{}, nil
 }
 
