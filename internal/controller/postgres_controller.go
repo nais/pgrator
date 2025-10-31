@@ -53,12 +53,15 @@ func (r *PostgresReconciler) OwnedTypes() []client.Object {
 }
 
 func (r *PostgresReconciler) AdditionalTypes() []client.Object {
-	return []client.Object{
+	objects := []client.Object{
 		&acid_zalan_do_v1.Postgresql{},
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
-		&monitoring_v1.PrometheusRule{},
 	}
+	if !r.Config.PrometheusRulesDisabled {
+		objects = append(objects, &monitoring_v1.PrometheusRule{})
+	}
+	return objects
 }
 
 func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData PreparedData) ([]action.Action, ctrl.Result, error) {

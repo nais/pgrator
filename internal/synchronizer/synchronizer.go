@@ -11,8 +11,10 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -138,6 +140,19 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
+	status.ReconcilePhase = "DetectingUnreferenced"
+	if err = updateStatus(); err != nil {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
+	actions, err = s.DetectUnreferenced(ctx, obj, actions)
+	if err != nil {
+		logger.Error(err, "unable to detect unreferenced resources")
+		return ctrl.Result{}, err
+	}
+
 	status.ReconcilePhase = "PerformingActions"
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
@@ -210,6 +225,61 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return builder.
 		Complete(s)
+}
+
+func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, obj T, actions []action.Action) ([]action.Action, error) {
+	relevantTypes := make([]client.Object, 0)
+	relevantTypes = append(relevantTypes, s.reconciler.OwnedTypes()...)
+	relevantTypes = append(relevantTypes, s.reconciler.AdditionalTypes()...)
+
+	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
+	for groupVersionKind, r := range s.scheme.AllKnownTypes() {
+		for _, relevantType := range relevantTypes {
+			relevantGvks, _, err := s.scheme.ObjectKinds(relevantType)
+			if err != nil {
+				return nil, fmt.Errorf("unable to get objectkinds for %v: %w", relevantType, err)
+			}
+			for _, relevantGvk := range relevantGvks {
+				if relevantGvk.Group == groupVersionKind.Group &&
+					relevantGvk.Version == groupVersionKind.Version &&
+					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
+					listTypes[groupVersionKind] = r
+				}
+			}
+		}
+	}
+
+	// List all resources of owned or additional types
+	// Filter unrelated resources (owner annotation / owner reference)
+	annotation := fmt.Sprintf("%s/owner", s.reconciler.Name())
+	annotationValue := fmt.Sprintf("%s:%s", obj.GetNamespace(), obj.GetName())
+	allResources := make([]client.Object, 0)
+	for _, t := range listTypes {
+		list := reflect.New(t).Interface().(client.ObjectList)
+		err := s.client.List(ctx, list)
+		if err != nil {
+			return nil, fmt.Errorf("unable to list %s: %w", t, err)
+		}
+		err = meta.EachListItem(list, func(obj runtime.Object) error {
+			if cObj, ok := obj.(client.Object); ok {
+				annotations := cObj.GetAnnotations()
+				if v, ok := annotations[annotation]; ok {
+					if v == annotationValue {
+						allResources = append(allResources, cObj)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract items from list: %w", err)
+		}
+	}
+
+	// Filter resources referenced by already existing actions
+	// Add DeleteIfExists action for remainder
+
+	return actions, nil
 }
 
 type GenerationChangedPredicate struct {
