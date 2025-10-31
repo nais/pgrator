@@ -72,7 +72,13 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	}
 
 	ownerAnnotationKey := fmt.Sprintf("%s/owner", r.Name())
-	ownerAnnotationValue := fmt.Sprintf("%s:%s", obj.GetNamespace(), obj.GetName())
+
+	ns := obj.GetNamespace()
+	// cluster-scoped resources cannot have an empty namespace in the owner annotation
+	if ns == "" {
+		ns = "_"
+	}
+	ownerAnnotationValue := fmt.Sprintf("%s/%s", ns, obj.GetName())
 
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
