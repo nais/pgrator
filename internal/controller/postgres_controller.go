@@ -16,7 +16,7 @@ import (
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	networking_v1 "k8s.io/api/networking/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -76,11 +76,11 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
-	v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
+	meta_v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter))
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
-	v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
+	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter))
 
 	iam := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
@@ -88,18 +88,18 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
-		v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
+		meta_v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter))
 	}
 
 	return actions, ctrl.Result{}, nil
 }
 
-func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
+func iamPolicyMemberConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
 
-	statusCondition := v1.Condition{}
+	statusCondition := meta_v1.Condition{}
 	if len(iamPolicyMember.Status.Conditions) > 0 {
 		statusCondition = iamPolicyMember.Status.Conditions[0]
 	}
@@ -111,7 +111,7 @@ func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
 	conditions := []conditionConfig{
 		{
 			Type:   "Available",
-			Status: statusCondition.Status == v1.ConditionTrue && liberator_strings.ContainsString([]string{"UpToDate", "Updating"}, statusCondition.Reason),
+			Status: statusCondition.Status == meta_v1.ConditionTrue && liberator_strings.ContainsString([]string{"UpToDate", "Updating"}, statusCondition.Reason),
 		},
 		{
 			Type:   "Progressing",
@@ -123,10 +123,10 @@ func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
 		},
 	}
 
-	result := make([]v1.Condition, 0, len(conditions))
+	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
-		result = append(result, v1.Condition{
+		result = append(result, meta_v1.Condition{
 			Type:               t,
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
@@ -138,17 +138,17 @@ func iamPolicyMemberConditionGetter(obj client.Object) []v1.Condition {
 	return result
 }
 
-func makeCondition(value bool) v1.ConditionStatus {
+func makeCondition(value bool) meta_v1.ConditionStatus {
 	if value {
-		return v1.ConditionTrue
+		return meta_v1.ConditionTrue
 	} else {
-		return v1.ConditionFalse
+		return meta_v1.ConditionFalse
 	}
 }
 
-func existsConditionGetter(obj client.Object) []v1.Condition {
+func existsConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
-	return []v1.Condition{
+	return []meta_v1.Condition{
 		{
 			Type:               fmt.Sprintf("%s/Available", typePrefix),
 			Status:             makeCondition(obj != nil),
@@ -158,7 +158,7 @@ func existsConditionGetter(obj client.Object) []v1.Condition {
 	}
 }
 
-func postgresqlConditionGetter(obj client.Object) []v1.Condition {
+func postgresqlConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	pg := obj.(*acid_zalan_do_v1.Postgresql)
 
@@ -181,10 +181,10 @@ func postgresqlConditionGetter(obj client.Object) []v1.Condition {
 		},
 	}
 
-	result := make([]v1.Condition, 0, len(conditions))
+	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
-		result = append(result, v1.Condition{
+		result = append(result, meta_v1.Condition{
 			Type:               t,
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
