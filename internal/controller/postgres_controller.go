@@ -80,19 +80,14 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter))
 
-	iam, err := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
-	if err != nil {
-		return nil, ctrl.Result{}, err
-	}
+	iam := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
+	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
 		v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter))
 	}
-
-	v1.SetMetaDataAnnotation(&iam.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter))
 
 	return actions, ctrl.Result{}, nil
 }

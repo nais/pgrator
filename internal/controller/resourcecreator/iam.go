@@ -18,11 +18,11 @@ const (
 	ProjectRole                = "roles/iam.workloadIdentityUser"
 )
 
-func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres, pgNamespace string) (*iam_google_v1beta1.IAMPolicyMember, error) {
+func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres, pgNamespace string) *iam_google_v1beta1.IAMPolicyMember {
 	objectMeta := CreateObjectMeta(postgres)
 	name, err := namegen.SuffixedShortName(pgNamespace, "postgres-pod", validation.DNS1123LabelMaxLength)
 	if err != nil {
-		return nil, fmt.Errorf("generating IAMPolicyMember name: %w", err)
+		panic(fmt.Sprintf("This should never happen: %v", err))
 	}
 	objectMeta.Name = name
 	objectMeta.Namespace = IAMServiceAccountNamespace
@@ -34,14 +34,11 @@ func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres, pgNamespac
 		},
 		ObjectMeta: objectMeta,
 	}
-	return iamPolicyMember, nil
+	return iamPolicyMember
 }
 
-func CreateIAMPolicyMemberSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, pgNamespace string) (*iam_google_v1beta1.IAMPolicyMember, error) {
-	iamPolicyMember, err := CreateMinimalIAMPolicyMember(postgres, pgNamespace)
-	if err != nil {
-		return nil, err
-	}
+func CreateIAMPolicyMemberSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, pgNamespace string) *iam_google_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(postgres, pgNamespace)
 	spec := iam_google_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/postgres-pod]", cfg.GoogleProjectID, pgNamespace),
 		Role:   ProjectRole,
@@ -54,5 +51,5 @@ func CreateIAMPolicyMemberSpec(postgres *data_nais_io_v1.Postgres, cfg *config.C
 
 	iamPolicyMember.Spec = spec
 	v1.SetMetaDataAnnotation(&iamPolicyMember.ObjectMeta, ProjectIdAnnotation, cfg.GoogleProjectID)
-	return iamPolicyMember, nil
+	return iamPolicyMember
 }
