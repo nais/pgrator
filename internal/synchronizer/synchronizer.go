@@ -80,40 +80,6 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	var actions []action.Action
 	var result ctrl.Result
 
-	deletionTimestamp := obj.GetDeletionTimestamp()
-	finalizer := s.reconciler.Name()
-	finalizers := obj.GetFinalizers()
-	if deletionTimestamp != nil {
-		if len(finalizers) > 0 && finalizers[0] == finalizer {
-			actions, result, err = s.reconciler.Delete(obj)
-			if err != nil {
-				logger.Error(err, "failed to calculate delete actions")
-				return result, err
-			}
-			result, err = s.PerformActions(ctx, actions)
-			if err != nil {
-				logger.Error(err, "failed to perform delete actions")
-				return result, err
-			}
-			if controllerutil.RemoveFinalizer(obj, finalizer) {
-				err = s.client.Update(ctx, obj)
-				if err != nil {
-					logger.Error(err, "failed to remove finalizer")
-					return ctrl.Result{}, err
-				}
-			}
-		}
-		return result, nil
-	}
-
-	if controllerutil.AddFinalizer(obj, finalizer) {
-		err = s.client.Update(ctx, obj)
-		if err != nil {
-			logger.Error(err, "failed to add finalizer")
-			return result, err
-		}
-	}
-
 	status.ReconcilePhase = "Preparing"
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
@@ -127,17 +93,39 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
-	status.ReconcilePhase = "Updating"
-	if err = updateStatus(); err != nil {
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+	deletionTimestamp := obj.GetDeletionTimestamp()
+	finalizer := s.reconciler.Name()
+	finalizers := obj.GetFinalizers()
+	finalizerFunc := controllerutil.AddFinalizer
+	if deletionTimestamp != nil {
+		if len(finalizers) > 0 && finalizers[0] == finalizer {
+			status.ReconcilePhase = "Deleting"
+			if err = updateStatus(); err != nil {
+				if apierrors.IsConflict(err) {
+					return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+				}
+				return ctrl.Result{}, err
+			}
+			actions, result, err = s.reconciler.Delete(obj)
+			if err != nil {
+				logger.Error(err, "failed to calculate delete actions")
+				return result, err
+			}
+			finalizerFunc = controllerutil.RemoveFinalizer
 		}
-		return ctrl.Result{}, err
-	}
-	actions, result, err = s.reconciler.Update(obj, prep)
-	if err != nil {
-		logger.Error(err, "failed to calculate update actions")
-		return result, err
+	} else {
+		status.ReconcilePhase = "Updating"
+		if err = updateStatus(); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		actions, result, err = s.reconciler.Update(obj, prep)
+		if err != nil {
+			logger.Error(err, "failed to calculate update actions")
+			return result, err
+		}
 	}
 
 	status.ReconcilePhase = "DetectingUnreferenced"
@@ -164,6 +152,14 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
 		return result, err
+	}
+
+	if finalizerFunc(obj, finalizer) {
+		err = s.client.Update(ctx, obj)
+		if err != nil {
+			logger.Error(err, "failed to update finalizer")
+			return ctrl.Result{}, err
+		}
 	}
 
 	status.ReconcilePhase = "Completed"

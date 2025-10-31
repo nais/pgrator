@@ -172,6 +172,24 @@ func DeleteIfExists(obj client.Object, owner object.NaisObject, conditionGetter 
 	}
 }
 
+type noOp struct {
+	action
+}
+
+func (n *noOp) Do(_ context.Context, _ client.Client, _ *runtime.Scheme) error {
+	return nil
+}
+
+func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
+	return &noOp{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+		},
+	}
+}
+
 func copyMeta(dst, src runtime.Object) error {
 	srcacc, err := meta.Accessor(src)
 	if err != nil {

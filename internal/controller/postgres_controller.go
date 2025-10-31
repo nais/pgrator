@@ -196,9 +196,11 @@ func postgresqlConditionGetter(obj client.Object) []v1.Condition {
 }
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
+	actionFunc := action.DeleteIfExists
 	if !obj.Spec.Cluster.AllowDeletion {
-		return nil, ctrl.Result{}, nil
+		actionFunc = action.NoOp
 	}
+
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
@@ -208,14 +210,14 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 	var actions []action.Action
 
 	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
-	actions = append(actions, action.DeleteIfExists(cluster, obj, postgresqlConditionGetter))
+	actions = append(actions, actionFunc(cluster, obj, postgresqlConditionGetter))
 
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
-	actions = append(actions, action.DeleteIfExists(netpol, obj, existsConditionGetter))
+	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
-		actions = append(actions, action.DeleteIfExists(prometheusRule, obj, existsConditionGetter))
+		actions = append(actions, actionFunc(prometheusRule, obj, existsConditionGetter))
 	}
 
 	return actions, ctrl.Result{}, nil
