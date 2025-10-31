@@ -14,128 +14,162 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type ConditionConfig struct {
-	Type          string
-	AvailablePath string
-}
-
 type ConditionGetter func(obj client.Object) []meta_v1.Condition
 
 type Action interface {
 	Do(context.Context, client.Client, *runtime.Scheme) error
+	GetObject() client.Object
 }
 
-type DoFunc func(context.Context, client.Client, *runtime.Scheme) error
+type action struct {
+	obj             client.Object
+	owner           object.NaisObject
+	conditionGetter ConditionGetter
+}
 
-var _ Action = DoFunc(nil)
+func (a *action) GetObject() client.Object {
+	return a.obj
+}
 
-func (d DoFunc) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
-	return d(ctx, c, scheme)
+type createIfNotExists struct {
+	action
+}
+
+func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+	log := logf.FromContext(ctx)
+	log.Info(fmt.Sprintf("CreateIfNotExists %s", liberator_scheme.TypeName(a.obj)))
+
+	var conditions []meta_v1.Condition
+
+	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	if err != nil {
+		return fmt.Errorf("internal error: %w", err)
+	}
+
+	key := client.ObjectKeyFromObject(a.obj)
+	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		if err = c.Create(ctx, a.obj); err != nil {
+			return err
+		}
+		conditions = a.conditionGetter(a.obj)
+	} else {
+		conditions = a.conditionGetter(existing.(client.Object))
+	}
+
+	status := a.owner.GetStatus()
+	if status.Conditions == nil {
+		status.Conditions = new([]meta_v1.Condition)
+	}
+
+	for _, condition := range conditions {
+		meta.SetStatusCondition(status.Conditions, condition)
+	}
+
+	return nil
 }
 
 func CreateIfNotExists(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
-	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
-		log := logf.FromContext(ctx)
-		log.Info(fmt.Sprintf("CreateIfNotExists %s", liberator_scheme.TypeName(obj)))
+	return &createIfNotExists{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+		},
+	}
+}
 
-		var conditions []meta_v1.Condition
+type createOrUpdate struct {
+	action
+}
 
-		existing, err := scheme.New(obj.GetObjectKind().GroupVersionKind())
-		if err != nil {
-			return fmt.Errorf("internal error: %w", err)
+func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+	log := logf.FromContext(ctx)
+	log.Info(fmt.Sprintf("CreateOrUpdate %s", liberator_scheme.TypeName(a.obj)))
+
+	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	if err != nil {
+		return fmt.Errorf("internal error: %w", err)
+	}
+
+	key := client.ObjectKeyFromObject(a.obj)
+	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
 		}
 
-		key := client.ObjectKeyFromObject(obj)
-		if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
-
-			if err = c.Create(ctx, obj); err != nil {
-				return err
-			}
-			conditions = conditionGetter(obj)
-		} else {
-			conditions = conditionGetter(existing.(client.Object))
+		if err = c.Create(ctx, a.obj); err != nil {
+			return err
 		}
-
-		status := owner.GetStatus()
-		if status.Conditions == nil {
-			status.Conditions = new([]meta_v1.Condition)
-		}
-
-		for _, condition := range conditions {
-			meta.SetStatusCondition(status.Conditions, condition)
-		}
-
 		return nil
-	})
+	}
+
+	if err = copyMeta(a.obj, existing); err != nil {
+		return fmt.Errorf("copying metadata: %w", err)
+	}
+
+	if err = c.Update(ctx, a.obj); err != nil {
+		return err
+	}
+
+	status := a.owner.GetStatus()
+	if status.Conditions == nil {
+		status.Conditions = new([]meta_v1.Condition)
+	}
+
+	for _, condition := range a.conditionGetter(a.obj) {
+		meta.SetStatusCondition(status.Conditions, condition)
+	}
+
+	return nil
 }
 
 func CreateOrUpdate(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
-	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
-		log := logf.FromContext(ctx)
-		log.Info(fmt.Sprintf("CreateOrUpdate %s", liberator_scheme.TypeName(obj)))
+	return &createOrUpdate{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+		},
+	}
+}
 
-		existing, err := scheme.New(obj.GetObjectKind().GroupVersionKind())
-		if err != nil {
-			return fmt.Errorf("internal error: %w", err)
-		}
+type deleteIfExists struct {
+	action
+}
 
-		key := client.ObjectKeyFromObject(obj)
-		if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
+func (a *deleteIfExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+	log := logf.FromContext(ctx)
+	log.Info(fmt.Sprintf("DeleteIfExists %s", liberator_scheme.TypeName(a.obj)))
 
-			if err = c.Create(ctx, obj); err != nil {
-				return err
-			}
-			return nil
-		}
+	err := c.Delete(ctx, a.obj)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 
-		if err = copyMeta(obj, existing); err != nil {
-			return fmt.Errorf("copying metadata: %w", err)
-		}
+	status := a.owner.GetStatus()
+	if status.Conditions == nil {
+		status.Conditions = new([]meta_v1.Condition)
+	}
 
-		if err = c.Update(ctx, obj); err != nil {
-			return err
-		}
+	for _, condition := range a.conditionGetter(a.obj) {
+		meta.SetStatusCondition(status.Conditions, condition)
+	}
 
-		status := owner.GetStatus()
-		if status.Conditions == nil {
-			status.Conditions = new([]meta_v1.Condition)
-		}
-
-		for _, condition := range conditionGetter(obj) {
-			meta.SetStatusCondition(status.Conditions, condition)
-		}
-
-		return nil
-	})
+	return nil
 }
 
 func DeleteIfExists(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter) Action {
-	return DoFunc(func(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
-		log := logf.FromContext(ctx)
-		log.Info(fmt.Sprintf("DeleteIfExists %s", liberator_scheme.TypeName(obj)))
-
-		err := c.Delete(ctx, obj)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-
-		status := owner.GetStatus()
-		if status.Conditions == nil {
-			status.Conditions = new([]meta_v1.Condition)
-		}
-
-		for _, condition := range conditionGetter(obj) {
-			meta.SetStatusCondition(status.Conditions, condition)
-		}
-
-		return nil
-	})
+	return &deleteIfExists{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+		},
+	}
 }
 
 func copyMeta(dst, src runtime.Object) error {

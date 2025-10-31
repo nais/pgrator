@@ -227,7 +227,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(s)
 }
 
-func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, obj T, actions []action.Action) ([]action.Action, error) {
+func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
 	relevantTypes := make([]client.Object, 0)
 	relevantTypes = append(relevantTypes, s.reconciler.OwnedTypes()...)
 	relevantTypes = append(relevantTypes, s.reconciler.AdditionalTypes()...)
@@ -252,7 +252,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, obj T, acti
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
 	annotation := fmt.Sprintf("%s/owner", s.reconciler.Name())
-	annotationValue := fmt.Sprintf("%s:%s", obj.GetNamespace(), obj.GetName())
+	annotationValue := fmt.Sprintf("%s:%s", owner.GetNamespace(), owner.GetName())
 	allResources := make([]client.Object, 0)
 	for _, t := range listTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
@@ -277,7 +277,27 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, obj T, acti
 	}
 
 	// Filter resources referenced by already existing actions
+	keep := func(existing client.Object) bool {
+		for _, a := range actions {
+			obj := a.GetObject()
+			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
+				if obj.GetName() == existing.GetName() {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	unreferenced := make([]client.Object, 0)
+	for _, existing := range allResources {
+		if !keep(existing) {
+			unreferenced = append(unreferenced, existing)
+		}
+	}
 	// Add DeleteIfExists action for remainder
+	for _, existing := range unreferenced {
+		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object) []meta_v1.Condition { return nil }))
+	}
 
 	return actions, nil
 }
