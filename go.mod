@@ -7,7 +7,7 @@ require (
 	github.com/nais/liberator v0.0.0-20251028172407-f2f523199f43
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.86.1
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.86.2
 	github.com/sethvargo/go-envconfig v1.3.0
 	github.com/zalando/postgres-operator v1.15.0
 	golang.org/x/net v0.46.0
