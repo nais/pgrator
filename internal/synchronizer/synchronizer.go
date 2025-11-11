@@ -10,12 +10,14 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	core_v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,16 +34,18 @@ type Synchronizer[T object.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
+	recorder   events.EventRecorder
 
 	ownerAnnotationKey string
 	relevantListTypes  map[schema.GroupVersionKind]reflect.Type
 }
 
-func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P]) *Synchronizer[T, P] {
+func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.EventRecorder) *Synchronizer[T, P] {
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
 		reconciler: r,
+		recorder:   recorder,
 
 		ownerAnnotationKey: fmt.Sprintf("%s/owner", r.Name()),
 		relevantListTypes:  findRelevantListTypes(r, scheme),
@@ -142,6 +146,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			finalizerFunc = controllerutil.RemoveFinalizer
 		}
 	} else {
+
+		if s.recorder != nil {
+			s.recorder.Eventf(obj, nil, core_v1.EventTypeNormal, "Processing", "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
+		}
+
 		status.ReconcilePhase = "Updating"
 		if err = updateStatus(); err != nil {
 			if apierrors.IsConflict(err) {
@@ -188,6 +197,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			logger.Error(err, "failed to update finalizer")
 			return ctrl.Result{}, err
 		}
+	}
+
+	if s.recorder != nil {
+		s.recorder.Eventf(obj, nil, core_v1.EventTypeNormal, "Synchronized", "Sync", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
 	}
 
 	status.ReconcilePhase = "Completed"
