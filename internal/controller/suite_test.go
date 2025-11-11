@@ -19,6 +19,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	k8sevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -34,6 +35,7 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
+	recorder  k8sevents.EventRecorder
 )
 
 func TestControllers(t *testing.T) {

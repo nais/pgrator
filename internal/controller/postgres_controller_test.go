@@ -61,7 +61,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig})
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig}, recorder)
 
 			By("creating the postgres namespace")
 			ensureNamespaceExists(postgresNamespace)
