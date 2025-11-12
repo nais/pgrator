@@ -352,7 +352,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 func (s *Synchronizer[T, P]) recordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
 	if s.recorder != nil {
 		msg := fmt.Sprintf(messageFmt, args...)
-		s.recorder.Eventf(obj, nil, eventType, reason, reason, "[%s] %s", obj.GetCorrelationId(), msg)
+		s.recorder.Eventf(obj, nil, eventType, reason, "Reconcile", "[%s] %s", obj.GetCorrelationId(), msg)
 	}
 }
 
