@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,13 +34,13 @@ type Synchronizer[T object.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
-	recorder   events.EventRecorder
+	recorder   record.EventRecorder
 
 	ownerAnnotationKey string
 	relevantListTypes  map[schema.GroupVersionKind]reflect.Type
 }
 
-func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.EventRecorder) *Synchronizer[T, P] {
+func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder record.EventRecorder) *Synchronizer[T, P] {
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
@@ -352,13 +352,13 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 func (s *Synchronizer[T, P]) recordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
 	if s.recorder != nil {
 		msg := fmt.Sprintf(messageFmt, args...)
-		s.recorder.Eventf(obj, nil, eventType, reason, "Reconcile", "[%s] %s", obj.GetCorrelationId(), msg)
+		s.recorder.Eventf(obj, eventType, reason, "[%s] %s", obj.GetCorrelationId(), msg)
 	}
 }
 
 func (s *Synchronizer[T, P]) recordErrorEvent(obj object.NaisObject, phase string, err error) {
 	if s.recorder != nil {
-		s.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "Error", "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		s.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "Error", "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }
 

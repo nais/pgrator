@@ -16,10 +16,8 @@ import (
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -97,15 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	kubeClientSet, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		setupLog.Error(err, "unable to create kubernetes clientset for events")
-		os.Exit(1)
-	}
-	eb := k8sevents.NewEventBroadcasterAdapter(kubeClientSet)
-	// Run broadcaster for the lifetime of the process; no explicit shutdown
-	eb.StartRecordingToSink(make(chan struct{}))
-	recorder := eb.NewRecorder("pgrator")
+	recorder := mgr.GetEventRecorderFor("pgrator")
 
 	reconciler := &controller.PostgresReconciler{
 		Config: cfg,

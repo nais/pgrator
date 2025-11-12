@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -284,7 +284,7 @@ func ensureNamespaceExists(name string) {
 	}
 }
 
-func drainRecorderEvents(recorder *events.FakeRecorder) string {
+func drainRecorderEvents(recorder *record.FakeRecorder) string {
 	var ev []string
 	for {
 		select {

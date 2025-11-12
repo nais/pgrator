@@ -196,6 +196,10 @@ func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionG
 }
 
 func AllNoOp(actions []Action) bool {
+	if len(actions) == 0 {
+		// should never happen, if logic changes, we want to know about it
+		return false
+	}
 	for _, a := range actions {
 		if _, ok := a.(*noOp); !ok {
 			return false
