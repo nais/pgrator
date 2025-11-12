@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	iam_google_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -48,6 +50,11 @@ var (
 		Name:      undeletableName,
 		Namespace: postgresNamespace,
 	}
+
+	toLongNameClusterKey = types.NamespacedName{
+		Name:      strings.Repeat("a", 51),
+		Namespace: postgresNamespace,
+	}
 )
 
 var _ = Describe("Postgres Controller", func() {
@@ -74,6 +81,9 @@ var _ = Describe("Postgres Controller", func() {
 
 			By("creating an undeletable resource for the Kind Postgres")
 			ensurePostgresExists(undeletableResourceKey, false)
+
+			By("too long name resource for the Kind Postgres")
+			ensurePostgresExists(toLongNameClusterKey, false)
 		})
 
 		When("the resource is created", func() {
@@ -108,6 +118,18 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
 
+				By("Checking emitted events during creation")
+				events := drainRecorderEvents(recorder)
+				Expect(events).To(ContainSubstring("Reconciling"))
+				Expect(events).To(ContainSubstring("Preparing"))
+				Expect(events).To(ContainSubstring("Updating"))
+				Expect(events).To(ContainSubstring("DetectingUnreferenced"))
+				Expect(events).To(ContainSubstring("PerformingActions"))
+				Expect(events).To(ContainSubstring("Synchronized"))
+
+				Expect(events).NotTo(ContainSubstring("Failed"))
+				Expect(events).NotTo(ContainSubstring("Deleting"))
+
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
@@ -126,6 +148,11 @@ var _ = Describe("Postgres Controller", func() {
 
 				By("Reconcile the deleted resource")
 				ensureReconciled(deletableResourceKey, controllerReconciler)
+
+				By("Checking emitted events during deletion")
+				events := drainRecorderEvents(recorder)
+				Expect(events).To(ContainSubstring("Deleting"))
+				Expect(events).NotTo(ContainSubstring("SkippingDelete"))
 
 				By("Checking that the resource is deleted")
 				test := &data_nais_io_v1.Postgres{}
@@ -182,8 +209,29 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
 
+				By("Checking events for undeletable resource")
+				events := drainRecorderEvents(recorder)
+				Expect(events).To(ContainSubstring("SkippingDelete"))
+				Expect(events).NotTo(ContainSubstring("Deleting"))
+
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
+			})
+		})
+
+		When("reconciliation fails due to name length", func() {
+			It("should emit a warning event when cluster name exceeds maximum length", func() {
+
+				By("reconciling the too long named resource")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: toLongNameClusterKey,
+				})
+				Expect(err).To(HaveOccurred())
+
+				By("checking that a Warning event was emitted")
+				events := drainRecorderEvents(recorder)
+				Expect(events).To(ContainSubstring("PerformActionsFailed"))
+				Expect(events).NotTo(ContainSubstring("Synchronized"))
 			})
 		})
 	})
@@ -233,5 +281,17 @@ func ensureNamespaceExists(name string) {
 			},
 		}
 		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+	}
+}
+
+func drainRecorderEvents(recorder *events.FakeRecorder) string {
+	var ev []string
+	for {
+		select {
+		case e := <-recorder.Events:
+			ev = append(ev, e)
+		default:
+			return strings.Join(ev, "\n")
+		}
 	}
 }

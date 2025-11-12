@@ -111,6 +111,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	var actions []action.Action
 	var result ctrl.Result
+	s.recordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
 
 	status.ReconcilePhase = "Preparing"
 	if err = updateStatus(); err != nil {
@@ -119,6 +120,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
+
+	s.recordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
+
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
@@ -131,6 +135,22 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizerFunc := controllerutil.AddFinalizer
 	if deletionTimestamp != nil {
 		if len(finalizers) > 0 && finalizers[0] == finalizer {
+			actions, result, err = s.reconciler.Delete(obj)
+			if err != nil {
+				logger.Error(err, "failed to calculate delete actions")
+				s.recordErrorEvent(obj, "Delete", err)
+				return result, err
+			}
+
+			// If all actions are NoOp, skip deletion
+			// We are not interested in cleaning up resources if deletion is not allowed
+			// Then no further action is needed, until AllowDeletion is set to true and reconciliation is re-triggered
+			if action.AllNoOp(actions) {
+				logger.Info("Skipping deletion because AllowDeletion=false", "name", req.NamespacedName)
+				s.recordEvent(obj, core_v1.EventTypeNormal, "SkippingDelete", "Skipping deletion for %s/%s because AllowDeletion=false", obj.GetNamespace(), obj.GetName())
+				return result, nil
+			}
+
 			status.ReconcilePhase = "Deleting"
 			if err = updateStatus(); err != nil {
 				if apierrors.IsConflict(err) {
@@ -138,18 +158,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				}
 				return ctrl.Result{}, err
 			}
-			actions, result, err = s.reconciler.Delete(obj)
-			if err != nil {
-				logger.Error(err, "failed to calculate delete actions")
-				return result, err
-			}
+
+			s.recordEvent(obj, core_v1.EventTypeNormal, "Deleting", "Deleting resources")
 			finalizerFunc = controllerutil.RemoveFinalizer
 		}
 	} else {
-
-		if s.recorder != nil {
-			s.recorder.Eventf(obj, nil, core_v1.EventTypeNormal, "Processing", "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
-		}
 
 		status.ReconcilePhase = "Updating"
 		if err = updateStatus(); err != nil {
@@ -158,9 +171,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 			return ctrl.Result{}, err
 		}
+		s.recordEvent(obj, core_v1.EventTypeNormal, "Updating", "Reconciling current state")
+
 		actions, result, err = s.reconciler.Update(obj, prep)
 		if err != nil {
 			logger.Error(err, "failed to calculate update actions")
+			s.recordErrorEvent(obj, "Update", err)
 			return result, err
 		}
 	}
@@ -172,9 +188,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
+	s.recordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
+
 	actions, err = s.DetectUnreferenced(ctx, obj, actions)
 	if err != nil {
 		logger.Error(err, "unable to detect unreferenced resources")
+		s.recordErrorEvent(obj, "DetectUnreferenced", err)
 		return ctrl.Result{}, err
 	}
 
@@ -185,9 +204,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
+	s.recordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
+
 	result, err = s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
+		s.recordErrorEvent(obj, "PerformActions", err)
 		return result, err
 	}
 
@@ -195,13 +217,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err = s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update finalizer")
+			s.recordErrorEvent(obj, "FinalizerUpdate", err)
 			return ctrl.Result{}, err
 		}
 	}
 
-	if s.recorder != nil {
-		s.recorder.Eventf(obj, nil, core_v1.EventTypeNormal, "Synchronized", "Sync", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
-	}
+	s.recordEvent(obj, core_v1.EventTypeNormal, "Synchronized", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
 
 	status.ReconcilePhase = "Completed"
 	return result, nil
@@ -326,6 +347,19 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	}
 
 	return actions, nil
+}
+
+func (s *Synchronizer[T, P]) recordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
+	if s.recorder != nil {
+		msg := fmt.Sprintf(messageFmt, args...)
+		s.recorder.Eventf(obj, nil, eventType, reason, reason, "[%s] %s", obj.GetCorrelationId(), msg)
+	}
+}
+
+func (s *Synchronizer[T, P]) recordErrorEvent(obj object.NaisObject, phase string, err error) {
+	if s.recorder != nil {
+		s.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "Error", "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
+	}
 }
 
 type GenerationChangedPredicate struct {

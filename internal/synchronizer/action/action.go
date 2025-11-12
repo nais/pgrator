@@ -195,6 +195,15 @@ func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionG
 	}
 }
 
+func AllNoOp(actions []Action) bool {
+	for _, a := range actions {
+		if _, ok := a.(*noOp); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func copyMeta(dst, src runtime.Object) error {
 	srcacc, err := meta.Accessor(src)
 	if err != nil {

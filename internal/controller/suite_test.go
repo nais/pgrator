@@ -35,7 +35,7 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
-	recorder  k8sevents.EventRecorder
+	recorder  *k8sevents.FakeRecorder
 )
 
 func TestControllers(t *testing.T) {
@@ -85,6 +85,8 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+	recorder = k8sevents.NewFakeRecorder(100)
+	Expect(recorder).NotTo(BeNil())
 })
 
 var _ = AfterSuite(func() {
