@@ -82,7 +82,7 @@ var _ = Describe("Postgres Controller", func() {
 			By("creating an undeletable resource for the Kind Postgres")
 			ensurePostgresExists(undeletableResourceKey, false)
 
-			By("too long name resource for the Kind Postgres")
+			By("Creating a resource with a name that exceeds maximum length for the Kind Postgres")
 			ensurePostgresExists(toLongNameClusterKey, false)
 		})
 
