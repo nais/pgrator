@@ -99,7 +99,7 @@ func main() {
 
 	kubeClientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		setupLog.Error(err, "unable to create kubernetes clientset for events: %w", err)
+		setupLog.Error(err, "unable to create kubernetes clientset for events")
 		os.Exit(1)
 	}
 	eb := k8sevents.NewEventBroadcasterAdapter(kubeClientSet)
