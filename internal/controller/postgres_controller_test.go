@@ -51,7 +51,7 @@ var (
 		Namespace: postgresNamespace,
 	}
 
-	toLongNameClusterKey = types.NamespacedName{
+	tooLongNameClusterKey = types.NamespacedName{
 		Name:      strings.Repeat("a", 51),
 		Namespace: postgresNamespace,
 	}
@@ -83,7 +83,7 @@ var _ = Describe("Postgres Controller", func() {
 			ensurePostgresExists(undeletableResourceKey, false)
 
 			By("Creating a resource with a name that exceeds maximum length for the Kind Postgres")
-			ensurePostgresExists(toLongNameClusterKey, false)
+			ensurePostgresExists(tooLongNameClusterKey, false)
 		})
 
 		When("the resource is created", func() {
@@ -224,7 +224,7 @@ var _ = Describe("Postgres Controller", func() {
 
 				By("reconciling the too long named resource")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: toLongNameClusterKey,
+					NamespacedName: tooLongNameClusterKey,
 				})
 				Expect(err).To(HaveOccurred())
 

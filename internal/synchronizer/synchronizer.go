@@ -358,7 +358,7 @@ func (s *Synchronizer[T, P]) recordEvent(obj object.NaisObject, eventType string
 
 func (s *Synchronizer[T, P]) recordErrorEvent(obj object.NaisObject, phase string, err error) {
 	if s.recorder != nil {
-		s.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "Error", "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		s.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }
 

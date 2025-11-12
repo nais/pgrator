@@ -80,8 +80,7 @@ func main() {
 		metricsServerOptions.KeyName = "tls.key"
 	}
 
-	restConfig := ctrl.GetConfigOrDie()
-	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: ":8081",
