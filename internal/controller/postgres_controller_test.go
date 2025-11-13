@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
@@ -23,11 +24,12 @@ import (
 )
 
 const (
-	resourceNamespace        = "default"
-	postgresNamespace        = "pg-default"
-	deletableName            = "deletable-resource"
-	undeletableName          = "undeletable-resource"
-	serviceAccountsNamespace = "serviceaccounts"
+	resourceNamespace         = "default"
+	postgresNamespace         = "pg-default"
+	deletableName             = "deletable-resource"
+	undeletableName           = "undeletable-resource"
+	serviceAccountsNamespace  = "serviceaccounts"
+	postgresNamespaceNotFound = "pg-notfound"
 )
 
 var (
@@ -51,8 +53,8 @@ var (
 		Namespace: postgresNamespace,
 	}
 
-	tooLongNameClusterKey = types.NamespacedName{
-		Name:      strings.Repeat("a", 51),
+	namespaceNotFound = types.NamespacedName{
+		Name:      postgresNamespaceNotFound,
 		Namespace: postgresNamespace,
 	}
 )
@@ -82,8 +84,8 @@ var _ = Describe("Postgres Controller", func() {
 			By("creating an undeletable resource for the Kind Postgres")
 			ensurePostgresExists(undeletableResourceKey, false)
 
-			By("Creating a resource with a name that exceeds maximum length for the Kind Postgres")
-			ensurePostgresExists(tooLongNameClusterKey, false)
+			By("Creating a resource with namespace not found of Kind Postgres")
+			ensurePostgresExists(namespaceNotFound, false)
 		})
 
 		When("the resource is created", func() {
@@ -219,12 +221,12 @@ var _ = Describe("Postgres Controller", func() {
 			})
 		})
 
-		When("reconciliation fails due to name length", func() {
-			It("should emit a warning event when cluster name exceeds maximum length", func() {
+		When("reconciliation fails due to invalid configuration", func() {
+			It("should emit a Warning event", func() {
 
-				By("reconciling the too long named resource")
+				By("reconciling a resource with namespace not found error")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: tooLongNameClusterKey,
+					NamespacedName: namespaceNotFound,
 				})
 				Expect(err).To(HaveOccurred())
 
@@ -289,6 +291,7 @@ func drainRecorderEvents(recorder *record.FakeRecorder) string {
 	for {
 		select {
 		case e := <-recorder.Events:
+			fmt.Println(e)
 			ev = append(ev, e)
 		default:
 			return strings.Join(ev, "\n")
