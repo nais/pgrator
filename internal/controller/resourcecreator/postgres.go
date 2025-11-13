@@ -160,7 +160,10 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 				Extensions:      extensions,
 				SecretNamespace: postgres.GetNamespace(),
 				PreparedSchemas: map[string]acid_zalan_do_v1.PreparedSchema{
-					defaultSchema: {},
+					defaultSchema: {
+						DefaultRoles: ptr.To(false),
+						DefaultUsers: false,
+					},
 				},
 			},
 		},
