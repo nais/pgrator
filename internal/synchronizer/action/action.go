@@ -64,10 +64,10 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 			return err
 		}
 		conditions = a.conditionGetter(a.obj)
-		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s/%s", a.obj.GetNamespace(), a.obj.GetName())
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s %s", describeObj(a.obj))
 	} else {
 		conditions = a.conditionGetter(existing.(client.Object))
-		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s/%s already exists", a.obj.GetNamespace(), a.obj.GetName())
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s already exists", describeObj(a.obj))
 	}
 
 	status := a.owner.GetStatus()
@@ -115,7 +115,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		if err = c.Create(ctx, a.obj); err != nil {
 			return err
 		}
-		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s/%s", a.obj.GetNamespace(), a.obj.GetName())
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
 		return nil
 	}
 
@@ -126,7 +126,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 	if err = c.Update(ctx, a.obj); err != nil {
 		return err
 	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s/%s", a.obj.GetNamespace(), a.obj.GetName())
+	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
 	status := a.owner.GetStatus()
 	if status.Conditions == nil {
@@ -164,7 +164,7 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 		return err
 	}
 
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s/%s", a.obj.GetNamespace(), a.obj.GetName())
+	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
 
 	status := a.owner.GetStatus()
 	if status.Conditions == nil {
@@ -223,4 +223,12 @@ func copyMeta(dst, src runtime.Object) error {
 	dstacc.SetSelfLink(srcacc.GetSelfLink())
 
 	return err
+}
+
+func describeObj(obj client.Object) string {
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	namespace := obj.GetNamespace()
+	name := obj.GetName()
+
+	return fmt.Sprintf("%s %s/%s", kind, namespace, name)
 }
