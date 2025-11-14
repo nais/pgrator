@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	core_v1 "k8s.io/api/core/v1"
@@ -17,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,13 +34,13 @@ type Synchronizer[T object.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
-	recorder   record.EventRecorder
+	recorder   events.Recorder
 
 	ownerAnnotationKey string
 	relevantListTypes  map[schema.GroupVersionKind]reflect.Type
 }
 
-func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder record.EventRecorder) *Synchronizer[T, P] {
+func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder) *Synchronizer[T, P] {
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
@@ -111,7 +111,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	var actions []action.Action
 	var result ctrl.Result
-	s.recordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
 
 	status.ReconcilePhase = "Preparing"
 	if err = updateStatus(); err != nil {
@@ -121,11 +121,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	s.recordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
 
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
+		s.recorder.RecordErrorEvent(obj, "Preparing", err)
 		return result, err
 	}
 
@@ -135,81 +136,68 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizerFunc := controllerutil.AddFinalizer
 	if deletionTimestamp != nil {
 		if len(finalizers) > 0 && finalizers[0] == finalizer {
-			actions, result, err = s.reconciler.Delete(obj)
-			if err != nil {
-				logger.Error(err, "failed to calculate delete actions")
-				s.recordErrorEvent(obj, "Delete", err)
-				return result, err
-			}
-
-			// If all actions are NoOp, skip deletion
-			// We are not interested in cleaning up resources if deletion is not allowed
-			// Then no further action is needed, until AllowDeletion is set to true and reconciliation is re-triggered
-			if action.AllNoOp(actions) {
-				logger.Info("Skipping deletion because AllowDeletion=false", "name", req.NamespacedName)
-				s.recordEvent(obj, core_v1.EventTypeNormal, "SkippingDelete", "Skipping deletion for %s/%s because AllowDeletion=false", obj.GetNamespace(), obj.GetName())
-				return result, nil
-			}
-
-			status.ReconcilePhase = "Deleting"
+			status.ReconcilePhase = "EvaluatingDeletion"
+			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
 			if err = updateStatus(); err != nil {
 				if apierrors.IsConflict(err) {
 					return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 				}
 				return ctrl.Result{}, err
 			}
-
-			s.recordEvent(obj, core_v1.EventTypeNormal, "Deleting", "Deleting resources")
+			actions, result, err = s.reconciler.Delete(obj)
+			if err != nil {
+				logger.Error(err, "failed to calculate delete actions")
+				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
+				return result, err
+			}
 			finalizerFunc = controllerutil.RemoveFinalizer
 		}
 	} else {
-
-		status.ReconcilePhase = "Updating"
+		status.ReconcilePhase = "EvaluatingUpdate"
+		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingUpdate", "Evaluating update of resources")
 		if err = updateStatus(); err != nil {
 			if apierrors.IsConflict(err) {
 				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 			}
 			return ctrl.Result{}, err
 		}
-		s.recordEvent(obj, core_v1.EventTypeNormal, "Updating", "Reconciling current state")
-
 		actions, result, err = s.reconciler.Update(obj, prep)
 		if err != nil {
 			logger.Error(err, "failed to calculate update actions")
-			s.recordErrorEvent(obj, "Update", err)
+			s.recorder.RecordErrorEvent(obj, "EvaluatingUpdate", err)
 			return result, err
 		}
 	}
 
 	status.ReconcilePhase = "DetectingUnreferenced"
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
 	}
-	s.recordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 
 	actions, err = s.DetectUnreferenced(ctx, obj, actions)
 	if err != nil {
 		logger.Error(err, "unable to detect unreferenced resources")
-		s.recordErrorEvent(obj, "DetectUnreferenced", err)
+		s.recorder.RecordErrorEvent(obj, "DetectUnreferenced", err)
 		return ctrl.Result{}, err
 	}
 
 	status.ReconcilePhase = "PerformingActions"
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
 	}
-	s.recordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
 
 	result, err = s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
-		s.recordErrorEvent(obj, "PerformActions", err)
+		s.recorder.RecordErrorEvent(obj, "PerformActions", err)
 		return result, err
 	}
 
@@ -217,14 +205,13 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err = s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update finalizer")
-			s.recordErrorEvent(obj, "FinalizerUpdate", err)
+			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
 			return ctrl.Result{}, err
 		}
 	}
 
-	s.recordEvent(obj, core_v1.EventTypeNormal, "Synchronized", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
-
 	status.ReconcilePhase = "Completed"
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Completed", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
 	return result, nil
 }
 
@@ -343,23 +330,10 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	}
 	// Add DeleteIfExists action for remainder
 	for _, existing := range unreferenced {
-		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object) []meta_v1.Condition { return nil }))
+		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object) []meta_v1.Condition { return nil }, s.recorder))
 	}
 
 	return actions, nil
-}
-
-func (s *Synchronizer[T, P]) recordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
-	if s.recorder != nil {
-		msg := fmt.Sprintf(messageFmt, args...)
-		s.recorder.Eventf(obj, eventType, reason, "[%s] %s", obj.GetCorrelationId(), msg)
-	}
-}
-
-func (s *Synchronizer[T, P]) recordErrorEvent(obj object.NaisObject, phase string, err error) {
-	if s.recorder != nil {
-		s.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
-	}
 }
 
 type GenerationChangedPredicate struct {

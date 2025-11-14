@@ -12,6 +12,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -28,7 +29,8 @@ const (
 
 // PostgresReconciler reconciles a Postgres object
 type PostgresReconciler struct {
-	Config *config.Config
+	Config   *config.Config
+	Recorder events.Recorder
 }
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
@@ -83,19 +85,19 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	meta_v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter))
+	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter, r.Recorder))
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter))
+	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	iam := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
-	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter))
+	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
 		meta_v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter))
+		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter, r.Recorder))
 	}
 
 	return actions, ctrl.Result{}, nil
@@ -216,14 +218,14 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 	var actions []action.Action
 
 	cluster := resourcecreator.MinimalCluster(obj, pgClusterName, pgNamespace)
-	actions = append(actions, actionFunc(cluster, obj, postgresqlConditionGetter))
+	actions = append(actions, actionFunc(cluster, obj, postgresqlConditionGetter, r.Recorder))
 
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
-	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter))
+	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
-		actions = append(actions, actionFunc(prometheusRule, obj, existsConditionGetter))
+		actions = append(actions, actionFunc(prometheusRule, obj, existsConditionGetter, r.Recorder))
 	}
 
 	return actions, ctrl.Result{}, nil

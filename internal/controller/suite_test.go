@@ -11,6 +11,7 @@ import (
 
 	"github.com/nais/liberator/pkg/crd"
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
+	"github.com/nais/pgrator/internal/synchronizer/events"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -35,7 +36,7 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
-	recorder  *record.FakeRecorder
+	recorder  events.Recorder
 )
 
 func TestControllers(t *testing.T) {
@@ -85,7 +86,7 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
-	recorder = record.NewFakeRecorder(100)
+	recorder = events.NewRecorder(record.NewFakeRecorder(100))
 	Expect(recorder).NotTo(BeNil())
 })
 
