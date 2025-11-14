@@ -11,6 +11,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/events"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -94,10 +95,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	recorder := events.NewRecorder(mgr.GetEventRecorderFor("pgrator"))
 	reconciler := &controller.PostgresReconciler{
-		Config: cfg,
+		Config:   cfg,
+		Recorder: recorder,
 	}
-	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), reconciler)
+
+	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), reconciler, recorder)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
 		os.Exit(1)
