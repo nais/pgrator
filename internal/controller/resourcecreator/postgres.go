@@ -139,6 +139,24 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 			},
 			SynchronousMode:       true,
 			SynchronousModeStrict: true,
+			PgHba: []string{
+				// Implicitly trust unix-socket connections from inside the pod
+				"local     all           all                        trust",
+				// Only members of zalandos (human users) should be allowed from localhost (aka kubectl port-forward)
+				"hostssl   all           +zalandos  127.0.0.1/32    pam",
+				"host      all           all        127.0.0.1/32    reject",
+				"hostssl   all           +zalandos  ::1/128         pam",
+				"host      all           all        ::1/128         reject",
+				// Replication can use unix-socket or SSL connection
+				"local     replication   standby                    trust",
+				"hostssl   replication   standby    all             md5",
+				// Reject any connection not using SSL
+				"hostnossl all           all        all             reject",
+				// Reject human users connecting from elsewhere
+				"hostssl   all           +zalandos  all             reject",
+				// Accept SSL connections from anywhere not previously rejected
+				"hostssl   all           all        all             md5",
+			},
 		},
 		Resources: &acid_zalan_do_v1.Resources{
 			ResourceRequests: acid_zalan_do_v1.ResourceDescription{
