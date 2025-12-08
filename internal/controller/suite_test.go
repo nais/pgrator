@@ -11,6 +11,8 @@ import (
 
 	"github.com/nais/liberator/pkg/crd"
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
+	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +43,17 @@ var (
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	reconcilerConfig := config.Config{
+		PrometheusRulesDisabled: true,
+	}
+	reconciler := &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}
+
+	_, filename, _, _ := runtime.Caller(0)
+	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))
+
+	g := golden.NewGolden(t, reconciler, testDataDir)
+	g.DefineTests()
 
 	RunSpecs(t, "Controller Suite")
 }
