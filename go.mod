@@ -5,7 +5,7 @@ go 1.25.3
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/nais/liberator v0.0.0-20251202115816-34a9e8ad9d4b
-	github.com/onsi/ginkgo/v2 v2.27.2
+	github.com/onsi/ginkgo/v2 v2.27.3
 	github.com/onsi/gomega v1.38.3
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.87.0
 	github.com/sethvargo/go-envconfig v1.3.0
