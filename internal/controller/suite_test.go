@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	"github.com/nais/liberator/pkg/crd"
 	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	"github.com/nais/pgrator/internal/config"
@@ -39,6 +40,7 @@ var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	recorder  events.Recorder
+	g         *golden.Golden[*v1.Postgres, PreparedData]
 )
 
 func TestControllers(t *testing.T) {
@@ -52,7 +54,7 @@ func TestControllers(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
 	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))
 
-	g := golden.NewGolden(t, reconciler, testDataDir)
+	g = golden.NewGolden(t, reconciler, testDataDir)
 	g.DefineTests()
 
 	RunSpecs(t, "Controller Suite")
@@ -101,6 +103,9 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient).NotTo(BeNil())
 	recorder = events.NewRecorder(record.NewFakeRecorder(100))
 	Expect(recorder).NotTo(BeNil())
+
+	err = g.ParseData(k8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {

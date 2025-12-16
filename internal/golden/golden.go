@@ -5,59 +5,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
-	"github.com/onsi/gomega/types"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
 
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 )
-
-type Expected struct {
-	Action  string      `json:"action"`
-	Matcher string      `json:"matcher"`
-	Object  interface{} `json:"object"`
-}
-
-var _ types.GomegaMatcher = &Expected{}
-
-func (e *Expected) Match(actual any) (success bool, err error) {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (e *Expected) FailureMessage(actual any) (message string) {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (e *Expected) NegatedFailureMessage(actual any) (message string) {
-	// TODO implement me
-	panic("implement me")
-}
-
-type TestData[T object.NaisObject, P any] struct {
-	// Name of this test case (set from filename)
-	Name string
-
-	// Prepared data to pass to the reconciler under test
-	PreparedData P
-
-	// The actual object to reconcile
-	Object T
-
-	// Use this to match exactly the expected actions.
-	// All actions must match one element in this list if present.
-	ConsistOf []*Expected
-
-	// Use this to match that some expected actions are present.
-	// Additional actions might be present, and will be ignored for this test case.
-	Contains []*Expected
-}
 
 type Golden[T object.NaisObject, P any] struct {
 	reconciler reconciler.Reconciler[T, P]
@@ -99,10 +56,7 @@ func NewGolden[T interface {
 			gomega.Expect(err).NotTo(HaveOccurred())
 		}
 
-		testData.Contains, err = loadExpectedFromDir(gomega, filepath.Join(path, "contains"))
-		gomega.Expect(err).NotTo(HaveOccurred())
-
-		testData.ConsistOf, err = loadExpectedFromDir(gomega, filepath.Join(path, "consists_of"))
+		err = testData.loadExpectedData(path)
 		gomega.Expect(err).NotTo(HaveOccurred())
 
 		testCases = append(testCases, testData)
@@ -114,51 +68,8 @@ func NewGolden[T interface {
 	}
 }
 
-func loadExpectedFromDir(gomega *WithT, path string) ([]*Expected, error) {
-	files, err := os.ReadDir(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	gomega.Expect(err).NotTo(HaveOccurred())
-
-	results := make([]*Expected, 0, len(files))
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		name := file.Name()
-		if !strings.HasSuffix(name, ".yaml") {
-			continue
-		}
-
-		var data []byte
-		data, err = readFile(filepath.Join(path, name))
-		gomega.Expect(err).NotTo(HaveOccurred())
-		expected := &Expected{}
-		err = yaml.Unmarshal(data, expected)
-		gomega.Expect(err).NotTo(HaveOccurred())
-		results = append(results, expected)
-	}
-
-	return results, nil
-}
-
-func unmarshalObject(path string, target interface{}) error {
-	data, err := readFile(path)
-	if err != nil {
-		return err
-	}
-
-	err = yaml.Unmarshal(data, target)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
+// DefineTests creates the golden file tests for this instance of Golden
+// Should be called from the suite_test file before calling `RunSpecs`.
 func (g *Golden[T, P]) DefineTests() {
 	Describe(fmt.Sprintf("Golden tests for %s", g.reconciler.Name()), func() {
 		It("should have tests", func() {
@@ -176,6 +87,31 @@ func (g *Golden[T, P]) DefineTests() {
 			})
 		}
 	})
+}
+
+// ParseData parses the loaded data using the given scheme to look up registered GroupVersionKind types
+// Should be called in a BeforeSuite or BeforeAll closure, after a suitable Scheme has been created.
+func (g *Golden[T, P]) ParseData(scheme *runtime.Scheme) error {
+	for _, testCase := range g.testCases {
+		if err := testCase.parseExpectedData(scheme); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unmarshalObject(path string, target interface{}) error {
+	data, err := readFile(path)
+	if err != nil {
+		return err
+	}
+
+	err = yaml.Unmarshal(data, target)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func readFile(path string) ([]byte, error) {
