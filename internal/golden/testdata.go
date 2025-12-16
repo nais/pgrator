@@ -38,7 +38,7 @@ type TestData[T object.NaisObject, P any] struct {
 
 func (t *TestData[T, P]) parseExpectedData(scheme *runtime.Scheme) error {
 	for _, datum := range t.consistsOfData {
-		expected, err := ParseExpected(scheme, datum)
+		expected, err := ParseExpected(scheme, datum, t.Name)
 		if err != nil {
 			return err
 		}
@@ -47,7 +47,7 @@ func (t *TestData[T, P]) parseExpectedData(scheme *runtime.Scheme) error {
 	}
 
 	for _, datum := range t.containsData {
-		expected, err := ParseExpected(scheme, datum)
+		expected, err := ParseExpected(scheme, datum, t.Name)
 		if err != nil {
 			return err
 		}

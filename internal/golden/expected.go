@@ -1,49 +1,58 @@
 package golden
 
 import (
+	"fmt"
 	"reflect"
 
+	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Expected struct {
 	Action  string         `json:"action"`
 	Matcher string         `json:"matcher"`
 	Object  runtime.Object `json:"object"`
+
+	matcher      types.GomegaMatcher
+	testCaseName string
 }
 
 var _ types.GomegaMatcher = &Expected{}
 
+var matcherMapping = map[string]func(any) types.GomegaMatcher{
+	// TODO: Decide on which matchers makes sense
+	"Equal": gomega.Equal,
+}
+
 func (e *Expected) Match(actual any) (success bool, err error) {
-	return e.makeMatcher().Match(actual)
+	return e.matcher.Match(actual)
 }
 
 func (e *Expected) FailureMessage(actual any) (message string) {
-	return e.makeMatcher().FailureMessage(actual)
+	return e.matcher.FailureMessage(actual)
 }
 
 func (e *Expected) NegatedFailureMessage(actual any) (message string) {
-	return e.makeMatcher().NegatedFailureMessage(actual)
+	return e.matcher.NegatedFailureMessage(actual)
 }
 
-func (e *Expected) makeMatcher() types.GomegaMatcher {
-	return gomega.SatisfyAll(
-		gomega.WithTransform(func(actual any) string {
-			actualType := reflect.TypeOf(actual)
-			actualTypeName := actualType.Name() // TODO: This returns nothing
-			return actualTypeName
-		}, gomega.Equal(e.Action)),
+func (e *Expected) makeMatcher() {
+	objectMatcher, ok := matcherMapping[e.Matcher]
+	if !ok {
+		panic(fmt.Sprintf("Programmer error in test %s: No matcher named %s found in matcherMapping", e.testCaseName, e.Matcher))
+	}
+
+	e.matcher = gomega.SatisfyAll(
+		gomega.WithTransform(getTypeName, gomega.Equal(e.Action)),
+		gomega.WithTransform(getActionObject, objectMatcher(e.Object)),
 	)
 }
 
-func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}) (*Expected, error) {
-	e := &Expected{}
-	e.Matcher = datum["matcher"].(string)
-	e.Action = datum["action"].(string)
-
+func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}, testCaseName string) (*Expected, error) {
 	objectData := datum["object"].(map[string]interface{})
 
 	apiVersion := objectData["apiVersion"]
@@ -63,6 +72,27 @@ func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}) (*Expec
 	if err != nil {
 		return nil, err
 	}
-	e.Object = obj
+
+	e := &Expected{
+		Matcher:      datum["matcher"].(string),
+		Action:       datum["action"].(string),
+		Object:       obj,
+		testCaseName: testCaseName,
+	}
+	e.makeMatcher()
+
 	return e, nil
+}
+
+func getTypeName(actual any) string {
+	t := reflect.TypeOf(actual)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
+}
+
+func getActionObject(actual any) client.Object {
+	a := actual.(action.Action)
+	return a.GetObject()
 }
