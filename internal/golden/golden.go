@@ -3,10 +3,12 @@ package golden
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/nais/pgrator/internal/synchronizer/action"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,6 +21,13 @@ import (
 type Golden[T object.NaisObject, P any] struct {
 	reconciler reconciler.Reconciler[T, P]
 	testCases  []*TestData[T, P]
+}
+
+type compareKey struct {
+	Action    string
+	Kind      string
+	Name      string
+	Namespace string
 }
 
 func NewGolden[T interface {
@@ -72,18 +81,56 @@ func NewGolden[T interface {
 // Should be called from the suite_test file before calling `RunSpecs`.
 func (g *Golden[T, P]) DefineTests() {
 	Describe(fmt.Sprintf("Golden tests for %s", g.reconciler.Name()), func() {
-		It("should have tests", func() {
+		It("should exist", func() {
 			Expect(g.testCases).ToNot(BeEmpty())
 		})
 
 		for _, testCase := range g.testCases {
-			It(testCase.Name, func() {
-				actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData)
-				Expect(err).NotTo(HaveOccurred())
-				if len(testCase.ConsistOf) > 0 {
-					Expect(actions).To(ConsistOf(testCase.ConsistOf))
+			Context(testCase.Name, Ordered, func() {
+				var compareActions map[compareKey]action.Action
+
+				BeforeAll(func() {
+					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData)
+					Expect(err).NotTo(HaveOccurred())
+
+					compareActions = makeCompareMap(actions, makeActionListKey)
+				})
+
+				if len(testCase.consistsOfData) > 0 {
+					When("actions are exactly as specified", func() {
+						It("all expected keys are in the list", func() {
+							consistsOf := makeCompareList(testCase.ConsistOf, func(e *Expected) compareKey {
+								return e.compareKey()
+							})
+							Expect(maps.Keys(compareActions)).To(ConsistOf(consistsOf))
+						})
+
+						It("each action should match expected object", func() {
+							for _, expected := range testCase.ConsistOf {
+								key := expected.compareKey()
+								By(fmt.Sprintf("matching %v", key))
+								Expect(compareActions[key]).To(expected)
+							}
+						})
+					})
+				} else {
+					When("actions contains at least the specified actions", func() {
+						It("all expected keys are in the list", func() {
+							contains := makeCompareList(testCase.Contains, func(e *Expected) compareKey {
+								return e.compareKey()
+							})
+							Expect(maps.Keys(compareActions)).To(ContainElements(contains))
+						})
+
+						It("each action should match expected object", func() {
+							for _, expected := range testCase.Contains {
+								key := expected.compareKey()
+								By(fmt.Sprintf("matching %v", key))
+								Expect(compareActions[key]).To(expected)
+							}
+						})
+					})
 				}
-				Expect(actions).To(ContainElements(testCase.Contains))
 			})
 		}
 	})
@@ -98,6 +145,33 @@ func (g *Golden[T, P]) ParseData(scheme *runtime.Scheme) error {
 		}
 	}
 	return nil
+}
+
+func makeCompareMap[T any](items []T, keyFunc func(T) compareKey) map[compareKey]T {
+	mapping := make(map[compareKey]T, len(items))
+	for _, item := range items {
+		key := keyFunc(item)
+		mapping[key] = item
+	}
+	return mapping
+}
+
+func makeCompareList[T any](items []T, keyFunc func(T) compareKey) []compareKey {
+	list := make([]compareKey, 0, len(items))
+	for _, item := range items {
+		list = append(list, keyFunc(item))
+	}
+	return list
+}
+
+func makeActionListKey(a action.Action) compareKey {
+	obj := a.GetObject()
+	return compareKey{
+		Action:    getTypeName(a),
+		Kind:      obj.GetObjectKind().GroupVersionKind().Kind,
+		Name:      obj.GetName(),
+		Namespace: obj.GetNamespace(),
+	}
 }
 
 func unmarshalObject(path string, target interface{}) error {

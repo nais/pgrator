@@ -13,9 +13,9 @@ import (
 )
 
 type Expected struct {
-	Action  string         `json:"action"`
-	Matcher string         `json:"matcher"`
-	Object  runtime.Object `json:"object"`
+	Action  string        `json:"action"`
+	Matcher string        `json:"matcher"`
+	Object  client.Object `json:"object"`
 
 	matcher      types.GomegaMatcher
 	testCaseName string
@@ -38,6 +38,16 @@ func (e *Expected) FailureMessage(actual any) (message string) {
 
 func (e *Expected) NegatedFailureMessage(actual any) (message string) {
 	return e.matcher.NegatedFailureMessage(actual)
+}
+
+func (e *Expected) compareKey() compareKey {
+	obj := e.Object
+	return compareKey{
+		Action:    e.Action,
+		Kind:      obj.GetObjectKind().GroupVersionKind().Kind,
+		Name:      obj.GetName(),
+		Namespace: obj.GetNamespace(),
+	}
 }
 
 func (e *Expected) makeMatcher() {
@@ -76,7 +86,7 @@ func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}, testCas
 	e := &Expected{
 		Matcher:      datum["matcher"].(string),
 		Action:       datum["action"].(string),
-		Object:       obj,
+		Object:       obj.(client.Object),
 		testCaseName: testCaseName,
 	}
 	e.makeMatcher()
