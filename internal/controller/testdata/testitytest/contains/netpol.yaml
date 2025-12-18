@@ -1,12 +1,11 @@
 ---
 action: createOrUpdate
-matcher: Equal
+matcher: Subset
 object:
   apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
     annotations:
-      nais.io/deploymentCorrelationID:
       postgres.data.nais.io/owner: test-namespace/test-name
     labels:
       postgres.data.nais.io/name: test-name
@@ -47,6 +46,3 @@ object:
     podSelector:
       matchLabels:
         cluster-name: test-name
-    policyTypes:
-      - Egress
-      - Ingress

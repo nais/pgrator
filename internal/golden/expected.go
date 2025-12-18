@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/nais/pgrator/internal/golden/matchers"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -22,11 +23,6 @@ type Expected struct {
 }
 
 var _ types.GomegaMatcher = &Expected{}
-
-var matcherMapping = map[string]func(any) types.GomegaMatcher{
-	// TODO: Decide on which matchers makes sense
-	"Equal": gomega.Equal,
-}
 
 func (e *Expected) Match(actual any) (success bool, err error) {
 	return e.matcher.Match(actual)
@@ -51,9 +47,9 @@ func (e *Expected) compareKey() compareKey {
 }
 
 func (e *Expected) makeMatcher() {
-	objectMatcher, ok := matcherMapping[e.Matcher]
-	if !ok {
-		panic(fmt.Sprintf("Programmer error in test %s: No matcher named %s found in matcherMapping", e.testCaseName, e.Matcher))
+	objectMatcher, err := matchers.MakeMatcher(matchers.MatchType(e.Matcher))
+	if err != nil {
+		panic(fmt.Sprintf("Programmer error in test %s: %v", e.testCaseName, err))
 	}
 
 	e.matcher = gomega.SatisfyAll(
@@ -96,7 +92,7 @@ func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}, testCas
 
 func getTypeName(actual any) string {
 	t := reflect.TypeOf(actual)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t.Name()
