@@ -51,18 +51,14 @@ func acceptMissingFromExpected(path cmp.Path) bool {
 
 func stringRegexMatcher(a, b string) bool {
 	var pattern *regexp.Regexp
-	var toMatch string
 	if strings.HasPrefix(a, RegexpMarker) {
-		pattern = regexp.MustCompile(a[len(RegexpMarker):])
-		toMatch = b
+		pattern = regexp.MustCompile(strings.TrimSpace(strings.TrimPrefix(a, RegexpMarker)))
+		return pattern.MatchString(b)
 	} else if strings.HasPrefix(b, RegexpMarker) {
-		pattern = regexp.MustCompile(b[len(RegexpMarker):])
-		toMatch = a
-	} else {
-		pattern = regexp.MustCompile(a)
-		toMatch = b
+		pattern = regexp.MustCompile(strings.TrimSpace(strings.TrimPrefix(b, RegexpMarker)))
+		return pattern.MatchString(a)
 	}
-	return pattern.MatchString(toMatch)
+	return a == b
 }
 
 func MakeMatcher(matchType MatchType) (func(any) types.GomegaMatcher, error) {
