@@ -151,6 +151,9 @@ func makeCompareMap[T any](items []T, keyFunc func(T) compareKey) map[compareKey
 	mapping := make(map[compareKey]T, len(items))
 	for _, item := range items {
 		key := keyFunc(item)
+		if _, exists := mapping[key]; exists {
+			panic(fmt.Sprintf("duplicate compareKey in makeCompareMap: %+v", key))
+		}
 		mapping[key] = item
 	}
 	return mapping
