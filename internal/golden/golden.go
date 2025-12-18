@@ -196,5 +196,11 @@ func readFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		err = f.Close()
+		if err != nil {
+			panic(fmt.Sprintf("Error closing file: %v", err))
+		}
+	}()
 	return io.ReadAll(f)
 }
