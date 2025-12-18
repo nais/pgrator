@@ -1,0 +1,48 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    annotations:
+      postgres.data.nais.io/owner: test-namespace/test-name
+    labels:
+      postgres.data.nais.io/name: test-name
+    name: test-name
+    namespace: pg-test-namespace
+  spec:
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                cluster-name: test-name
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                cluster-name: test-name
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: postgres-operator
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: test-namespace
+            podSelector:
+              matchLabels:
+                cluster-name: test-name
+    podSelector:
+      matchLabels:
+        cluster-name: test-name
