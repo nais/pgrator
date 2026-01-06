@@ -26,6 +26,7 @@ func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName str
 
 func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *monitoring_v1.PrometheusRule {
 	prometheusRule := MinimalPrometheusRule(postgres, pgClusterName)
+	alertNamespace := prometheusRule.GetNamespace()
 
 	prometheusRule.Spec = monitoring_v1.PrometheusRuleSpec{
 		Groups: []monitoring_v1.RuleGroup{
@@ -49,7 +50,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 							"> 0.9")),
 						For: ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
-							"severity": "warning",
+							"severity":  "warning",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL memory usage is high",
@@ -74,7 +76,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 							"> 0.9")),
 						For: ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
-							"severity": "warning",
+							"severity":  "warning",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL CPU usage is high",
@@ -96,7 +99,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 							"> 0.99")),
 						For: ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
-							"severity": "critical",
+							"severity":  "critical",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL Disk is full",
@@ -118,7 +122,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 							"> 0.9")),
 						For: ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
-							"severity": "warning",
+							"severity":  "warning",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL Disk usage is high",
@@ -131,7 +136,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 						Expr:  intstr.FromString(fmt.Sprintf("sum(up{namespace=\"%s\", pod=~\"%s-[0-9]\"}) < 1", pgNamespace, pgClusterName)),
 						For:   ptr.To(monitoring_v1.Duration("5m")),
 						Labels: map[string]string{
-							"severity": "critical",
+							"severity":  "critical",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL cluster is down",
@@ -144,7 +150,8 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 						Expr:  intstr.FromString(fmt.Sprintf("sum(up{namespace=\"%s\", pod=~\"%s-[0-9]\"}) < 2", pgNamespace, pgClusterName)),
 						For:   ptr.To(monitoring_v1.Duration("10m")),
 						Labels: map[string]string{
-							"severity": "warning",
+							"severity":  "warning",
+							"namespace": alertNamespace,
 						},
 						Annotations: map[string]string{
 							"summary":     "PostgreSQL cluster is missing pods",
