@@ -204,7 +204,6 @@ func enforceMinimum2GiDisk(diskSize resource.Quantity) *resource.Quantity {
 func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {
 	postgresParameters := map[string]string{
 		"log_destination":          "jsonlog",
-		"log_filename":             "postgresql.log",
 		"shared_preload_libraries": sharedPreloadLibraries,
 		"pg_stat_statements.track": "all",
 		"track_io_timing":          "on",
