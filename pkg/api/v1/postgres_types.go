@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"github.com/nais/pgrator/pkg/api/annotation"
+	"github.com/nais/pgrator/pkg/annotation"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
