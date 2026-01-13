@@ -3,17 +3,17 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
-	"github.com/nais/liberator/pkg/namegen"
-	liberator_strings "github.com/nais/liberator/pkg/strings"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	"github.com/nais/pgrator/internal/namegen"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	networking_v1 "k8s.io/api/networking/v1"
@@ -35,8 +35,7 @@ type PostgresReconciler struct {
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
-type PreparedData struct {
-}
+type PreparedData struct{}
 
 func (r *PostgresReconciler) Name() string {
 	return "postgres.data.nais.io"
@@ -107,7 +106,7 @@ func iamPolicyMemberConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
 
-	statusCondition := meta_v1.Condition{}
+	var statusCondition meta_v1.Condition
 	if len(iamPolicyMember.Status.Conditions) > 0 {
 		statusCondition = iamPolicyMember.Status.Conditions[0]
 	}
@@ -119,11 +118,11 @@ func iamPolicyMemberConditionGetter(obj client.Object) []meta_v1.Condition {
 	conditions := []conditionConfig{
 		{
 			Type:   "Available",
-			Status: statusCondition.Status == meta_v1.ConditionTrue && liberator_strings.ContainsString([]string{"UpToDate", "Updating"}, statusCondition.Reason),
+			Status: statusCondition.Status == meta_v1.ConditionTrue && slices.Contains([]string{"UpToDate", "Updating"}, statusCondition.Reason),
 		},
 		{
 			Type:   "Progressing",
-			Status: liberator_strings.ContainsString([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason),
+			Status: slices.Contains([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason),
 		},
 		{
 			Type:   "Degraded",

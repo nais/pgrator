@@ -1,12 +1,12 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
 	"github.com/go-logr/logr"
 	"github.com/sethvargo/go-envconfig"
-	"golang.org/x/net/context"
 )
 
 type Config struct {

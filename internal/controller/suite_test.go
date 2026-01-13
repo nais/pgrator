@@ -9,12 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	"github.com/nais/liberator/pkg/crd"
-	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -66,7 +65,10 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
-	_, err = liberator_scheme.AddAll(scheme.Scheme)
+	err = iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = v1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = pov1.AddToScheme(scheme.Scheme)
@@ -80,9 +82,7 @@ var _ = BeforeSuite(func() {
 	pgCrd := acid_zalan_do_v1.PostgresCRD([]string{"all"})
 
 	By("bootstrapping test environment")
-	crdPath := crd.YamlDirectory()
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
 		CRDs:                  []*apiextensions_v1.CustomResourceDefinition{pgCrd},
 	}

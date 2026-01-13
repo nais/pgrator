@@ -243,7 +243,8 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	opts := controller.Options{
-		ReconciliationTimeout: 60 * time.Second,
+		// ReconciliationTimeout: 60 * time.Second,
+
 	}
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New()).

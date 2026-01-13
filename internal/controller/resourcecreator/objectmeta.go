@@ -1,17 +1,17 @@
 package resourcecreator
 
 import (
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	nais_io "github.com/nais/liberator/pkg/apis/nais.io"
+	"maps"
+
+	"github.com/nais/pgrator/pkg/api/annotation"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func CreateObjectMeta(postgres *data_nais_io_v1.Postgres) metav1.ObjectMeta {
 	labels := map[string]string{}
 
-	for k, v := range postgres.GetLabels() {
-		labels[k] = v
-	}
+	maps.Copy(labels, postgres.GetLabels())
 
 	labels["postgres.data.nais.io/name"] = postgres.GetName()
 
@@ -20,7 +20,7 @@ func CreateObjectMeta(postgres *data_nais_io_v1.Postgres) metav1.ObjectMeta {
 		Namespace: postgres.GetNamespace(),
 		Labels:    labels,
 		Annotations: map[string]string{
-			nais_io.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
+			annotation.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
 		},
 	}
 }
