@@ -5,8 +5,8 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 )

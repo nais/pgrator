@@ -4,7 +4,7 @@ import (
 	"maps"
 
 	"github.com/nais/pgrator/pkg/annotation"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

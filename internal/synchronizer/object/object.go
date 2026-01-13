@@ -1,7 +1,7 @@
 package object
 
 import (
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

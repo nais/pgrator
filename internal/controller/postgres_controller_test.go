@@ -5,8 +5,8 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"

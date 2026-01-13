@@ -1,4 +1,4 @@
-package v1
+package datav1
 
 import (
 	"github.com/nais/pgrator/pkg/annotation"

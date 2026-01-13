@@ -1,7 +1,8 @@
-// Package v1 contains API Schema definitions for the data v1 API group.
+// Package datav1 contains API Schema definitions for the data v1 API group.
 // +kubebuilder:object:generate=true
 // +groupName=data.nais.io
-package v1
+// +versionName=v1
+package datav1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"

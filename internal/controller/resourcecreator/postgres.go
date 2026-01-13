@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/nais/pgrator/internal/config"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

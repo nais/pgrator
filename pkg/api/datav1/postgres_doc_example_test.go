@@ -1,12 +1,11 @@
-package v1_test
+package datav1_test
 
 import (
 	"slices"
 	"testing"
 
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/v1"
-
 	"github.com/nais/pgrator/internal/testutil"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 )
 
 var ignoredPostgresFields = []string{
