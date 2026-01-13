@@ -12,6 +12,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	pgv1 "github.com/nais/pgrator/pkg/api/v1"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -33,15 +34,10 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	err := iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme)
-	utilruntime.Must(err)
-
-	err = pov1.AddToScheme(scheme)
-	utilruntime.Must(err)
-
-	err = acid_zalan_do_v1.AddToScheme(scheme)
-	utilruntime.Must(err)
+	utilruntime.Must(pgv1.AddToScheme(scheme))
+	utilruntime.Must(iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme))
+	utilruntime.Must(pov1.AddToScheme(scheme))
+	utilruntime.Must(acid_zalan_do_v1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo
