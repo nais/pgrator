@@ -45,7 +45,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pg
 	objectMeta.Labels["apiserver-access"] = "enabled"
 
 	if postgres.Spec.Cluster.AllowDeletion {
-		objectMeta.Annotations[allowDeletionAnnotation] = pgClusterName
+		metav1.SetMetaDataAnnotation(&objectMeta, allowDeletionAnnotation, pgClusterName)
 	}
 
 	return &acid_zalan_do_v1.Postgresql{
