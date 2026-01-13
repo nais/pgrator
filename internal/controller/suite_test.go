@@ -83,6 +83,10 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
+		CRDDirectoryPaths: []string{
+			"../../config/crd/bases",
+			"./testdata/external-crds",
+		},
 		ErrorIfCRDPathMissing: true,
 		CRDs:                  []*apiextensions_v1.CustomResourceDefinition{pgCrd},
 	}

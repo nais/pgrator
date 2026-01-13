@@ -1,7 +1,6 @@
 // Package v1 contains API Schema definitions for the kafka.nais.io v1 API group
 // +kubebuilder:object:generate=true
-// +groupName=iam.cnrm.cloud.google.com
-// +versionName=v1beta1
+// +kubebuilder:skip
 package iam_cnrm_cloud_google_com_v1beta1
 
 import (
