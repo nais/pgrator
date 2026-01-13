@@ -26,14 +26,14 @@ type TestData[T object.NaisObject, P any] struct {
 	// This field is populated by parseExpectedData, which must be called from a BeforeEach closure
 	ConsistOf []*Expected
 	// Raw data for above field, parsed by parseExpectedData
-	consistsOfData []map[string]interface{}
+	consistsOfData []map[string]any
 
 	// Use this to match that some expected actions are present.
 	// Additional actions might be present, and will be ignored for this test case.
 	// This field is populated by parseExpectedData, which must be called from a BeforeEach closure
 	Contains []*Expected
 	// Raw data for above field, parsed by parseExpectedData
-	containsData []map[string]interface{}
+	containsData []map[string]any
 }
 
 func (t *TestData[T, P]) parseExpectedData(scheme *runtime.Scheme) error {
@@ -70,7 +70,7 @@ func (t *TestData[T, P]) loadExpectedData(path string) error {
 	return nil
 }
 
-func (t *TestData[T, P]) loadExpectedFromDir(path string) ([]map[string]interface{}, error) {
+func (t *TestData[T, P]) loadExpectedFromDir(path string) ([]map[string]any, error) {
 	files, err := os.ReadDir(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -78,7 +78,7 @@ func (t *TestData[T, P]) loadExpectedFromDir(path string) ([]map[string]interfac
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	results := make([]map[string]interface{}, 0, len(files))
+	results := make([]map[string]any, 0, len(files))
 
 	for _, file := range files {
 		if file.IsDir() {
@@ -95,7 +95,7 @@ func (t *TestData[T, P]) loadExpectedFromDir(path string) ([]map[string]interfac
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %w", err)
 		}
-		expected := make(map[string]interface{})
+		expected := make(map[string]any)
 		err = yaml.Unmarshal(data, &expected)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal Yaml: %w", err)

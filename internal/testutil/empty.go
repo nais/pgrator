@@ -11,7 +11,7 @@ import (
 // Return a list of JSON paths that have a default value, e.g. nil, zero-length slices,
 // empty strings, false booleans, or zero ints.
 // The function looks deeply within nested structures.
-func ZeroFields(input interface{}) []string {
+func ZeroFields(input any) []string {
 	seen := make(map[string]bool)
 
 	observeMembers(seen, reflect.ValueOf(input), "")

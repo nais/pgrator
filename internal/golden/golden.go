@@ -178,7 +178,7 @@ func makeActionListKey(a action.Action) compareKey {
 	}
 }
 
-func unmarshalObject(path string, target interface{}) error {
+func unmarshalObject(path string, target any) error {
 	data, err := readFile(path)
 	if err != nil {
 		return err
