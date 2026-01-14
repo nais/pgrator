@@ -9,7 +9,7 @@ require (
 	github.com/onsi/gomega v1.39.0
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.88.0
 	github.com/sethvargo/go-envconfig v1.3.0
-	github.com/zalando/postgres-operator v1.15.0
+	github.com/zalando/postgres-operator v1.15.1
 	k8s.io/api v0.34.3
 	k8s.io/apiextensions-apiserver v0.34.3
 	k8s.io/apimachinery v0.34.3
