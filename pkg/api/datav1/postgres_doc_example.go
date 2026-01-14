@@ -35,7 +35,7 @@ func ExamplePostgresForDocumentation() *Postgres {
 				},
 			},
 			Database: &PostgresDatabase{
-				Collation: "nb_NO.UTF-8",
+				Collation: "nb_NO",
 				Extensions: []PostgresExtension{
 					{
 						Name: "postgis",
