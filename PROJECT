@@ -18,6 +18,6 @@ resources:
   domain: nais.io
   group: data
   kind: Postgres
-  path: github.com/nais/liberator/pkg/apis/data.nais.io/v1
+  path: github.com/nais/pgrator/pkg/api/datav1
   version: v1
 version: "3"

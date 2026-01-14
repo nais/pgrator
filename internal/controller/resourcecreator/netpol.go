@@ -1,7 +1,7 @@
 package resourcecreator
 
 import (
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

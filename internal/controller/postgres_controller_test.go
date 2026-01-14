@@ -3,10 +3,10 @@ package controller
 import (
 	"context"
 
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
-	iam_google_v1beta1 "github.com/nais/liberator/pkg/apis/iam.cnrm.cloud.google.com/v1beta1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -103,7 +103,7 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, deletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
 
-				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
@@ -145,7 +145,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
-				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
@@ -177,7 +177,7 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, undeletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
 
-				iamList := &iam_google_v1beta1.IAMPolicyMemberList{}
+				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())

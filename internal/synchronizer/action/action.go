@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	liberator_scheme "github.com/nais/liberator/pkg/scheme"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	v1 "k8s.io/api/core/v1"
@@ -45,7 +44,7 @@ type createIfNotExists struct {
 
 func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 	log := logf.FromContext(ctx)
-	log.Info(fmt.Sprintf("CreateIfNotExists %s", liberator_scheme.TypeName(a.obj)))
+	log.Info(fmt.Sprintf("CreateIfNotExists %s", typeName(a.obj)))
 
 	var conditions []meta_v1.Condition
 
@@ -99,7 +98,7 @@ type createOrUpdate struct {
 
 func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 	log := logf.FromContext(ctx)
-	log.Info(fmt.Sprintf("CreateOrUpdate %s", liberator_scheme.TypeName(a.obj)))
+	log.Info(fmt.Sprintf("CreateOrUpdate %s", typeName(a.obj)))
 
 	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
 	if err != nil {
@@ -157,7 +156,7 @@ type deleteIfExists struct {
 
 func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Scheme) error {
 	log := logf.FromContext(ctx)
-	log.Info(fmt.Sprintf("DeleteIfExists %s", liberator_scheme.TypeName(a.obj)))
+	log.Info(fmt.Sprintf("DeleteIfExists %s", typeName(a.obj)))
 
 	err := c.Delete(ctx, a.obj)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -231,4 +230,19 @@ func describeObj(obj client.Object) string {
 	name := obj.GetName()
 
 	return fmt.Sprintf("%s %s/%s", kind, namespace, name)
+}
+
+// Human-readable description of a Kubernetes object metadata.
+func typeName(resource runtime.Object) string {
+	var kind, name, namespace string
+	typ, err := meta.TypeAccessor(resource)
+	if err == nil {
+		kind = typ.GetKind()
+	}
+	obj, err := meta.Accessor(resource)
+	if err == nil {
+		name = obj.GetName()
+		namespace = obj.GetNamespace()
+	}
+	return fmt.Sprintf("resource '%s' named '%s' in namespace '%s'", kind, name, namespace)
 }

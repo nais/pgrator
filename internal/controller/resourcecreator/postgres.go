@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
 	"github.com/nais/pgrator/internal/config"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -45,7 +45,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pg
 	objectMeta.Labels["apiserver-access"] = "enabled"
 
 	if postgres.Spec.Cluster.AllowDeletion {
-		objectMeta.Annotations[allowDeletionAnnotation] = pgClusterName
+		metav1.SetMetaDataAnnotation(&objectMeta, allowDeletionAnnotation, pgClusterName)
 	}
 
 	return &acid_zalan_do_v1.Postgresql{

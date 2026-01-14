@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
@@ -41,7 +42,7 @@ func NewGolden[T interface {
 
 	testCases := make([]*TestData[T, P], 0, len(files))
 	for _, file := range files {
-		if !file.IsDir() {
+		if !file.IsDir() || strings.Contains(file.Name(), "external-crds") {
 			continue
 		}
 		name := file.Name()
@@ -177,7 +178,7 @@ func makeActionListKey(a action.Action) compareKey {
 	}
 }
 
-func unmarshalObject(path string, target interface{}) error {
+func unmarshalObject(path string, target any) error {
 	data, err := readFile(path)
 	if err != nil {
 		return err

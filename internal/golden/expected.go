@@ -58,8 +58,8 @@ func (e *Expected) makeMatcher() {
 	)
 }
 
-func ParseExpected(scheme *runtime.Scheme, datum map[string]interface{}, testCaseName string) (*Expected, error) {
-	objectData := datum["object"].(map[string]interface{})
+func ParseExpected(scheme *runtime.Scheme, datum map[string]any, testCaseName string) (*Expected, error) {
+	objectData := datum["object"].(map[string]any)
 
 	apiVersion := objectData["apiVersion"]
 	groupVersion, err := schema.ParseGroupVersion(apiVersion.(string))

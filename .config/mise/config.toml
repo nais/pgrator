@@ -26,7 +26,11 @@ helm = "latest"
 
 [tasks.generate]
 description = "Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations."
-run = 'controller-gen +object paths="./..."'
+run = [
+	'controller-gen +object paths="./..."',
+	'controller-gen crd rbac:roleName=manager-role webhook paths="./pkg/api/..." output:crd:artifacts:config=config/crd/bases',
+	'cp config/crd/bases/*.yaml charts/pgrator/templates/crd/',
+]
 
 [tasks.fmt]
 description = "Run go fmt against code."

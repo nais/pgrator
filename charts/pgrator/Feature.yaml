@@ -1,6 +1,5 @@
 dependencies:
   - allOf:
-      - nais-crds
       - cert-manager
       - monitoring-crds
       - postgres-operator

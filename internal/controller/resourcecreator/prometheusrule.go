@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	data_nais_io_v1 "github.com/nais/liberator/pkg/apis/data.nais.io/v1"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
