@@ -34,6 +34,70 @@ rules:
   - patch
   - update
 - apiGroups:
+    - nais.io
+  resources:
+    - valkey
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - nais.io
+  resources:
+    - valkeys/finalizers
+  verbs:
+    - update
+- apiGroups:
+    - nais.io
+  resources:
+    - valkeys/status
+  verbs:
+    - get
+    - patch
+    - update
+- apiGroups:
+    - nais.io
+  resources:
+    - valkeys
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - nais.io
+  resources:
+    - valkeys/finalizers
+  verbs:
+    - update
+- apiGroups:
+    - nais.io
+  resources:
+    - valkeys/status
+  verbs:
+    - get
+    - patch
+    - update
+- apiGroups:
+    - aiven.io/v1alpha1
+  resources:
+    - valkeys
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
     - coordination.k8s.io
   resources:
     - leases

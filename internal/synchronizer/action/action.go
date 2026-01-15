@@ -69,13 +69,8 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s already exists", describeObj(a.obj))
 	}
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
 	for _, condition := range conditions {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil
@@ -127,13 +122,8 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
 	for _, condition := range a.conditionGetter(a.obj) {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil
@@ -165,13 +155,8 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
 	for _, condition := range a.conditionGetter(a.obj) {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil

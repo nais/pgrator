@@ -9,11 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/golden"
-	"github.com/nais/pgrator/internal/synchronizer/events"
-	v1 "github.com/nais/pgrator/pkg/api/datav1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -27,6 +22,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/golden"
+	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/pkg/api/datav1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -39,7 +41,7 @@ var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	recorder  events.Recorder
-	g         *golden.Golden[*v1.Postgres, PreparedData]
+	g         *golden.Golden[*datav1.Postgres, PreparedData]
 )
 
 func TestControllers(t *testing.T) {
@@ -68,13 +70,16 @@ var _ = BeforeSuite(func() {
 	err = iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = v1.AddToScheme(scheme.Scheme)
+	err = datav1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = pov1.AddToScheme(scheme.Scheme)
 	utilruntime.Must(err)
 
 	err = acid_zalan_do_v1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = v1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

@@ -37,10 +37,8 @@ Once a new first-party CRD has been added there, follow these steps to add docum
 3. Create an example function in the CRD package that returns a fully populated example resource.
 4. Register the example function in `ExampleRegistry` in [cmd/docgen/docgen.go](../cmd/docgen/docgen.go):
    ```go
-   var ExampleRegistry = map[schema.GroupVersionKind]func() any{
-       {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: func() any { 
-           return datav1.ExamplePostgresForDocumentation() 
-       },
+   var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
+       {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: datav1.ExamplePostgresForDocumentation,
    }
    ```
 5. Modify the `documentation` job in [.github/workflows/main.yml](../.github/workflows/main.yml) to copy the generated files to the correct location.

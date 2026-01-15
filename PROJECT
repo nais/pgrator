@@ -6,6 +6,7 @@ cliVersion: 4.9.0
 domain: nais.io
 layout:
 - go.kubebuilder.io/v4
+multigroup: true
 plugins:
   helm.kubebuilder.io/v1-alpha: {}
 projectName: pgrator
@@ -19,5 +20,13 @@ resources:
   group: data
   kind: Postgres
   path: github.com/nais/pgrator/pkg/api/datav1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nais.io
+  kind: Valkey
+  path: github.com/nais/pgrator/api/v1
   version: v1
 version: "3"
