@@ -45,6 +45,54 @@ jobs:
           go mod tidy
           mise run test
 
+  documentation:
+    name: Update documentation
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: pgrator
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: pgrator/go.mod
+      - uses: jdx/mise-action@v3
+      - name: Generate documentation
+        working-directory: pgrator
+        run: |
+          mise run generate-doc
+      - uses: actions/create-github-app-token@v2
+        id: get-token
+        with:
+          app-id: ${{ secrets.NAIS_APP_ID }}
+          private-key: ${{ secrets.NAIS_APP_PRIVATE_KEY }}
+          repositories: doc
+      - uses: actions/checkout@v6
+        with:
+          repository: nais/doc
+          token: ${{ steps.get-token.outputs.token }}
+          path: naisdoc
+      - name: Commit documentation to nais/doc
+        working-directory: naisdoc
+        run: |
+          cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
+          cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git --no-pager diff --cached
+          if [ ! -z "$(git diff --cached)" ]; then
+            git commit -a --author "$GITHUB_ACTOR <$GITHUB_ACTOR@users.noreply.github.com>" \
+              -m "postgres: automatic update of reference spec and example" \
+              -m "Ref: https://github.com/nais/pgrator/commit/${GITHUB_SHA}"
+            git push
+          else
+            echo "No changes; skip commit"
+          fi
+
   build:
     name: Build and push image
     runs-on: ubuntu-latest

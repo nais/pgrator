@@ -1,0 +1,770 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"text/template"
+
+	yaml2 "github.com/ghodss/yaml"
+	"github.com/imdario/mergo"
+	"github.com/nais/pgrator/pkg/api/datav1"
+	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v3"
+	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-tools/pkg/crd"
+	crd_markers "sigs.k8s.io/controller-tools/pkg/crd/markers"
+	"sigs.k8s.io/controller-tools/pkg/loader"
+	"sigs.k8s.io/controller-tools/pkg/markers"
+)
+
+// Generate documentation for Nais CRDs
+
+var exampleResource any
+
+// ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
+// Add new CRD examples here when adding new CRDs to the project.
+var ExampleRegistry = map[schema.GroupVersionKind]func() any{
+	{
+		Group:   datav1.GroupVersion.Group,
+		Version: datav1.GroupVersion.Version,
+		Kind:    "Postgres",
+	}: func() any { return datav1.ExamplePostgresForDocumentation() },
+}
+
+type Renderer func(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps)
+
+type Config struct {
+	// APIDir is the directory containing the CRD type definitions
+	APIDir string
+	// OutputDir is the directory where generated documentation will be written
+	OutputDir string
+	// TemplateDir is the directory containing templates for each kind
+	TemplateDir string
+	// JSONSchema is the directory for OpenAPI JSON schema output (optional)
+	JSONSchema string
+}
+
+type Doc struct {
+	// Which cluster(s) or environments the feature is available in
+	Availability string `marker:"Availability,optional"`
+	// Adds Default values to documentation
+	Default string `marker:"Default,optional"`
+	// Deprecated declares the field obsolete
+	Deprecated bool `marker:"Deprecated,optional"`
+	// Experimental declares the field as subject to instability, change, or removal
+	Experimental bool `marker:"Experimental,optional"`
+	// Hidden declares the field as hidden from reference and example documentation
+	Hidden bool `marker:"Hidden,optional"`
+	// Immutable declares the field as immutable
+	Immutable bool `marker:"Immutable,optional"`
+	// Links to documentation or other information
+	// Use semicolons to separate multiple marker values.
+	Link []string `marker:"Link,optional"`
+	// Tenants declares which tenants the field is available for.
+	// Empty means all tenants.
+	// Use semicolons to separate multiple marker values.
+	Tenants []string `marker:"Tenants,optional"`
+}
+
+type ExtDoc struct {
+	Availability string
+	Default      string
+	Deprecated   bool
+	Description  string
+	Enum         []string
+	Experimental bool
+	Hidden       bool
+	Immutable    bool
+	Level        int
+	Link         []string
+	Maximum      *float64
+	Minimum      *float64
+	Path         string
+	Pattern      string
+	Required     bool
+	Tenants      []string
+	Title        string
+	Type         string
+}
+
+// Hijack the "example" field for custom documentation fields
+func (m Doc) ApplyToSchema(props *apiext.JSONSchemaProps) error {
+	d := &Doc{}
+	if props.Example != nil {
+		err := json.Unmarshal(props.Example.Raw, d)
+		if err != nil {
+			return err
+		}
+	}
+	err := mergo.Merge(d, m)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	props.Example = &apiext.JSON{Raw: b}
+	return nil
+}
+
+func main() {
+	err := run()
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg := &Config{}
+	pflag.StringVar(&cfg.APIDir,
+		"api-dir",
+		cfg.APIDir,
+		"directory containing CRD type definitions",
+	)
+	pflag.StringVar(&cfg.OutputDir,
+		"output-dir",
+		cfg.OutputDir,
+		"directory for generated documentation output",
+	)
+	pflag.StringVar(&cfg.TemplateDir,
+		"template-dir",
+		cfg.TemplateDir,
+		"directory containing templates for each kind",
+	)
+	pflag.StringVar(&cfg.JSONSchema,
+		"openapi-output",
+		cfg.JSONSchema,
+		"if set, generate json schema to the provided directory",
+	)
+	pflag.Parse()
+
+	if cfg.APIDir == "" {
+		return fmt.Errorf("--api-dir is required")
+	}
+	if cfg.OutputDir == "" {
+		return fmt.Errorf("--output-dir is required")
+	}
+	if cfg.TemplateDir == "" {
+		return fmt.Errorf("--template-dir is required")
+	}
+
+	packages, err := loader.LoadRoots(cfg.APIDir)
+	if err != nil {
+		return err
+	}
+
+	registry := &markers.Registry{}
+	collector := &markers.Collector{
+		Registry: registry,
+	}
+
+	err = crd_markers.Register(registry)
+	if err != nil {
+		return err
+	}
+
+	err = registry.Define("nais:doc", markers.DescribesField, Doc{})
+	if err != nil {
+		return fmt.Errorf("register marker: %w", err)
+	}
+
+	typechecker := &loader.TypeChecker{}
+	pars := &crd.Parser{
+		Collector: collector,
+		Checker:   typechecker,
+	}
+
+	intstr := "k8s.io/apimachinery/pkg/util/intstr"
+	if override, ok := crd.KnownPackages[intstr]; ok {
+		if pars.PackageOverrides == nil {
+			pars.PackageOverrides = make(map[string]crd.PackageOverride)
+		}
+		pars.PackageOverrides[intstr] = override
+	}
+
+	for _, pkg := range packages {
+		pars.NeedPackage(pkg)
+	}
+
+	metav1Pkg := crd.FindMetav1(packages)
+	if metav1Pkg == nil {
+		return fmt.Errorf("no objects in the roots, since nothing imported metav1")
+	}
+
+	kubeKinds := crd.FindKubeKinds(pars, metav1Pkg)
+	if len(kubeKinds) == 0 {
+		return fmt.Errorf("no objects in the roots")
+	}
+
+	for _, gk := range kubeKinds {
+		pars.NeedCRDFor(gk, nil)
+
+		// Find all packages for this GroupKind (there may be multiple versions)
+		var matchingPackages []*loader.Package
+		for p, gv := range pars.GroupVersions {
+			if gv.Group == gk.Group {
+				matchingPackages = append(matchingPackages, p)
+			}
+		}
+		if len(matchingPackages) == 0 {
+			return fmt.Errorf("no package found for kind %s", gk.Kind)
+		}
+
+		// Process each version
+		for _, pkg := range matchingPackages {
+			gv := pars.GroupVersions[pkg]
+			log := slog.With("kind", gk.Kind, "group", gk.Group, "version", gv.Version)
+
+			exampleFunc, ok := ExampleRegistry[schema.GroupVersionKind{
+				Group:   gk.Group,
+				Version: gv.Version,
+				Kind:    gk.Kind,
+			}]
+			if !ok {
+				return fmt.Errorf("'%s/%s/%s' is not supported; "+
+					"must be registered in ExampleRegistry config in docgen.go",
+					gk.Group, gv.Version, gk.Kind,
+				)
+			}
+
+			schemata, ok := pars.FlattenedSchemata[crd.TypeIdent{Package: pkg, Name: gk.Kind}]
+			if !ok {
+				return fmt.Errorf("schema generation failed for %s/%s/%s; "+
+					"double check the syntax of doctags (+nais:* and +kubebuilder:*)",
+					gk.Group, gv.Version, gk.Kind,
+				)
+			}
+
+			err = marshalToInterface(&exampleResource, exampleFunc())
+			if err != nil {
+				return err
+			}
+
+			// Use group/version/kind directory structure
+			kindLower := strings.ToLower(gk.Kind)
+			subDir := filepath.Join(gk.Group, gv.Version, kindLower)
+
+			outputDir := filepath.Join(cfg.OutputDir, subDir)
+			if err := os.MkdirAll(outputDir, 0755); err != nil {
+				return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+			}
+
+			templateDir := filepath.Join(cfg.TemplateDir, subDir)
+
+			referenceTemplate := filepath.Join(templateDir, "reference.md")
+			referenceOutput := filepath.Join(outputDir, "reference.md")
+			err = Write(WriteReferenceDoc, referenceTemplate, referenceOutput, schemata.Properties["spec"])
+			if err != nil {
+				return fmt.Errorf("failed to write reference doc for %s: %w", gk.Kind, err)
+			}
+
+			exampleTemplate := filepath.Join(templateDir, "example.md")
+			exampleOutput := filepath.Join(outputDir, "example.md")
+			err = Write(WriteExampleDoc, exampleTemplate, exampleOutput, schemata)
+			if err != nil {
+				return fmt.Errorf("failed to write example doc for %s: %w", gk.Kind, err)
+			}
+
+			if cfg.JSONSchema != "" {
+				if err := writeJSONSchema(cfg.JSONSchema, gk.Kind, gk.Group, gv.Version, schemata); err != nil {
+					return err
+				}
+			}
+
+			log.Info("Generated documentation", "output", outputDir)
+		}
+	}
+
+	return nil
+}
+
+func writeJSONSchema(path, kind, group, version string, schemata apiext.JSONSchemaProps) error {
+	path = filepath.Join(path, group, version, strings.ToLower(kind)+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create schema directory: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	schemata.Schema = apiext.JSONSchemaURL("http://json-schema.org/schema#")
+	schemata.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
+		Allows: false,
+	}
+
+	// Make some changes to the schema to make it even more useful for validation etc.
+	schemata = setJSONSchemaEnum(schemata, "kind", strconv.Quote(kind))
+	schemata = setJSONSchemaEnum(schemata, "apiVersion", strconv.Quote(group+"/"+version))
+
+	schemata = setJSONSchemaRequired(schemata, ".", "kind", "metadata", "apiVersion")
+	schemata = setJSONSchemaRequired(schemata, "metadata", "name", "namespace", "labels")
+	schemata = setJSONSchemaRequired(schemata, "metadata.labels", "team")
+
+	var additionalPropertiesFalse func(props map[string]apiext.JSONSchemaProps)
+	additionalPropertiesFalse = func(props map[string]apiext.JSONSchemaProps) {
+		for v, prop := range props {
+			if prop.AdditionalProperties == nil && prop.Type == "object" {
+				prop.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
+					Allows: false,
+				}
+			}
+			additionalPropertiesFalse(prop.Properties)
+			props[v] = prop
+		}
+	}
+
+	additionalPropertiesFalse(schemata.Properties)
+
+	inter := make(map[string]any)
+	b, err := json.Marshal(schemata)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, &inter); err != nil {
+		return err
+	}
+
+	inter["x-kubernetes-group-version-kind"] = []map[string]string{
+		{
+			"group":   group,
+			"kind":    kind,
+			"version": version,
+		},
+	}
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(inter)
+}
+
+func marshalToInterface(dst, src any) error {
+	data, err := json.Marshal(src)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, dst)
+}
+
+func Write(renderer Renderer, tpl string, outFile string, base apiext.JSONSchemaProps) error {
+	var err error
+	w := os.Stdout
+	if len(outFile) > 0 {
+		w, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			return err
+		}
+	}
+	mw := &multiwriter{w: w}
+
+	templateEngine, err := template.ParseFiles(tpl)
+	if err != nil {
+		return err
+	}
+
+	err = templateEngine.Execute(mw, nil)
+	if err != nil {
+		return err
+	}
+
+	renderer(mw, 1, "", "", base, base)
+
+	return mw.Error()
+}
+
+type multiwriter struct {
+	w   io.Writer
+	err error
+}
+
+func (m *multiwriter) Write(p []byte) (int, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	n, err := m.w.Write(p)
+	if err != nil {
+		m.err = err
+	}
+	return n, err
+}
+
+func (m *multiwriter) Error() error {
+	return m.err
+}
+
+func linefmt(format string, args ...any) string {
+	format = fmt.Sprintf(format, args...)
+	if len(format) == 0 {
+		format = "_no value_"
+	}
+	format = strings.ReplaceAll(format, "``", "_no value_")
+	return format + "<br />\n"
+}
+
+func floatfmt(f *float64) string {
+	if f == nil {
+		return "+Inf"
+	}
+	return strconv.FormatFloat(*f, 'f', 0, 64)
+}
+
+func writeList(w io.Writer, list []string) {
+	sort.Strings(list)
+	max := len(list) - 1
+	for i, item := range list {
+		if len(item) > 0 {
+			_, _ = io.WriteString(w, fmt.Sprintf("`%s`", item))
+		} else {
+			_, _ = io.WriteString(w, "_(empty string)_")
+		}
+		if i != max {
+			_, _ = io.WriteString(w, ", ")
+		}
+	}
+	_, _ = io.WriteString(w, "<br />\n")
+}
+
+func (m ExtDoc) formatStraight(w io.Writer) {
+	_, _ = io.WriteString(w, fmt.Sprintf("%s %s", strings.Repeat("#", m.Level), strings.TrimLeft(m.Path, ".")))
+	_, _ = io.WriteString(w, "\n")
+	if len(m.Description) > 0 {
+		_, _ = io.WriteString(w, m.Description)
+		_, _ = io.WriteString(w, "\n\n")
+	}
+	if m.Experimental {
+		_, _ = io.WriteString(w, "!!! warning \"Experimental feature\"\n    "+
+			"This feature has not undergone much testing, and is subject to API change, instability, or removal.\n\n")
+	}
+	if m.Deprecated {
+		_, _ = io.WriteString(w, "!!! failure \"Deprecated\"\n    "+
+			"This feature is deprecated, preserved only for backwards compatibility.\n\n")
+	}
+	if len(m.Link) > 0 {
+		_, _ = io.WriteString(w, "Relevant information:\n\n")
+		for _, link := range m.Link {
+			u, err := url.Parse(link)
+			if err == nil {
+				if u.Host == "doc.nais.io" || u.Host == "docs.nais.io" {
+					u.Host = "doc.<<tenant()>>.cloud.nais.io"
+					link = u.String()
+				}
+			}
+			_, _ = io.WriteString(w, fmt.Sprintf("* [%s](%s)\n", link, link))
+		}
+		_, _ = io.WriteString(w, "\n")
+	}
+
+	if types := strings.Split(m.Type, ","); len(types) > 1 {
+		_, _ = io.WriteString(w, linefmt("Type: `%s`", strings.Join(types, "` or `")))
+	} else {
+		_, _ = io.WriteString(w, linefmt("Type: `%s`", m.Type))
+	}
+	_, _ = io.WriteString(w, linefmt("Required: `%s`", strconv.FormatBool(m.Required)))
+	if m.Immutable {
+		_, _ = io.WriteString(w, linefmt("Immutable: `%v`", m.Immutable))
+	}
+	if len(m.Default) > 0 {
+		_, _ = io.WriteString(w, linefmt("Default value: `%v`", m.Default))
+	}
+	if len(m.Availability) > 0 {
+		_, _ = io.WriteString(w, linefmt("Availability: %s", m.Availability))
+	}
+	if len(m.Pattern) > 0 {
+		_, _ = io.WriteString(w, linefmt("Pattern: `%s`", m.Pattern))
+	}
+	if m.Minimum != m.Maximum {
+		min := floatfmt(m.Minimum)
+		max := floatfmt(m.Maximum)
+		switch {
+		case m.Minimum == nil:
+			_, _ = io.WriteString(w, linefmt("Maximum value: `%s`", max))
+		case m.Maximum == nil:
+			_, _ = io.WriteString(w, linefmt("Minimum value: `%s`", min))
+		default:
+			_, _ = io.WriteString(w, linefmt("Value range: `%s`-`%s`", min, max))
+		}
+	}
+	if len(m.Enum) > 0 {
+		_, _ = io.WriteString(w, "Allowed values: ")
+		writeList(w, m.Enum)
+	}
+	_, _ = io.WriteString(w, "\n")
+}
+
+func hasRequired(node apiext.JSONSchemaProps, key string) bool {
+	if slices.Contains(node.Required, key) {
+		return true
+	}
+
+	if node.Items == nil {
+		return false
+	}
+
+	return slices.Contains(node.Items.Schema.Required, key)
+}
+
+func WriteExampleDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+	js, _ := json.Marshal(exampleResource)
+	ym, _ := yaml2.JSONToYAML(js)
+
+	_, _ = io.WriteString(w, "``` yaml\n")
+	_, _ = io.Writer.Write(w, ym)
+	_, _ = io.WriteString(w, "```\n")
+}
+
+func WriteReferenceDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+	if jsonpath == ".metadata" || jsonpath == ".status" {
+		return
+	}
+
+	if len(node.Enum) > 0 {
+		node.Type = "enum"
+	}
+
+	entry := &ExtDoc{
+		Description: strings.TrimSpace(node.Description),
+		Level:       level,
+		Maximum:     node.Maximum,
+		Minimum:     node.Minimum,
+		Path:        jsonpath,
+		Pattern:     node.Pattern,
+		Required:    hasRequired(parent, key),
+		Title:       key,
+		Type:        node.Type,
+	}
+
+	// Override children when encountering an array
+	if node.Type == "array" {
+		node.Properties = node.Items.Schema.Properties
+		jsonpath += "[]"
+	}
+
+	if node.XIntOrString {
+		t := make([]string, len(node.AnyOf))
+		for i, v := range node.AnyOf {
+			t[i] = v.Type
+		}
+
+		entry.Type = strings.Join(t, ",")
+	}
+
+	if len(node.Enum) > 0 {
+		entry.Enum = make([]string, 0, len(entry.Enum))
+		for _, v := range node.Enum {
+			s := ""
+			err := json.Unmarshal(v.Raw, &s)
+			if err != nil {
+				s = string(v.Raw)
+			}
+			entry.Enum = append(entry.Enum, s)
+		}
+	}
+
+	if node.Example != nil {
+		d := &Doc{}
+		err := json.Unmarshal(node.Example.Raw, d)
+		if err == nil {
+			entry.Availability = d.Availability
+			entry.Default = d.Default
+			entry.Deprecated = d.Deprecated
+			entry.Experimental = d.Experimental
+			entry.Hidden = d.Hidden
+			entry.Immutable = d.Immutable
+			entry.Link = d.Link
+			entry.Tenants = d.Tenants
+		} else {
+			slog.Error("unable to merge structs", "error", err)
+		}
+	}
+
+	if entry.Hidden {
+		return
+	}
+
+	isTenantSpecific := len(entry.Tenants) > 0
+	if isTenantSpecific {
+		if len(entry.Tenants) == 1 {
+			tenant := entry.Tenants[0]
+			_, _ = io.WriteString(w, "{%- if tenant() == \""+tenant+"\" %}")
+		} else {
+			tenants := strings.Join(entry.Tenants, "\", \"")
+			_, _ = io.WriteString(w, "{%- if tenant() in (\""+tenants+"\") %}")
+		}
+		_, _ = io.WriteString(w, "\n")
+	}
+
+	if len(jsonpath) > 0 {
+		entry.formatStraight(w)
+
+		example, err := getStructSubPath("spec"+jsonpath, exampleResource)
+		if err == nil {
+			_, _ = io.WriteString(w, "??? example\n")
+			_, _ = io.WriteString(w, "    ``` yaml\n")
+			buf := bytes.NewBuffer(nil)
+			enc := yaml.NewEncoder(buf)
+			enc.SetIndent(2)
+			_ = enc.Encode(example)
+			scan := bufio.NewScanner(buf)
+			for scan.Scan() {
+				_, _ = io.WriteString(w, "    "+scan.Text()+"\n")
+			}
+			_, _ = io.WriteString(w, "    ```\n\n")
+		}
+	}
+
+	if len(node.Properties) == 0 {
+		if isTenantSpecific {
+			_, _ = io.WriteString(w, "{%- endif %}\n")
+		}
+		return
+	}
+
+	keys := make([]string, 0)
+	for k := range node.Properties {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		WriteReferenceDoc(w, level+1, jsonpath+"."+k, k, node, node.Properties[k])
+	}
+
+	if isTenantSpecific {
+		_, _ = io.WriteString(w, "{%- endif %}\n")
+	}
+}
+
+func getStructSubPath(keyWithDots string, object any) (any, error) {
+	structure := make(map[string]any)
+	var leaf any = structure
+
+	keySlice := strings.Split(keyWithDots, ".")
+	v := reflect.ValueOf(object)
+
+	resolve := func(v reflect.Value) reflect.Value {
+		if v.Kind() == reflect.Ptr {
+			return v.Elem()
+		}
+		return v
+	}
+
+	max := len(keySlice) - 1
+	for i, key := range keySlice {
+		key = strings.TrimRight(key, "[]")
+
+		if len(key) == 0 {
+			break
+		}
+
+		v = resolve(v)
+
+		var added any
+
+		switch v.Kind() {
+		case reflect.Map:
+			drilldown := func() error {
+				for _, k := range v.MapKeys() {
+					if k.String() == key {
+						v = v.MapIndex(k).Elem()
+						return nil
+					}
+				}
+				return fmt.Errorf("key not found")
+			}
+
+			err := drilldown()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		v = resolve(v)
+
+		switch {
+		case v.Kind() == reflect.Slice:
+			fallthrough
+		case i == max:
+			added = resolve(v).Interface()
+
+		case v.Kind() == reflect.Map:
+			added = make(map[string]any)
+		}
+
+		switch typedleaf := leaf.(type) {
+		case map[string]any:
+			typedleaf[key] = added
+		case []any:
+			typedleaf[0] = added
+		}
+
+		leaf = added
+		if v.Kind() == reflect.Slice {
+			break
+		}
+	}
+
+	return structure, nil
+}
+
+func runOnJSONSchemaProperty(
+	root apiext.JSONSchemaProps,
+	path string,
+	f func(*apiext.JSONSchemaProps),
+) apiext.JSONSchemaProps {
+	if path == "." {
+		f(&root)
+		return root
+	}
+
+	p := strings.Split(path, ".")
+	obj := root.Properties[p[0]]
+	if len(p) == 1 {
+		f(&obj)
+	} else {
+		runOnJSONSchemaProperty(obj, strings.Join(p[1:], "."), f)
+	}
+	root.Properties[p[0]] = obj
+	return root
+}
+
+func setJSONSchemaEnum(root apiext.JSONSchemaProps, path string, value string) apiext.JSONSchemaProps {
+	return runOnJSONSchemaProperty(root, path, func(obj *apiext.JSONSchemaProps) {
+		obj.Enum = append(obj.Enum, apiext.JSON{
+			Raw: []byte(value),
+		})
+	})
+}
+
+func setJSONSchemaRequired(root apiext.JSONSchemaProps, path string, values ...string) apiext.JSONSchemaProps {
+	return runOnJSONSchemaProperty(root, path, func(obj *apiext.JSONSchemaProps) {
+		if obj.Properties == nil {
+			obj.Properties = make(map[string]apiext.JSONSchemaProps)
+		}
+
+		for _, val := range values {
+			if _, ok := obj.Properties[val]; !ok {
+				obj.Properties[val] = apiext.JSONSchemaProps{
+					Type: "string",
+				}
+			}
+			obj.Required = append(obj.Required, val)
+		}
+	})
+}
