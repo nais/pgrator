@@ -32,6 +32,16 @@ run = [
 	'cp config/crd/bases/*.yaml charts/pgrator/templates/crd/',
 ]
 
+[tasks.generate-doc]
+description = "Generate documentation for nais/doc"
+run = '''
+	mkdir -p doc/output
+	go run cmd/docgen/docgen.go \
+		--api-dir ./pkg/api/... \
+		--output-dir doc/output \
+		--template-dir doc/templates
+'''
+
 [tasks.fmt]
 description = "Run go fmt against code."
 run = "go fmt ./..."
