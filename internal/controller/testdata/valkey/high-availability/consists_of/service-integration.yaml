@@ -16,4 +16,4 @@ object:
     project: test-project
     integrationType: metrics
     sourceServiceName: ha-valkey
-    destinationServiceName: test-metrics-service
+    destinationEndpointId: test-metrics-service

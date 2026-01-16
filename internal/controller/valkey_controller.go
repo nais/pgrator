@@ -49,9 +49,6 @@ func (r *ValkeyReconciler) Prepare(_ctx context.Context, _reader client.Reader, 
 	if r.Config.AivenProject == "" {
 		return ValkeyPreparedData{}, ctrl.Result{}, fmt.Errorf("AIVEN_PROJECT environment variable is required for Valkey reconciliation")
 	}
-	if r.Config.AivenCloudName == "" {
-		return ValkeyPreparedData{}, ctrl.Result{}, fmt.Errorf("AIVEN_CLOUD_NAME environment variable is required for Valkey reconciliation")
-	}
 
 	// Translate tier and memory to Aiven plan
 	machine, err := machineTypeFromTierAndMemory(obj.Spec.Tier, obj.Spec.Memory)
@@ -98,14 +95,14 @@ func (r *ValkeyReconciler) Update(obj *v1.Valkey, preparedData ValkeyPreparedDat
 	actions = append(actions, action.CreateOrUpdate(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
 	// Create ServiceIntegration for metrics if metrics service is configured
-	if r.Config.AivenMetricsServiceName != "" {
+	if r.Config.AivenMetricsDestinationEndpointID != "" {
 		integrationName := metricsIntegrationName(obj)
 		serviceIntegration := resourcecreator.CreateServiceIntegrationSpec(
 			obj,
 			r.Config,
 			integrationName,
 			metricsIntegrationType,
-			r.Config.AivenMetricsServiceName,
+			r.Config.AivenMetricsDestinationEndpointID,
 		)
 		meta_v1.SetMetaDataAnnotation(&serviceIntegration.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 		actions = append(actions, action.CreateOrUpdate(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
@@ -222,7 +219,7 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey) ([]action.Action, ctrl.Result,
 	var actions []action.Action
 
 	// Delete ServiceIntegration for metrics if it was configured
-	if r.Config.AivenMetricsServiceName != "" {
+	if r.Config.AivenMetricsDestinationEndpointID != "" {
 		integrationName := metricsIntegrationName(obj)
 		serviceIntegration := resourcecreator.MinimalServiceIntegration(obj, integrationName)
 		actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))

@@ -57,11 +57,10 @@ func TestControllers(t *testing.T) {
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
 
 	valkeyReconcilerConfig := config.Config{
-		AivenProject:            "test-project",
-		AivenCloudName:          "google-europe-north1",
-		AivenProjectVPCID:       "test-vpc-id",
-		AivenTenantName:         "test-tenant",
-		AivenMetricsServiceName: "test-metrics-service",
+		AivenProject:                      "test-project",
+		AivenProjectVPCID:                 "test-vpc-id",
+		AivenTenantName:                   "test-tenant",
+		AivenMetricsDestinationEndpointID: "test-metrics-service",
 	}
 	valkeyReconciler := &ValkeyReconciler{Config: &valkeyReconcilerConfig, Recorder: recorder}
 

@@ -98,7 +98,6 @@ func main() {
 
 	recorder := events.NewRecorder(mgr.GetEventRecorderFor("pgrator"))
 
-	// Setup Postgres controller
 	postgresReconciler := &controller.PostgresReconciler{
 		Config:   cfg,
 		Recorder: recorder,
@@ -109,7 +108,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup Valkey controller
 	valkeyReconciler := &controller.ValkeyReconciler{
 		Config:   cfg,
 		Recorder: recorder,

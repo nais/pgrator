@@ -19,8 +19,7 @@ var _ = Describe("Valkey Controller", func() {
 			It("should return correct plan for valid config and valkey", func() {
 				r := &ValkeyReconciler{
 					Config: &config.Config{
-						AivenProject:   "test-project",
-						AivenCloudName: "google-europe-north1",
+						AivenProject: "test-project",
 					},
 				}
 				valkey := &v1.Valkey{
@@ -37,9 +36,7 @@ var _ = Describe("Valkey Controller", func() {
 
 			It("should return error when AIVEN_PROJECT is missing", func() {
 				r := &ValkeyReconciler{
-					Config: &config.Config{
-						AivenCloudName: "google-europe-north1",
-					},
+					Config: &config.Config{},
 				}
 				valkey := &v1.Valkey{
 					Spec: v1.ValkeySpec{
@@ -53,29 +50,10 @@ var _ = Describe("Valkey Controller", func() {
 				Expect(err.Error()).To(ContainSubstring("AIVEN_PROJECT"))
 			})
 
-			It("should return error when AIVEN_CLOUD_NAME is missing", func() {
-				r := &ValkeyReconciler{
-					Config: &config.Config{
-						AivenProject: "test-project",
-					},
-				}
-				valkey := &v1.Valkey{
-					Spec: v1.ValkeySpec{
-						Tier:   v1.ValkeyTierSingleNode,
-						Memory: v1.ValkeyMemory4GB,
-					},
-				}
-
-				_, _, err := r.Prepare(context.Background(), nil, valkey)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("AIVEN_CLOUD_NAME"))
-			})
-
 			It("should return correct plan for high availability", func() {
 				r := &ValkeyReconciler{
 					Config: &config.Config{
-						AivenProject:   "test-project",
-						AivenCloudName: "google-europe-north1",
+						AivenProject: "test-project",
 					},
 				}
 				valkey := &v1.Valkey{
@@ -152,7 +130,6 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			cfg := &config.Config{
 				AivenProject:      "test-project",
-				AivenCloudName:    "google-europe-north1",
 				AivenProjectVPCID: "vpc-123",
 				AivenTenantName:   "test-tenant",
 			}
@@ -161,7 +138,6 @@ var _ = Describe("Valkey Controller", func() {
 
 			Expect(result.Spec.Project).To(Equal("test-project"))
 			Expect(result.Spec.Plan).To(Equal("startup-4"))
-			Expect(result.Spec.CloudName).To(Equal("google-europe-north1"))
 			Expect(result.Spec.ProjectVPCID).To(Equal("vpc-123"))
 			Expect(result.Spec.TerminationProtection).NotTo(BeNil())
 			Expect(*result.Spec.TerminationProtection).To(BeTrue())
@@ -186,8 +162,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:   "test-project",
-				AivenCloudName: "google-europe-north1",
+				AivenProject: "test-project",
 			}
 
 			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
@@ -210,8 +185,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:   "test-project",
-				AivenCloudName: "google-europe-north1",
+				AivenProject: "test-project",
 			}
 
 			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
@@ -235,8 +209,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:   "test-project",
-				AivenCloudName: "google-europe-north1",
+				AivenProject: "test-project",
 			}
 
 			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "business-14")
@@ -259,8 +232,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:   "test-project",
-				AivenCloudName: "google-europe-north1",
+				AivenProject: "test-project",
 			}
 
 			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
@@ -286,8 +258,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:   "test-project",
-				AivenCloudName: "google-europe-north1",
+				AivenProject: "test-project",
 			}
 
 			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
@@ -315,8 +286,8 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 			cfg := &config.Config{
-				AivenProject:            "test-project",
-				AivenMetricsServiceName: "metrics-service",
+				AivenProject:                      "test-project",
+				AivenMetricsDestinationEndpointID: "metrics-service",
 			}
 
 			result := resourcecreator.CreateServiceIntegrationSpec(
@@ -332,7 +303,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(result.Spec.Project).To(Equal("test-project"))
 			Expect(result.Spec.IntegrationType).To(Equal("metrics"))
 			Expect(result.Spec.SourceServiceName).To(Equal("my-valkey"))
-			Expect(result.Spec.DestinationServiceName).To(Equal("metrics-service"))
+			Expect(result.Spec.DestinationEndpointID).To(Equal("metrics-service"))
 		})
 	})
 
@@ -668,8 +639,7 @@ var _ = Describe("Valkey Controller", func() {
 		}
 
 		cfg := &config.Config{
-			AivenProject:   "test-project",
-			AivenCloudName: "google-europe-north1",
+			AivenProject: "test-project",
 		}
 
 		for _, policy := range policies {

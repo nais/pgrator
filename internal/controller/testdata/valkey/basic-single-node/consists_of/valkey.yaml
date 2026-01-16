@@ -15,7 +15,6 @@ object:
   spec:
     project: test-project
     plan: startup-4
-    cloudName: google-europe-north1
     projectVpcId: test-vpc-id
     terminationProtection: true
     tags:

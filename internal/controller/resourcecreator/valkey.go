@@ -76,7 +76,6 @@ func CreateAivenValkeySpec(valkey *v1.Valkey, cfg *config.Config, aivenPlan stri
 	aivenValkey.Spec = aiven_v1alpha1.ValkeySpec{
 		Project:               cfg.AivenProject,
 		Plan:                  aivenPlan,
-		CloudName:             cfg.AivenCloudName,
 		ProjectVPCID:          cfg.AivenProjectVPCID,
 		TerminationProtection: ptr.To(true),
 		Tags:                  tags,
@@ -110,15 +109,15 @@ func CreateServiceIntegrationSpec(
 	cfg *config.Config,
 	integrationName string,
 	integrationType string,
-	destinationServiceName string,
+	destinationEndpointID string,
 ) *aiven_v1alpha1.ServiceIntegration {
 	integration := MinimalServiceIntegration(valkey, integrationName)
 
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{
-		Project:                cfg.AivenProject,
-		IntegrationType:        integrationType,
-		SourceServiceName:      valkey.GetName(),
-		DestinationServiceName: destinationServiceName,
+		Project:               cfg.AivenProject,
+		IntegrationType:       integrationType,
+		SourceServiceName:     valkey.GetName(),
+		DestinationEndpointID: destinationEndpointID,
 	}
 
 	return integration
