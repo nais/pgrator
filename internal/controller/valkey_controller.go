@@ -74,7 +74,7 @@ func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
 
 // metricsIntegrationName returns the name of the metrics ServiceIntegration for a Valkey
 func metricsIntegrationName(valkey *v1.Valkey) string {
-	return fmt.Sprintf("%s-metrics", valkey.GetName())
+	return fmt.Sprintf("%s-metrics", resourcecreator.AivenValkeyServiceName(valkey))
 }
 
 func (r *ValkeyReconciler) Update(obj *v1.Valkey, preparedData ValkeyPreparedData) ([]action.Action, ctrl.Result, error) {

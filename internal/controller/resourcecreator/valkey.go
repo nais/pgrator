@@ -11,6 +11,12 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+// AivenValkeyServiceName returns the namespaced Aiven service name for a Valkey instance.
+// Format: valkey-{teamSlug}-{instanceName}
+func AivenValkeyServiceName(valkey *v1.Valkey) string {
+	return "valkey-" + valkey.GetNamespace() + "-" + valkey.GetName()
+}
+
 // CreateValkeyObjectMeta creates a standard ObjectMeta for Valkey-owned resources
 func CreateValkeyObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
 	labels := map[string]string{}
@@ -26,7 +32,7 @@ func CreateValkeyObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
 	}
 
 	return metav1.ObjectMeta{
-		Name:        valkey.GetName(),
+		Name:        AivenValkeyServiceName(valkey),
 		Namespace:   valkey.GetNamespace(),
 		Labels:      labels,
 		Annotations: annotations,
@@ -79,10 +85,7 @@ func CreateAivenValkeySpec(valkey *v1.Valkey, cfg *config.Config, aivenPlan stri
 		ProjectVPCID:          cfg.AivenProjectVPCID,
 		TerminationProtection: ptr.To(true),
 		Tags:                  tags,
-		ConnInfoSecretTarget: &aiven_v1alpha1.ConnInfoSecretTarget{
-			Name: valkey.GetName(),
-		},
-		UserConfig: userConfig,
+		UserConfig:            userConfig,
 	}
 
 	return aivenValkey
@@ -116,7 +119,7 @@ func CreateServiceIntegrationSpec(
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{
 		Project:               cfg.AivenProject,
 		IntegrationType:       integrationType,
-		SourceServiceName:     valkey.GetName(),
+		SourceServiceName:     AivenValkeyServiceName(valkey),
 		DestinationEndpointID: destinationEndpointID,
 	}
 

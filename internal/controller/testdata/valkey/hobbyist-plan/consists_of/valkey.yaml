@@ -10,7 +10,7 @@ object:
     labels:
       team: dev-team
       valkey.nais.io/name: hobbyist-valkey
-    name: hobbyist-valkey
+    name: valkey-dev-team-hobbyist-valkey
     namespace: dev-team
   spec:
     project: test-project
@@ -22,5 +22,3 @@ object:
       app: hobbyist-valkey
       managed-by: pgrator
       tenant: test-tenant
-    connInfoSecretTarget:
-      name: hobbyist-valkey

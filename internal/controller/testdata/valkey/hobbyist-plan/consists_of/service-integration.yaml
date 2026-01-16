@@ -10,10 +10,10 @@ object:
     labels:
       team: dev-team
       valkey.nais.io/name: hobbyist-valkey
-    name: hobbyist-valkey-metrics
+    name: valkey-dev-team-hobbyist-valkey-metrics
     namespace: dev-team
   spec:
     project: test-project
     integrationType: metrics
-    sourceServiceName: hobbyist-valkey
+    sourceServiceName: valkey-dev-team-hobbyist-valkey
     destinationEndpointId: test-metrics-service

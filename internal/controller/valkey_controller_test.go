@@ -145,8 +145,8 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(result.Spec.Tags["app"]).To(Equal(testValkeyName))
 			Expect(result.Spec.Tags["managed-by"]).To(Equal("pgrator"))
 			Expect(result.Spec.Tags["tenant"]).To(Equal("test-tenant"))
-			Expect(result.Spec.ConnInfoSecretTarget).NotTo(BeNil())
-			Expect(result.Spec.ConnInfoSecretTarget.Name).To(Equal(testValkeyName))
+			// Verify Aiven resource uses namespaced name
+			Expect(result.Name).To(Equal("valkey-" + testTeamName + "-" + testValkeyName))
 		})
 
 		It("should set maxMemoryPolicy in user config", func() {
@@ -267,6 +267,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(result.Labels["custom-label"]).To(Equal("custom-value"))
 			Expect(result.Labels["another"]).To(Equal("label"))
 			Expect(result.Labels["valkey.nais.io/name"]).To(Equal("labeled-valkey"))
+			Expect(result.Name).To(Equal("valkey-labeled-team-labeled-valkey"))
 		})
 	})
 
@@ -293,16 +294,16 @@ var _ = Describe("Valkey Controller", func() {
 			result := resourcecreator.CreateServiceIntegrationSpec(
 				valkey,
 				cfg,
-				"my-valkey-metrics",
+				"valkey-my-team-my-valkey-metrics",
 				"metrics",
 				"metrics-service",
 			)
 
-			Expect(result.Name).To(Equal("my-valkey-metrics"))
+			Expect(result.Name).To(Equal("valkey-my-team-my-valkey-metrics"))
 			Expect(result.Namespace).To(Equal("my-team"))
 			Expect(result.Spec.Project).To(Equal("test-project"))
 			Expect(result.Spec.IntegrationType).To(Equal("metrics"))
-			Expect(result.Spec.SourceServiceName).To(Equal("my-valkey"))
+			Expect(result.Spec.SourceServiceName).To(Equal("valkey-my-team-my-valkey"))
 			Expect(result.Spec.DestinationEndpointID).To(Equal("metrics-service"))
 		})
 	})
@@ -575,20 +576,21 @@ var _ = Describe("Valkey Controller", func() {
 	})
 
 	Describe("metricsIntegrationName", func() {
-		It("should return valkey name with -metrics suffix", func() {
+		It("should return namespaced valkey name with -metrics suffix", func() {
 			valkey := &v1.Valkey{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "my-valkey",
+					Name:      "my-valkey",
+					Namespace: "my-team",
 				},
 			}
 
 			name := metricsIntegrationName(valkey)
-			Expect(name).To(Equal("my-valkey-metrics"))
+			Expect(name).To(Equal("valkey-my-team-my-valkey-metrics"))
 		})
 	})
 
 	Describe("MinimalAivenValkey", func() {
-		It("should create minimal Aiven Valkey with correct metadata", func() {
+		It("should create minimal Aiven Valkey with correct metadata using namespaced name", func() {
 			valkey := &v1.Valkey{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-valkey",
@@ -601,7 +603,7 @@ var _ = Describe("Valkey Controller", func() {
 
 			result := resourcecreator.MinimalAivenValkey(valkey)
 
-			Expect(result.Name).To(Equal("test-valkey"))
+			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey"))
 			Expect(result.Namespace).To(Equal("test-ns"))
 			Expect(result.Kind).To(Equal("Valkey"))
 			Expect(result.APIVersion).To(Equal("aiven.io/v1alpha1"))
@@ -617,9 +619,9 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalServiceIntegration(valkey, "test-valkey-metrics")
+			result := resourcecreator.MinimalServiceIntegration(valkey, "valkey-test-ns-test-valkey-metrics")
 
-			Expect(result.Name).To(Equal("test-valkey-metrics"))
+			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey-metrics"))
 			Expect(result.Namespace).To(Equal("test-ns"))
 			Expect(result.Kind).To(Equal("ServiceIntegration"))
 			Expect(result.APIVersion).To(Equal("aiven.io/v1alpha1"))

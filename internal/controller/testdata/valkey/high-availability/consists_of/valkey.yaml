@@ -10,7 +10,7 @@ object:
     labels:
       team: production-team
       valkey.nais.io/name: ha-valkey
-    name: ha-valkey
+    name: valkey-production-team-ha-valkey
     namespace: production-team
   spec:
     project: test-project
@@ -22,5 +22,3 @@ object:
       app: ha-valkey
       managed-by: pgrator
       tenant: test-tenant
-    connInfoSecretTarget:
-      name: ha-valkey
