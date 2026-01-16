@@ -143,7 +143,6 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(*result.Spec.TerminationProtection).To(BeTrue())
 			Expect(result.Spec.Tags["team"]).To(Equal(testTeamName))
 			Expect(result.Spec.Tags["app"]).To(Equal(testValkeyName))
-			Expect(result.Spec.Tags["managed-by"]).To(Equal("pgrator"))
 			Expect(result.Spec.Tags["tenant"]).To(Equal("test-tenant"))
 			// Verify Aiven resource uses namespaced name
 			Expect(result.Name).To(Equal("valkey-" + testTeamName + "-" + testValkeyName))

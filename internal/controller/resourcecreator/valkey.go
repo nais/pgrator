@@ -71,9 +71,8 @@ func CreateAivenValkeySpec(valkey *v1.Valkey, cfg *config.Config, aivenPlan stri
 
 	// Build tags
 	tags := map[string]string{
-		"team":       valkey.GetNamespace(),
-		"app":        valkey.GetName(),
-		"managed-by": "pgrator",
+		"team": valkey.GetNamespace(),
+		"app":  valkey.GetName(),
 	}
 	if cfg.AivenTenantName != "" {
 		tags["tenant"] = cfg.AivenTenantName
