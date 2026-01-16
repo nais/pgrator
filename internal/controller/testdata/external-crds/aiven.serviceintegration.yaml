@@ -1,0 +1,119 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: serviceintegrations.aiven.io
+spec:
+  group: aiven.io
+  names:
+    kind: ServiceIntegration
+    listKind: ServiceIntegrationList
+    plural: serviceintegrations
+    singular: serviceintegration
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                project:
+                  type: string
+                integrationType:
+                  type: string
+                sourceEndpointID:
+                  type: string
+                sourceServiceName:
+                  type: string
+                sourceProjectName:
+                  type: string
+                destinationEndpointId:
+                  type: string
+                destinationServiceName:
+                  type: string
+                destinationProjectName:
+                  type: string
+                authSecretRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                datadog:
+                  type: object
+                  properties:
+                    datadog_tags:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          tag:
+                            type: string
+                          comment:
+                            type: string
+                    exclude_consumer_groups:
+                      type: boolean
+                    exclude_topics:
+                      type: boolean
+                    kafka_consumer_check_instances:
+                      type: integer
+                    kafka_consumer_stats_timeout:
+                      type: integer
+                    max_partition_contexts:
+                      type: integer
+                metrics:
+                  type: object
+                  properties:
+                    database:
+                      type: string
+                    retention_days:
+                      type: integer
+                    ro_username:
+                      type: string
+                    username:
+                      type: string
+                logs:
+                  type: object
+                  properties:
+                    elasticsearch_index_prefix:
+                      type: string
+                    elasticsearch_index_days_max:
+                      type: integer
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                id:
+                  type: string
+      subresources:
+        status: {}

@@ -27,6 +27,7 @@ import (
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/pkg/api/datav1"
+	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
@@ -41,22 +42,39 @@ var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	recorder  events.Recorder
-	g         *golden.Golden[*datav1.Postgres, PreparedData]
+
+	// Golden test instances
+	postgresGolden *golden.Golden[*datav1.Postgres, PreparedData]
+	valkeyGolden   *golden.Golden[*v1.Valkey, ValkeyPreparedData]
 )
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	reconcilerConfig := config.Config{
+	postgresReconcilerConfig := config.Config{
 		PrometheusRulesDisabled: true,
 	}
-	reconciler := &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}
+	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
+
+	valkeyReconcilerConfig := config.Config{
+		AivenProject:            "test-project",
+		AivenCloudName:          "google-europe-north1",
+		AivenProjectVPCID:       "test-vpc-id",
+		AivenTenantName:         "test-tenant",
+		AivenMetricsServiceName: "test-metrics-service",
+	}
+	valkeyReconciler := &ValkeyReconciler{Config: &valkeyReconcilerConfig, Recorder: recorder}
 
 	_, filename, _, _ := runtime.Caller(0)
 	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))
+	postgresTestDataDir := filepath.Join(testDataDir, "postgres")
+	valkeyTestDataDir := filepath.Join(testDataDir, "valkey")
 
-	g = golden.NewGolden(t, reconciler, testDataDir)
-	g.DefineTests()
+	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir)
+	postgresGolden.DefineTests()
+
+	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir)
+	valkeyGolden.DefineTests()
 
 	RunSpecs(t, "Controller Suite")
 }
@@ -80,6 +98,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = v1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = aiven_v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
@@ -113,7 +134,10 @@ var _ = BeforeSuite(func() {
 	recorder = events.NewRecorder(record.NewFakeRecorder(100))
 	Expect(recorder).NotTo(BeNil())
 
-	err = g.ParseData(k8sClient.Scheme())
+	err = postgresGolden.ParseData(k8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
+
+	err = valkeyGolden.ParseData(k8sClient.Scheme())
 	Expect(err).NotTo(HaveOccurred())
 })
 

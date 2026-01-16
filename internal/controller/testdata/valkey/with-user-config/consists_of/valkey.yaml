@@ -1,0 +1,30 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: Valkey
+  metadata:
+    annotations:
+      valkey.nais.io/owner: config-team/configured-valkey
+    labels:
+      team: config-team
+      valkey.nais.io/name: configured-valkey
+    name: configured-valkey
+    namespace: config-team
+  spec:
+    project: test-project
+    plan: startup-14
+    cloudName: google-europe-north1
+    projectVpcId: test-vpc-id
+    terminationProtection: true
+    tags:
+      team: config-team
+      app: configured-valkey
+      managed-by: pgrator
+      tenant: test-tenant
+    connInfoSecretTarget:
+      name: configured-valkey
+    userConfig:
+      valkey_maxmemory_policy: volatile-lru
+      valkey_notify_keyspace_events: KEA

@@ -1,0 +1,27 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: Valkey
+  metadata:
+    annotations:
+      valkey.nais.io/owner: production-team/ha-valkey
+    labels:
+      team: production-team
+      valkey.nais.io/name: ha-valkey
+    name: ha-valkey
+    namespace: production-team
+  spec:
+    project: test-project
+    plan: business-8
+    cloudName: google-europe-north1
+    projectVpcId: test-vpc-id
+    terminationProtection: true
+    tags:
+      team: production-team
+      app: ha-valkey
+      managed-by: pgrator
+      tenant: test-tenant
+    connInfoSecretTarget:
+      name: ha-valkey

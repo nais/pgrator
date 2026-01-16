@@ -17,6 +17,13 @@ type Config struct {
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
 
+	// Aiven configuration for Valkey
+	AivenProject            string `env:"AIVEN_PROJECT"`
+	AivenCloudName          string `env:"AIVEN_CLOUD_NAME"`
+	AivenProjectVPCID       string `env:"AIVEN_PROJECT_VPC_ID"`
+	AivenTenantName         string `env:"AIVEN_TENANT_NAME"`
+	AivenMetricsServiceName string `env:"AIVEN_METRICS_SERVICE_NAME"`
+
 	DryRun                  bool `env:"DRY_RUN"`
 	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED"`
 	ResyncIAMPermissions    bool `env:"RESYNC_IAM_PERMISSIONS"`

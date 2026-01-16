@@ -1,0 +1,19 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: ServiceIntegration
+  metadata:
+    annotations:
+      valkey.nais.io/owner: my-team/my-valkey
+    labels:
+      team: my-team
+      valkey.nais.io/name: my-valkey
+    name: my-valkey-metrics
+    namespace: my-team
+  spec:
+    project: test-project
+    integrationType: metrics
+    sourceServiceName: my-valkey
+    destinationServiceName: test-metrics-service

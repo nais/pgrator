@@ -1,0 +1,27 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: Valkey
+  metadata:
+    annotations:
+      valkey.nais.io/owner: my-team/my-valkey
+    labels:
+      team: my-team
+      valkey.nais.io/name: my-valkey
+    name: my-valkey
+    namespace: my-team
+  spec:
+    project: test-project
+    plan: startup-4
+    cloudName: google-europe-north1
+    projectVpcId: test-vpc-id
+    terminationProtection: true
+    tags:
+      team: my-team
+      app: my-valkey
+      managed-by: pgrator
+      tenant: test-tenant
+    connInfoSecretTarget:
+      name: my-valkey
