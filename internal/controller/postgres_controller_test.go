@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	resourceNamespace        = "default"
-	postgresNamespace        = "pg-default"
+	resourceNamespace        = "team"
+	postgresNamespace        = "pg-team"
 	deletableName            = "deletable-resource"
 	undeletableName          = "undeletable-resource"
 	serviceAccountsNamespace = "serviceaccounts"
@@ -62,6 +62,9 @@ var _ = Describe("Postgres Controller", func() {
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
 			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+
+			By("ensuring the resource namespace has required labels")
+			ensureNamespaceExists(resourceNamespace)
 
 			By("creating the postgres namespace")
 			ensureNamespaceExists(postgresNamespace)
@@ -104,7 +107,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
-				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
 
@@ -146,7 +149,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
-				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
 
@@ -178,7 +181,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
-				err = k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
 
