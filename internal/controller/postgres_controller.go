@@ -16,6 +16,7 @@ import (
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
+	core_v1 "k8s.io/api/core/v1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,7 +36,11 @@ type PostgresReconciler struct {
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
-type PreparedData struct{}
+const ProjectIDLabel = "google-cloud-project"
+
+type PreparedData struct {
+	teamGoogleProjectID string
+}
 
 func (r *PostgresReconciler) Name() string {
 	return "postgres.data.nais.io"
@@ -45,8 +50,22 @@ func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
 	return &data_nais_io_v1.Postgres{}
 }
 
-func (r *PostgresReconciler) Prepare(_ctx context.Context, _reader client.Reader, _obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
-	return PreparedData{}, ctrl.Result{}, nil
+func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
+	namespace := &core_v1.Namespace{}
+	err := reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, namespace)
+	if err != nil {
+		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to get namespace %q: %w", obj.Namespace, err)
+	}
+
+	if namespace.Labels == nil {
+		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no labels", obj.Namespace)
+	}
+
+	if projectID, ok := namespace.Labels[ProjectIDLabel]; !ok {
+		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no %q label", obj.Namespace, ProjectIDLabel)
+	} else {
+		return PreparedData{teamGoogleProjectID: projectID}, ctrl.Result{}, nil
+	}
 }
 
 func (r *PostgresReconciler) OwnedTypes() []client.Object {
@@ -58,6 +77,8 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&acid_zalan_do_v1.Postgresql{},
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
+		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
+		&core_v1.ServiceAccount{},
 	}
 	if !r.Config.PrometheusRulesDisabled {
 		objects = append(objects, &monitoring_v1.PrometheusRule{})
@@ -65,7 +86,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 	return objects
 }
 
-func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
@@ -90,8 +111,14 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	iam := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, pgNamespace)
-	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter, r.Recorder))
+	iampm := resourcecreator.CreateIAMPolicyMember(obj, preparedData.teamGoogleProjectID)
+	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
+
+	gsa := resourcecreator.CreateIAMServiceAccount(obj)
+	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
+
+	ksa := resourcecreator.CreateKubernetesServiceAccount(obj, pgNamespace, preparedData.teamGoogleProjectID)
+	actions = append(actions, action.CreateIfNotExists(ksa, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
@@ -102,13 +129,20 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, _preparedData
 	return actions, ctrl.Result{}, nil
 }
 
-func iamPolicyMemberConditionGetter(obj client.Object) []meta_v1.Condition {
+func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
-	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
+
+	var iamConditions []meta_v1.Condition
+	switch o := obj.(type) {
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
+		iamConditions = o.Status.Conditions
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
+		iamConditions = o.Status.Conditions
+	}
 
 	var statusCondition meta_v1.Condition
-	if len(iamPolicyMember.Status.Conditions) > 0 {
-		statusCondition = iamPolicyMember.Status.Conditions[0]
+	if len(iamConditions) > 0 {
+		statusCondition = iamConditions[0]
 	}
 
 	type conditionConfig struct {
