@@ -1,6 +1,7 @@
 package resourcecreator
 
 import (
+	"fmt"
 	"maps"
 
 	"github.com/nais/pgrator/internal/config"
@@ -8,7 +9,9 @@ import (
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // AivenValkeyServiceName returns the namespaced Aiven service name for a Valkey instance.
@@ -53,47 +56,60 @@ func MinimalAivenValkey(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
 }
 
 // CreateAivenValkeySpec creates an Aiven Valkey resource from a nais.io Valkey spec
-func CreateAivenValkeySpec(valkey *v1.Valkey, cfg *config.Config, aivenPlan string) *aiven_v1alpha1.Valkey {
+func CreateAivenValkeySpec(
+	scheme *runtime.Scheme,
+	valkey *v1.Valkey,
+	aiven *config.Aiven,
+	tenant *config.Tenant,
+) (*aiven_v1alpha1.Valkey, error) {
 	aivenValkey := MinimalAivenValkey(valkey)
-
-	userConfig := &aiven_v1alpha1.ValkeyUserConfig{}
-
-	// Set max memory policy if specified
-	if valkey.Spec.MaxMemoryPolicy != "" {
-		policy := string(valkey.Spec.MaxMemoryPolicy)
-		userConfig.ValkeyMaxmemoryPolicy = &policy
-	}
-
-	// Set keyspace notifications if specified
-	if valkey.Spec.NotifyKeyspaceEvents != "" {
-		userConfig.ValkeyNotifyKeyspaceEvents = &valkey.Spec.NotifyKeyspaceEvents
-	}
 
 	// Build tags
 	tags := map[string]string{
-		"team": valkey.GetNamespace(),
-		"app":  valkey.GetName(),
+		"team":   valkey.GetNamespace(),
+		"app":    valkey.GetName(),
+		"tenant": tenant.Name,
 	}
-	if cfg.AivenTenantName != "" {
-		tags["tenant"] = cfg.AivenTenantName
+
+	plan, err := valkey.AivenPlan()
+	if err != nil {
+		return nil, err
 	}
 
 	aivenValkey.Spec = aiven_v1alpha1.ValkeySpec{
-		Project:               cfg.AivenProject,
-		Plan:                  aivenPlan,
-		ProjectVPCID:          cfg.AivenProjectVPCID,
+		Project:               aiven.Project,
+		Plan:                  plan,
+		ProjectVPCID:          aiven.ProjectVPCID,
 		TerminationProtection: ptr.To(true),
 		Tags:                  tags,
-		UserConfig:            userConfig,
 	}
 
-	return aivenValkey
+	if valkey.Spec.MaxMemoryPolicy != "" || valkey.Spec.NotifyKeyspaceEvents != "" {
+		userConfig := &aiven_v1alpha1.ValkeyUserConfig{}
+
+		if valkey.Spec.MaxMemoryPolicy != "" {
+			policy := string(valkey.Spec.MaxMemoryPolicy)
+			userConfig.ValkeyMaxmemoryPolicy = &policy
+		}
+
+		if valkey.Spec.NotifyKeyspaceEvents != "" {
+			userConfig.ValkeyNotifyKeyspaceEvents = &valkey.Spec.NotifyKeyspaceEvents
+		}
+
+		aivenValkey.Spec.UserConfig = userConfig
+	}
+
+	err = controllerutil.SetOwnerReference(valkey, aivenValkey, scheme)
+	if err != nil {
+		return nil, fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	return aivenValkey, nil
 }
 
 // MinimalServiceIntegration creates a minimal ServiceIntegration object for use in delete operations
-func MinimalServiceIntegration(valkey *v1.Valkey, integrationName string) *aiven_v1alpha1.ServiceIntegration {
+func MinimalServiceIntegration(valkey *v1.Valkey) *aiven_v1alpha1.ServiceIntegration {
 	objectMeta := CreateValkeyObjectMeta(valkey)
-	objectMeta.Name = integrationName
 
 	return &aiven_v1alpha1.ServiceIntegration{
 		TypeMeta: metav1.TypeMeta{
@@ -105,22 +121,20 @@ func MinimalServiceIntegration(valkey *v1.Valkey, integrationName string) *aiven
 }
 
 // CreateServiceIntegrationSpec creates a ServiceIntegration for metrics/logs integration
-// integrationType should be one of: "metrics", "logs", "datadog", etc.
-func CreateServiceIntegrationSpec(
-	valkey *v1.Valkey,
-	cfg *config.Config,
-	integrationName string,
-	integrationType string,
-	destinationEndpointID string,
-) *aiven_v1alpha1.ServiceIntegration {
-	integration := MinimalServiceIntegration(valkey, integrationName)
+func CreateServiceIntegrationSpec(scheme *runtime.Scheme, valkey *v1.Valkey, cfg *config.Aiven) (*aiven_v1alpha1.ServiceIntegration, error) {
+	integration := MinimalServiceIntegration(valkey)
 
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{
-		Project:               cfg.AivenProject,
-		IntegrationType:       integrationType,
+		Project:               cfg.Project,
+		IntegrationType:       "prometheus",
 		SourceServiceName:     AivenValkeyServiceName(valkey),
-		DestinationEndpointID: destinationEndpointID,
+		DestinationEndpointID: cfg.MetricsDestinationEndpointID,
 	}
 
-	return integration
+	err := controllerutil.SetOwnerReference(valkey, integration, scheme)
+	if err != nil {
+		return nil, fmt.Errorf("setting controller reference: %w", err)
+	}
+
+	return integration, nil
 }

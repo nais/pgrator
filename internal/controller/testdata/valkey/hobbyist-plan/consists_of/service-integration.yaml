@@ -5,15 +5,13 @@ object:
   apiVersion: aiven.io/v1alpha1
   kind: ServiceIntegration
   metadata:
-    annotations:
-      valkey.nais.io/owner: dev-team/hobbyist-valkey
     labels:
       team: dev-team
       valkey.nais.io/name: hobbyist-valkey
-    name: valkey-dev-team-hobbyist-valkey-metrics
+    name: valkey-dev-team-hobbyist-valkey
     namespace: dev-team
   spec:
     project: test-project
-    integrationType: metrics
+    integrationType: prometheus
     sourceServiceName: valkey-dev-team-hobbyist-valkey
     destinationEndpointId: test-metrics-service

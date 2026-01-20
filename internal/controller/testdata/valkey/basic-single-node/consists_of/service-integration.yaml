@@ -1,19 +1,22 @@
 ---
 action: createOrUpdate
-matcher: Subset
+matcher: Equal
 object:
   apiVersion: aiven.io/v1alpha1
   kind: ServiceIntegration
   metadata:
-    annotations:
-      valkey.nais.io/owner: my-team/my-valkey
     labels:
       team: my-team
       valkey.nais.io/name: my-valkey
-    name: valkey-my-team-my-valkey-metrics
+    name: valkey-my-team-my-valkey
     namespace: my-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Valkey
+        name: my-valkey
+        uid: ""
   spec:
     project: test-project
-    integrationType: metrics
+    integrationType: prometheus
     sourceServiceName: valkey-my-team-my-valkey
     destinationEndpointId: test-metrics-service

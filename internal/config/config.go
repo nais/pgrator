@@ -17,17 +17,24 @@ type Config struct {
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
 
-	// Aiven configuration for Valkey
-	AivenProject                      string `env:"AIVEN_PROJECT"`
-	AivenProjectVPCID                 string `env:"AIVEN_PROJECT_VPC_ID"`
-	AivenTenantName                   string `env:"AIVEN_TENANT_NAME"`
-	AivenMetricsDestinationEndpointID string `env:"AIVEN_METRICS_DESTINATION_ENDPOINT_ID"`
+	DryRun                  bool   `env:"DRY_RUN"`
+	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED"`
+	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS"`
+	WalGsBucket             string `env:"WAL_GS_BUCKET"`
 
-	DryRun                  bool `env:"DRY_RUN"`
-	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED"`
-	ResyncIAMPermissions    bool `env:"RESYNC_IAM_PERMISSIONS"`
+	Aiven  *Aiven
+	Tenant *Tenant
+}
 
-	WalGsBucket string `env:"WAL_GS_BUCKET"`
+type Aiven struct {
+	Project                      string `env:"AIVEN_PROJECT, required"`
+	ProjectVPCID                 string `env:"AIVEN_PROJECT_VPC_ID, required"`
+	MetricsDestinationEndpointID string `env:"AIVEN_METRICS_DESTINATION_ENDPOINT_ID, required"`
+}
+
+type Tenant struct {
+	Name string `env:"TENANT_NAME, required"`
+	// TODO: GoogleProjectID should be in here as well
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

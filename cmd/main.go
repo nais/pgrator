@@ -109,8 +109,10 @@ func main() {
 	}
 
 	valkeyReconciler := &controller.ValkeyReconciler{
-		Config:   cfg,
+		Aiven:    cfg.Aiven,
+		Tenant:   cfg.Tenant,
 		Recorder: recorder,
+		Scheme:   scheme,
 	}
 	valkeyController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), valkeyReconciler, recorder)
 	if err := valkeyController.SetupWithManager(mgr); err != nil {

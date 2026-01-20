@@ -56,13 +56,17 @@ func TestControllers(t *testing.T) {
 	}
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
 
-	valkeyReconcilerConfig := config.Config{
-		AivenProject:                      "test-project",
-		AivenProjectVPCID:                 "test-vpc-id",
-		AivenTenantName:                   "test-tenant",
-		AivenMetricsDestinationEndpointID: "test-metrics-service",
+	valkeyReconciler := &ValkeyReconciler{
+		Aiven: &config.Aiven{
+			Project:                      "test-project",
+			ProjectVPCID:                 "test-vpc-id",
+			MetricsDestinationEndpointID: "test-metrics-service",
+		},
+		Tenant:   &config.Tenant{Name: "test-tenant"},
+		Recorder: recorder,
+		// TODO: scheme should be set up through a function for consistency with actual runtime use
+		Scheme: scheme.Scheme,
 	}
-	valkeyReconciler := &ValkeyReconciler{Config: &valkeyReconcilerConfig, Recorder: recorder}
 
 	_, filename, _, _ := runtime.Caller(0)
 	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))

@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"fmt"
+
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/pkg/annotation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +51,29 @@ const (
 	// ValkeyMaxMemoryPolicyVolatileTTL removes keys with a TTL set, the keys with the shortest remaining time-to-live value first
 	ValkeyMaxMemoryPolicyVolatileTTL ValkeyMaxMemoryPolicy = "volatile-ttl"
 )
+
+var aivenPlans = map[ValkeyTier]map[ValkeyMemory]string{
+	ValkeyTierSingleNode: {
+		ValkeyMemory1GB:   "hobbyist",
+		ValkeyMemory4GB:   "startup-4",
+		ValkeyMemory8GB:   "startup-8",
+		ValkeyMemory14GB:  "startup-14",
+		ValkeyMemory28GB:  "startup-28",
+		ValkeyMemory56GB:  "startup-56",
+		ValkeyMemory112GB: "startup-112",
+		ValkeyMemory200GB: "startup-200",
+	},
+	ValkeyTierHighAvailability: {
+		ValkeyMemory1GB:   "business-1",
+		ValkeyMemory4GB:   "business-4",
+		ValkeyMemory8GB:   "business-8",
+		ValkeyMemory14GB:  "business-14",
+		ValkeyMemory28GB:  "business-28",
+		ValkeyMemory56GB:  "business-56",
+		ValkeyMemory112GB: "business-112",
+		ValkeyMemory200GB: "business-200",
+	},
+}
 
 // ValkeySpec defines the desired state of Valkey
 type ValkeySpec struct {
@@ -106,6 +131,20 @@ func (v *Valkey) GetStatus() object.Status {
 		v.Status = &ValkeyStatus{}
 	}
 	return v.Status
+}
+
+func (v *Valkey) AivenPlan() (string, error) {
+	memories, ok := aivenPlans[v.Spec.Tier]
+	if !ok {
+		return "", fmt.Errorf("no Aiven plans for tier %s", v.Spec.Tier)
+	}
+
+	plan, ok := memories[v.Spec.Memory]
+	if !ok {
+		return "", fmt.Errorf("no Aiven plan for memory %s in tier %s", v.Spec.Memory, v.Spec.Tier)
+	}
+
+	return plan, nil
 }
 
 // +kubebuilder:object:root=true

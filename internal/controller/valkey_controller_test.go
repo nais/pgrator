@@ -1,11 +1,10 @@
 package controller
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
@@ -15,60 +14,6 @@ import (
 
 var _ = Describe("Valkey Controller", func() {
 	Describe("ValkeyReconciler", func() {
-		Describe("Prepare", func() {
-			It("should return correct plan for valid config and valkey", func() {
-				r := &ValkeyReconciler{
-					Config: &config.Config{
-						AivenProject: "test-project",
-					},
-				}
-				valkey := &v1.Valkey{
-					Spec: v1.ValkeySpec{
-						Tier:   v1.ValkeyTierSingleNode,
-						Memory: v1.ValkeyMemory4GB,
-					},
-				}
-
-				preparedData, _, err := r.Prepare(context.Background(), nil, valkey)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(preparedData.AivenPlan).To(Equal("startup-4"))
-			})
-
-			It("should return error when AIVEN_PROJECT is missing", func() {
-				r := &ValkeyReconciler{
-					Config: &config.Config{},
-				}
-				valkey := &v1.Valkey{
-					Spec: v1.ValkeySpec{
-						Tier:   v1.ValkeyTierSingleNode,
-						Memory: v1.ValkeyMemory4GB,
-					},
-				}
-
-				_, _, err := r.Prepare(context.Background(), nil, valkey)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("AIVEN_PROJECT"))
-			})
-
-			It("should return correct plan for high availability", func() {
-				r := &ValkeyReconciler{
-					Config: &config.Config{
-						AivenProject: "test-project",
-					},
-				}
-				valkey := &v1.Valkey{
-					Spec: v1.ValkeySpec{
-						Tier:   v1.ValkeyTierHighAvailability,
-						Memory: v1.ValkeyMemory8GB,
-					},
-				}
-
-				preparedData, _, err := r.Prepare(context.Background(), nil, valkey)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(preparedData.AivenPlan).To(Equal("business-8"))
-			})
-		})
-
 		Describe("Name", func() {
 			It("should return valkey.nais.io", func() {
 				r := &ValkeyReconciler{}
@@ -87,16 +32,9 @@ var _ = Describe("Valkey Controller", func() {
 		})
 
 		Describe("OwnedTypes", func() {
-			It("should return nil", func() {
-				r := &ValkeyReconciler{}
-				Expect(r.OwnedTypes()).To(BeNil())
-			})
-		})
-
-		Describe("AdditionalTypes", func() {
 			It("should return Aiven Valkey and ServiceIntegration types", func() {
 				r := &ValkeyReconciler{}
-				got := r.AdditionalTypes()
+				got := r.OwnedTypes()
 				Expect(got).To(HaveLen(2))
 
 				_, ok := got[0].(*aiven_v1alpha1.Valkey)
@@ -104,6 +42,14 @@ var _ = Describe("Valkey Controller", func() {
 
 				_, ok = got[1].(*aiven_v1alpha1.ServiceIntegration)
 				Expect(ok).To(BeTrue())
+			})
+
+		})
+
+		Describe("AdditionalTypes", func() {
+			It("should return nil", func() {
+				r := &ValkeyReconciler{}
+				Expect(r.AdditionalTypes()).To(BeNil())
 			})
 		})
 	})
@@ -113,6 +59,13 @@ var _ = Describe("Valkey Controller", func() {
 			testValkeyName = "my-valkey"
 			testTeamName   = "my-team"
 		)
+		aiven := &config.Aiven{
+			Project:      "test-project",
+			ProjectVPCID: "vpc-123",
+		}
+		tenant := &config.Tenant{
+			Name: "test-tenant",
+		}
 
 		It("should create basic valkey with correct fields", func() {
 			valkey := &v1.Valkey{
@@ -128,13 +81,9 @@ var _ = Describe("Valkey Controller", func() {
 					Memory: v1.ValkeyMemory4GB,
 				},
 			}
-			cfg := &config.Config{
-				AivenProject:      "test-project",
-				AivenProjectVPCID: "vpc-123",
-				AivenTenantName:   "test-tenant",
-			}
 
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
+			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Project).To(Equal("test-project"))
 			Expect(result.Spec.Plan).To(Equal("startup-4"))
@@ -160,11 +109,9 @@ var _ = Describe("Valkey Controller", func() {
 					MaxMemoryPolicy: v1.ValkeyMaxMemoryPolicyVolatileLRU,
 				},
 			}
-			cfg := &config.Config{
-				AivenProject: "test-project",
-			}
 
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
+			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
 			Expect(result.Spec.UserConfig.ValkeyMaxmemoryPolicy).NotTo(BeNil())
@@ -183,11 +130,9 @@ var _ = Describe("Valkey Controller", func() {
 					NotifyKeyspaceEvents: "KEA",
 				},
 			}
-			cfg := &config.Config{
-				AivenProject: "test-project",
-			}
 
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
+			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
 			Expect(result.Spec.UserConfig.ValkeyNotifyKeyspaceEvents).NotTo(BeNil())
@@ -207,37 +152,14 @@ var _ = Describe("Valkey Controller", func() {
 					NotifyKeyspaceEvents: "Ex",
 				},
 			}
-			cfg := &config.Config{
-				AivenProject: "test-project",
-			}
 
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "business-14")
+			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Plan).To(Equal("business-14"))
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
 			Expect(*result.Spec.UserConfig.ValkeyMaxmemoryPolicy).To(Equal("allkeys-lfu"))
 			Expect(*result.Spec.UserConfig.ValkeyNotifyKeyspaceEvents).To(Equal("Ex"))
-		})
-
-		It("should not include tenant tag when tenant is not set", func() {
-			valkey := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "no-tenant-valkey",
-					Namespace: "no-tenant-team",
-				},
-				Spec: v1.ValkeySpec{
-					Tier:   v1.ValkeyTierSingleNode,
-					Memory: v1.ValkeyMemory4GB,
-				},
-			}
-			cfg := &config.Config{
-				AivenProject: "test-project",
-			}
-
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
-
-			_, hasTenant := result.Spec.Tags["tenant"]
-			Expect(hasTenant).To(BeFalse())
 		})
 
 		It("should preserve labels from source valkey", func() {
@@ -256,11 +178,9 @@ var _ = Describe("Valkey Controller", func() {
 					Memory: v1.ValkeyMemory4GB,
 				},
 			}
-			cfg := &config.Config{
-				AivenProject: "test-project",
-			}
 
-			result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
+			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Labels["team"]).To(Equal("labeled-team"))
 			Expect(result.Labels["custom-label"]).To(Equal("custom-value"))
@@ -285,23 +205,18 @@ var _ = Describe("Valkey Controller", func() {
 					Memory: v1.ValkeyMemory4GB,
 				},
 			}
-			cfg := &config.Config{
-				AivenProject:                      "test-project",
-				AivenMetricsDestinationEndpointID: "metrics-service",
+			cfg := &config.Aiven{
+				Project:                      "test-project",
+				MetricsDestinationEndpointID: "metrics-service",
 			}
 
-			result := resourcecreator.CreateServiceIntegrationSpec(
-				valkey,
-				cfg,
-				"valkey-my-team-my-valkey-metrics",
-				"metrics",
-				"metrics-service",
-			)
+			result, err := resourcecreator.CreateServiceIntegrationSpec(scheme.Scheme, valkey, cfg)
+			Expect(err).NotTo(HaveOccurred())
 
-			Expect(result.Name).To(Equal("valkey-my-team-my-valkey-metrics"))
+			Expect(result.Name).To(Equal("valkey-my-team-my-valkey"))
 			Expect(result.Namespace).To(Equal("my-team"))
 			Expect(result.Spec.Project).To(Equal("test-project"))
-			Expect(result.Spec.IntegrationType).To(Equal("metrics"))
+			Expect(result.Spec.IntegrationType).To(Equal("prometheus"))
 			Expect(result.Spec.SourceServiceName).To(Equal("valkey-my-team-my-valkey"))
 			Expect(result.Spec.DestinationEndpointID).To(Equal("metrics-service"))
 		})
@@ -574,20 +489,6 @@ var _ = Describe("Valkey Controller", func() {
 		})
 	})
 
-	Describe("metricsIntegrationName", func() {
-		It("should return namespaced valkey name with -metrics suffix", func() {
-			valkey := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-				},
-			}
-
-			name := metricsIntegrationName(valkey)
-			Expect(name).To(Equal("valkey-my-team-my-valkey-metrics"))
-		})
-	})
-
 	Describe("MinimalAivenValkey", func() {
 		It("should create minimal Aiven Valkey with correct metadata using namespaced name", func() {
 			valkey := &v1.Valkey{
@@ -618,9 +519,9 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalServiceIntegration(valkey, "valkey-test-ns-test-valkey-metrics")
+			result := resourcecreator.MinimalServiceIntegration(valkey)
 
-			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey-metrics"))
+			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey"))
 			Expect(result.Namespace).To(Equal("test-ns"))
 			Expect(result.Kind).To(Equal("ServiceIntegration"))
 			Expect(result.APIVersion).To(Equal("aiven.io/v1alpha1"))
@@ -639,8 +540,11 @@ var _ = Describe("Valkey Controller", func() {
 			v1.ValkeyMaxMemoryPolicyVolatileTTL,
 		}
 
-		cfg := &config.Config{
-			AivenProject: "test-project",
+		aiven := &config.Aiven{
+			Project: "test-project",
+		}
+		tenant := &config.Tenant{
+			Name: "test-tenant",
 		}
 
 		for _, policy := range policies {
@@ -657,7 +561,8 @@ var _ = Describe("Valkey Controller", func() {
 					},
 				}
 
-				result := resourcecreator.CreateAivenValkeySpec(valkey, cfg, "startup-4")
+				result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+				Expect(err).NotTo(HaveOccurred())
 
 				Expect(result.Spec.UserConfig).NotTo(BeNil())
 				Expect(result.Spec.UserConfig.ValkeyMaxmemoryPolicy).NotTo(BeNil())

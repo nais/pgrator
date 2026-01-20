@@ -5,8 +5,6 @@ object:
   apiVersion: aiven.io/v1alpha1
   kind: Valkey
   metadata:
-    annotations:
-      valkey.nais.io/owner: dev-team/hobbyist-valkey
     labels:
       team: dev-team
       valkey.nais.io/name: hobbyist-valkey
@@ -20,5 +18,4 @@ object:
     tags:
       team: dev-team
       app: hobbyist-valkey
-      managed-by: pgrator
       tenant: test-tenant

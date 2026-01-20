@@ -284,6 +284,10 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
+	// TODO: can this be replaced with ApplySets?
+	//  https://github.com/kubernetes/enhancements/tree/master/keps/sig-cli/3659-kubectl-apply-prune
+	//  https://github.com/kubernetes-sigs/kro/blob/37ab9d6e3d1dc46bf9e7585238745462b4ab153b/pkg/applyset/applyset.go#L15-L20
+
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
 	annotationValue := client.ObjectKeyFromObject(owner).String()
@@ -313,6 +317,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	// Filter resources referenced by already existing actions
 	keep := func(existing client.Object) bool {
 		for _, a := range actions {
+			// TODO: this should check GVK instead of just the Go type
+			//  This code is originally from Naiserator which justifies the use of Go types:
+			//  https://github.com/nais/naiserator/blob/24be6dea44da7c29e9bf729334eec5afe8c2d593/pkg/synchronizer/synchronizer.go#L425-L427
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
 				if obj.GetName() == existing.GetName() {

@@ -14,25 +14,22 @@ import (
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	// ServiceIntegration type for metrics
-	metricsIntegrationType = "metrics"
-)
-
 // ValkeyReconciler reconciles a Valkey object
 type ValkeyReconciler struct {
-	Config   *config.Config
+	Aiven  *config.Aiven
+	Tenant *config.Tenant
+
 	Recorder events.Recorder
+	Scheme   *runtime.Scheme
 }
 
 // ValkeyPreparedData contains data prepared during the Prepare phase
-type ValkeyPreparedData struct {
-	AivenPlan string
-}
+type ValkeyPreparedData struct{}
 
 var _ reconciler.Reconciler[*v1.Valkey, ValkeyPreparedData] = &ValkeyReconciler{}
 
@@ -45,68 +42,34 @@ func (r *ValkeyReconciler) New() *v1.Valkey {
 }
 
 func (r *ValkeyReconciler) Prepare(_ctx context.Context, _reader client.Reader, obj *v1.Valkey) (ValkeyPreparedData, ctrl.Result, error) {
-	// Validate required Aiven configuration
-	if r.Config.AivenProject == "" {
-		return ValkeyPreparedData{}, ctrl.Result{}, fmt.Errorf("AIVEN_PROJECT environment variable is required for Valkey reconciliation")
-	}
-
-	// Translate tier and memory to Aiven plan
-	machine, err := machineTypeFromTierAndMemory(obj.Spec.Tier, obj.Spec.Memory)
-	if err != nil {
-		return ValkeyPreparedData{}, ctrl.Result{}, fmt.Errorf("failed to determine Aiven plan: %w", err)
-	}
-
-	return ValkeyPreparedData{
-		AivenPlan: machine.AivenPlan,
-	}, ctrl.Result{}, nil
+	return ValkeyPreparedData{}, ctrl.Result{}, nil
 }
 
 func (r *ValkeyReconciler) OwnedTypes() []client.Object {
-	return nil
-}
-
-func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
 	return []client.Object{
 		&aiven_v1alpha1.Valkey{},
 		&aiven_v1alpha1.ServiceIntegration{},
 	}
 }
 
-// metricsIntegrationName returns the name of the metrics ServiceIntegration for a Valkey
-func metricsIntegrationName(valkey *v1.Valkey) string {
-	return fmt.Sprintf("%s-metrics", resourcecreator.AivenValkeyServiceName(valkey))
+func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
+	return nil
 }
 
 func (r *ValkeyReconciler) Update(obj *v1.Valkey, preparedData ValkeyPreparedData) ([]action.Action, ctrl.Result, error) {
-	ownerAnnotationKey := fmt.Sprintf("%s/owner", r.Name())
-
-	ns := obj.GetNamespace()
-	// cluster-scoped resources cannot have an empty namespace in the owner annotation
-	if ns == "" {
-		ns = "_"
-	}
-	ownerAnnotationValue := fmt.Sprintf("%s/%s", ns, obj.GetName())
-
 	var actions []action.Action
 
-	// Create Aiven Valkey resource
-	aivenValkey := resourcecreator.CreateAivenValkeySpec(obj, r.Config, preparedData.AivenPlan)
-	meta_v1.SetMetaDataAnnotation(&aivenValkey.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
+	aivenValkey, err := resourcecreator.CreateAivenValkeySpec(r.Scheme, obj, r.Aiven, r.Tenant)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating Aiven Valkey spec: %w", err)
+	}
 	actions = append(actions, action.CreateOrUpdate(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
-	// Create ServiceIntegration for metrics if metrics service is configured
-	if r.Config.AivenMetricsDestinationEndpointID != "" {
-		integrationName := metricsIntegrationName(obj)
-		serviceIntegration := resourcecreator.CreateServiceIntegrationSpec(
-			obj,
-			r.Config,
-			integrationName,
-			metricsIntegrationType,
-			r.Config.AivenMetricsDestinationEndpointID,
-		)
-		meta_v1.SetMetaDataAnnotation(&serviceIntegration.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
-		actions = append(actions, action.CreateOrUpdate(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
+	serviceIntegration, err := resourcecreator.CreateServiceIntegrationSpec(r.Scheme, obj, r.Aiven)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating ServiceIntegration spec: %w", err)
 	}
+	actions = append(actions, action.CreateOrUpdate(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil
 }
@@ -218,14 +181,9 @@ func serviceIntegrationConditionGetter(obj client.Object) []meta_v1.Condition {
 func (r *ValkeyReconciler) Delete(obj *v1.Valkey) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
-	// Delete ServiceIntegration for metrics if it was configured
-	if r.Config.AivenMetricsDestinationEndpointID != "" {
-		integrationName := metricsIntegrationName(obj)
-		serviceIntegration := resourcecreator.MinimalServiceIntegration(obj, integrationName)
-		actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
-	}
+	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
+	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
 
-	// Delete Aiven Valkey resource
 	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
 	actions = append(actions, action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
