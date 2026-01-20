@@ -51,6 +51,7 @@ type ResourceRef struct {
 	External   *string `json:"external,omitempty"`
 	Kind       string  `json:"kind"`
 	Name       string  `json:"name,omitempty"`
+	Namespace  string  `json:"namespace,omitempty"`
 }
 
 type Bindings struct {

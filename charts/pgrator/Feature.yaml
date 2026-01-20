@@ -19,3 +19,7 @@ values:
     displayName: Google project ID
     computed:
       template: '"{{.Env.project_id}}"'
+  walGsBucket:
+    displayName: WAL GCS bucket name
+    computed:
+      template: '"{{.Env.postgres_backup_bucket_name}}"'

@@ -9,18 +9,22 @@ import (
 )
 
 const (
-	ProjectRole = "roles/iam.workloadIdentityUser"
-	GSAName     = "postgres-pod"
-	KSAName     = "postgres-pod"
+	ProjectRole              = "roles/iam.workloadIdentityUser"
+	GSAName                  = "postgres-pod"
+	KSAName                  = "postgres-pod"
+	ServiceAccountsNamespace = "serviceaccounts"
 )
 
-func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres, nameSuffix string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	objectMeta := CreateObjectMeta(postgres)
+	objectMeta.Name = fmt.Sprintf("%s-%s", objectMeta.Name, nameSuffix)
+
 	iamPolicyMember := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMPolicyMember",
 			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
 		},
-		ObjectMeta: CreateObjectMeta(postgres),
+		ObjectMeta: objectMeta,
 	}
 	return iamPolicyMember
 }
@@ -40,8 +44,8 @@ func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud
 	return iamServiceAccount
 }
 
-func CreateIAMPolicyMember(postgres *data_nais_io_v1.Postgres, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(postgres)
+func CreateWorkloadIdentityIAMPolicyMember(postgres *data_nais_io_v1.Postgres, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(postgres, "wi-user")
 	spec := iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", teamGoogleProjectID, postgres.Namespace, KSAName),
 		Role:   ProjectRole,
@@ -49,6 +53,24 @@ func CreateIAMPolicyMember(postgres *data_nais_io_v1.Postgres, teamGoogleProject
 			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
 			Kind:       "IAMServiceAccount",
 			Name:       GSAName,
+		},
+	}
+
+	iamPolicyMember.Spec = spec
+	return iamPolicyMember
+}
+
+func CreateStorageBucketIAMPolicyMember(postgres *data_nais_io_v1.Postgres, projectID, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(postgres, "gcs-user")
+	iamPolicyMember.Namespace = ServiceAccountsNamespace
+	spec := iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
+		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, projectID),
+		Role:   "roles/storage.objectUser",
+		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
+			APIVersion: "storage.cnrm.cloud.google.com/v1beta1",
+			Kind:       "StorageBucket",
+			Name:       bucketName,
+			Namespace:  "nais-system",
 		},
 	}
 

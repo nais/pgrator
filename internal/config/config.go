@@ -19,6 +19,8 @@ type Config struct {
 
 	DryRun                  bool `env:"DRY_RUN"`
 	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED"`
+
+	WalGsBucket string `env:"WAL_GS_BUCKET"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

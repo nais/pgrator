@@ -111,8 +111,13 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	iampm := resourcecreator.CreateIAMPolicyMember(obj, preparedData.teamGoogleProjectID)
+	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj, preparedData.teamGoogleProjectID)
 	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
+
+	if r.Config.WalGsBucket != "" {
+		storageBucketIAM := resourcecreator.CreateStorageBucketIAMPolicyMember(obj, preparedData.teamGoogleProjectID, r.Config.WalGsBucket)
+		actions = append(actions, action.CreateIfNotExists(storageBucketIAM, obj, iamConditionGetter, r.Recorder))
+	}
 
 	gsa := resourcecreator.CreateIAMServiceAccount(obj)
 	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
@@ -168,7 +173,7 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
-		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
+		t := fmt.Sprintf("%s/%s/%s", typePrefix, obj.GetName(), condition.Type)
 		result = append(result, meta_v1.Condition{
 			Type:               t,
 			Status:             makeCondition(condition.Status),

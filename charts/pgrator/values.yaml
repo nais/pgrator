@@ -1,4 +1,5 @@
 postgresStorageClass: ""
+walGsBucket: ""
 google:
   projectId: ""
 

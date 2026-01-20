@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	resourceNamespace = "team"
-	postgresNamespace = "pg-team"
-	deletableName     = "deletable-resource"
-	undeletableName   = "undeletable-resource"
+	resourceNamespace        = "team"
+	postgresNamespace        = "pg-team"
+	serviceAccountsNamespace = "serviceaccounts"
+	deletableName            = "deletable-resource"
+	undeletableName          = "undeletable-resource"
 )
 
 var (
@@ -184,6 +185,53 @@ var _ = Describe("Postgres Controller", func() {
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
+		})
+	})
+
+	Context("When reconciling with WalGsBucket configured", func() {
+		reconcilerConfig := config.Config{
+			PrometheusRulesDisabled: true,
+			WalGsBucket:             "test-wal-bucket",
+		}
+		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
+
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			By("creating the synchronizer for postgres with WalGsBucket")
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+
+			By("ensuring the resource namespace has required labels")
+			ensureNamespaceExists(resourceNamespace)
+
+			By("creating the serviceaccounts namespace")
+			ensureNamespaceExists(serviceAccountsNamespace)
+
+			By("creating the postgres namespace")
+			ensureNamespaceExists(postgresNamespace)
+
+			By("creating the custom resource for the Kind Postgres")
+			ensurePostgresExists(deletableResourceKey, true)
+		})
+
+		It("should create storage bucket IAM policy member", func() {
+			By("Reconciling the created resource")
+			ensureReconciled(deletableResourceKey, controllerReconciler)
+
+			By("Checking for creation of storage bucket IAM policy member")
+			iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
+			err := k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(iamList.Items).NotTo(BeEmpty())
+
+			found := false
+			for _, item := range iamList.Items {
+				if item.Spec.Role == "roles/storage.objectUser" {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), "Expected to find IAMPolicyMember with role roles/storage.objectUser")
 		})
 	})
 })

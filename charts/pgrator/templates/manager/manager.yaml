@@ -37,6 +37,10 @@ spec:
                   key: postgres_image
                   name: postgres-image
                   optional: true
+            {{- if .Values.walGsBucket }}
+            - name: WAL_GS_BUCKET
+              value: {{ .Values.walGsBucket }}
+            {{- end }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}
