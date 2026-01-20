@@ -98,6 +98,7 @@ rules:
     - ""
   resources:
     - serviceaccounts
+    - namespaces
   verbs:
     - get
     - list
