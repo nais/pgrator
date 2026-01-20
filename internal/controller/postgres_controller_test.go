@@ -21,11 +21,10 @@ import (
 )
 
 const (
-	resourceNamespace        = "team"
-	postgresNamespace        = "pg-team"
-	deletableName            = "deletable-resource"
-	undeletableName          = "undeletable-resource"
-	serviceAccountsNamespace = "serviceaccounts"
+	resourceNamespace = "team"
+	postgresNamespace = "pg-team"
+	deletableName     = "deletable-resource"
+	undeletableName   = "undeletable-resource"
 )
 
 var (
