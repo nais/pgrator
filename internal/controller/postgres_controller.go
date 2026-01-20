@@ -138,6 +138,8 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 		iamConditions = o.Status.Conditions
 	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
 		iamConditions = o.Status.Conditions
+	default:
+		panic(fmt.Sprintf("unsupported type for groupkind: %s (%T)", typePrefix, o))
 	}
 
 	var statusCondition meta_v1.Condition
