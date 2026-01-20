@@ -5,7 +5,10 @@ metadata:
   namespace: platting
 spec:
   cluster:
-    majorVersion: "16"
+    audit:
+      enabled: true
+    allowDeletion: true
+    majorVersion: "17"
     resources:
       diskSize: "2Gi"
       cpu: "100m"

@@ -85,6 +85,7 @@ rules:
     - iam.cnrm.cloud.google.com
   resources:
     - iampolicymembers
+    - iamserviceaccounts
   verbs:
     - get
     - list
@@ -93,6 +94,17 @@ rules:
     - update
     - patch
     - delete
+- apiGroups:
+    - ""
+  resources:
+    - serviceaccounts
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
 - apiGroups:
     - ""
   resources:
