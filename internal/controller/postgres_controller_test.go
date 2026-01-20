@@ -68,9 +68,6 @@ var _ = Describe("Postgres Controller", func() {
 			By("creating the postgres namespace")
 			ensureNamespaceExists(postgresNamespace)
 
-			By("creating the serviceaccounts namespace")
-			ensureNamespaceExists(serviceAccountsNamespace)
-
 			By("creating the custom resource for the Kind Postgres")
 			ensurePostgresExists(deletableResourceKey, true)
 
