@@ -173,7 +173,7 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
-		t := fmt.Sprintf("%s/%s/%s", typePrefix, obj.GetName(), condition.Type)
+		t := fmt.Sprintf("%s.%s/%s", typePrefix, obj.GetName(), condition.Type)
 		result = append(result, meta_v1.Condition{
 			Type:               t,
 			Status:             makeCondition(condition.Status),
