@@ -78,6 +78,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
+		&core_v1.ServiceAccount{},
 	}
 	if !r.Config.PrometheusRulesDisabled {
 		objects = append(objects, &monitoring_v1.PrometheusRule{})
@@ -110,11 +111,14 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	iam := resourcecreator.CreateIAMPolicyMemberSpec(obj, r.Config, preparedData.teamGoogleProjectID)
-	actions = append(actions, action.CreateIfNotExists(iam, obj, iamPolicyMemberConditionGetter, r.Recorder))
+	iampm := resourcecreator.CreateIAMPolicyMember(obj, preparedData.teamGoogleProjectID)
+	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
 
-	sa := resourcecreator.CreateIAMServiceAccount(obj, r.Config)
-	actions = append(actions, action.CreateIfNotExists(sa, obj, existsConditionGetter, r.Recorder))
+	gsa := resourcecreator.CreateIAMServiceAccount(obj)
+	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
+
+	ksa := resourcecreator.CreateKubernetesServiceAccount(obj, pgNamespace, preparedData.teamGoogleProjectID)
+	actions = append(actions, action.CreateIfNotExists(ksa, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
@@ -125,13 +129,20 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	return actions, ctrl.Result{}, nil
 }
 
-func iamPolicyMemberConditionGetter(obj client.Object) []meta_v1.Condition {
+func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
-	iamPolicyMember := obj.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)
+
+	var iamConditions []meta_v1.Condition
+	switch o := obj.(type) {
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
+		iamConditions = o.Status.Conditions
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
+		iamConditions = o.Status.Conditions
+	}
 
 	var statusCondition meta_v1.Condition
-	if len(iamPolicyMember.Status.Conditions) > 0 {
-		statusCondition = iamPolicyMember.Status.Conditions[0]
+	if len(iamConditions) > 0 {
+		statusCondition = iamConditions[0]
 	}
 
 	type conditionConfig struct {

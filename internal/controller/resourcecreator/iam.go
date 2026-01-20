@@ -3,7 +3,6 @@ package resourcecreator
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/config"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +25,7 @@ func CreateMinimalIAMPolicyMember(postgres *data_nais_io_v1.Postgres) *iam_cnrm_
 	return iamPolicyMember
 }
 
-func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres, cfg *config.Config) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
+func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
 	iamServiceAccount := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMServiceAccount",
@@ -41,7 +40,7 @@ func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres, cfg *config.Con
 	return iamServiceAccount
 }
 
-func CreateIAMPolicyMemberSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateIAMPolicyMember(postgres *data_nais_io_v1.Postgres, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := CreateMinimalIAMPolicyMember(postgres)
 	spec := iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", teamGoogleProjectID, postgres.Namespace, KSAName),

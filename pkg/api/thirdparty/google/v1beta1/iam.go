@@ -20,6 +20,7 @@ type IAMServiceAccount struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Spec              IAMServiceAccountSpec `json:"spec"`
+	Status            IAMStatus             `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -68,8 +69,8 @@ type IAMPolicyList struct {
 type IAMPolicyMember struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              IAMPolicyMemberSpec   `json:"spec"`
-	Status            IAMPolicyMemberStatus `json:"status,omitempty"`
+	Spec              IAMPolicyMemberSpec `json:"spec"`
+	Status            IAMStatus           `json:"status,omitempty"`
 }
 
 type IAMPolicyMemberSpec struct {
@@ -78,8 +79,8 @@ type IAMPolicyMemberSpec struct {
 	ResourceRef ResourceRef `json:"resourceRef"`
 }
 
-// IAMPolicyMemberStatus defines the observed state of IAMPolicyMember
-type IAMPolicyMemberStatus struct {
+// IAMStatus defines the observed state of IAMPolicyMember and IAMServiceAccount
+type IAMStatus struct {
 	// Conditions represent the latest available observations of the IAM
 	// policy's current state.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
