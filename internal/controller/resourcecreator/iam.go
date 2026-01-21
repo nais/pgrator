@@ -3,6 +3,7 @@ package resourcecreator
 import (
 	"fmt"
 
+	"github.com/nais/pgrator/internal/namegen"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,10 +48,10 @@ func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud
 	return iamServiceAccount
 }
 
-func CreateWorkloadIdentityIAMPolicyMember(namespace, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(GSAName+"-wi-user", namespace)
+func CreateWorkloadIdentityIAMPolicyMember(teamNamespace, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(GSAName+"-wi-user", teamNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
-		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", teamGoogleProjectID, namespace, KSAName),
+		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", teamGoogleProjectID, teamNamespace, KSAName),
 		Role:   WorkloadIdentityRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
 			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
@@ -61,8 +62,12 @@ func CreateWorkloadIdentityIAMPolicyMember(namespace, teamGoogleProjectID string
 	return iamPolicyMember
 }
 
-func CreateStorageBucketIAMPolicyMember(teamGoogleProjectID, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(GSAName+"-gcs-user", ServiceAccountsNamespace)
+func CreateStorageBucketIAMPolicyMember(teamNamespace, teamGoogleProjectID, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	name, err := namegen.ShortName(fmt.Sprintf("pg-gcs-%s", teamNamespace), 63)
+	if err != nil {
+		panic(err)
+	}
+	iamPolicyMember := CreateMinimalIAMPolicyMember(name, ServiceAccountsNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   StorageBucketRole,

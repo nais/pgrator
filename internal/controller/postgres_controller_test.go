@@ -129,7 +129,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(policyMemberWI.Spec.Role).To(Equal("roles/iam.workloadIdentityUser"))
 
 				policyMemberStorage := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod-gcs-user", Namespace: serviceAccountsNamespace}, policyMemberStorage)
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "pg-gcs-team-e4138be1", Namespace: serviceAccountsNamespace}, policyMemberStorage)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
 				Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
