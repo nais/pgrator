@@ -72,8 +72,9 @@ func CreateStorageBucketIAMPolicyMember(teamNamespace, teamGoogleProjectID, buck
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   StorageBucketRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			Kind:     "StorageBucket",
-			External: &bucketName,
+			APIVersion: "storage.cnrm.cloud.google.com/v1beta1",
+			Kind:       "StorageBucket",
+			External:   &bucketName,
 		},
 	}
 
