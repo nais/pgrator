@@ -133,7 +133,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
 				Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
-				Expect(policyMemberStorage.Spec.ResourceRef.Name).To(Equal("postgres-backup-bucket"))
+				Expect(*policyMemberStorage.Spec.ResourceRef.External).To(Equal("postgres-backup-bucket"))
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
