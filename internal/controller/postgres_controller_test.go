@@ -54,6 +54,7 @@ var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
 		reconcilerConfig := config.Config{
 			PrometheusRulesDisabled: true,
+			WalGsBucket:             "postgres-backup-bucket",
 		}
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
@@ -63,11 +64,14 @@ var _ = Describe("Postgres Controller", func() {
 			By("creating the synchronizer for postgres")
 			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
 
-			By("ensuring the resource namespace has required labels")
-			ensureNamespaceExists(resourceNamespace)
+			By("creating the resource namespace")
+			ensureNamespaceExists(resourceNamespace, "test-project")
+
+			By("creating the serviceaccounts namespace")
+			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
 
 			By("creating the postgres namespace")
-			ensureNamespaceExists(postgresNamespace)
+			ensureNamespaceExists(postgresNamespace, "test-project")
 
 			By("creating the custom resource for the Kind Postgres")
 			ensurePostgresExists(deletableResourceKey, true)
@@ -107,6 +111,29 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).NotTo(BeEmpty())
+
+				sa := &core_v1.ServiceAccount{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: postgresNamespace}, sa)
+				Expect(sa.Annotations["iam.gke.io/gcp-service-account"]).To(Equal("postgres-pod@test-project.iam.gserviceaccount.com"))
+				Expect(err).NotTo(HaveOccurred())
+
+				iamsa := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: resourceNamespace}, iamsa)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(iamsa.Spec.DisplayName).To(Equal("Postgres Pod Service Account for team \"team\""))
+
+				policyMemberWI := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod-wi-user", Namespace: resourceNamespace}, policyMemberWI)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(policyMemberWI.Spec.Member).To(Equal("serviceAccount:test-project.svc.id.goog[team/postgres-pod]"))
+				Expect(policyMemberWI.Spec.Role).To(Equal("roles/iam.workloadIdentityUser"))
+
+				policyMemberStorage := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod-gcs-user", Namespace: serviceAccountsNamespace}, policyMemberStorage)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
+				Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
+				Expect(policyMemberStorage.Spec.ResourceRef.Name).To(Equal("postgres-backup-bucket"))
 
 				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 				// Example: If you expect a certain status condition after reconciliation, verify it here.
@@ -202,13 +229,13 @@ var _ = Describe("Postgres Controller", func() {
 			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
 
 			By("ensuring the resource namespace has required labels")
-			ensureNamespaceExists(resourceNamespace)
+			ensureNamespaceExists(resourceNamespace, "test-project")
 
 			By("creating the serviceaccounts namespace")
-			ensureNamespaceExists(serviceAccountsNamespace)
+			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
 
 			By("creating the postgres namespace")
-			ensureNamespaceExists(postgresNamespace)
+			ensureNamespaceExists(postgresNamespace, "test-project")
 
 			By("creating the custom resource for the Kind Postgres")
 			ensurePostgresExists(deletableResourceKey, true)
@@ -270,7 +297,7 @@ func ensurePostgresExists(key types.NamespacedName, allowDeletion bool) {
 	Expect(err).NotTo(HaveOccurred())
 }
 
-func ensureNamespaceExists(name string) {
+func ensureNamespaceExists(name string, projectID string) {
 	namespace := &core_v1.Namespace{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, namespace)
 	if err != nil && apierrors.IsNotFound(err) {
@@ -278,7 +305,7 @@ func ensureNamespaceExists(name string) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
 				Labels: map[string]string{
-					ProjectIDLabel: "test-project",
+					ProjectIDLabel: projectID,
 				},
 			},
 		}

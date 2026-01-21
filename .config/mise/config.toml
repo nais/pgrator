@@ -84,7 +84,7 @@ declare -a output_flags
 if [[ "${GITHUB_ACTIONS}" == "true" ]]; then
   output_flags+=("--github-output")
 fi
-go run github.com/onsi/ginkgo/v2/ginkgo run -r --keep-going -v "${output_flags[@]}"
+go run github.com/onsi/ginkgo/v2/ginkgo run -r --keep-going "${output_flags[@]}"
 """
 
 ### Build

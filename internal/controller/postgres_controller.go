@@ -111,11 +111,11 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj, preparedData.teamGoogleProjectID)
+	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj.GetNamespace(), preparedData.teamGoogleProjectID)
 	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
 
 	if r.Config.WalGsBucket != "" {
-		storageBucketIAM := resourcecreator.CreateStorageBucketIAMPolicyMember(obj, preparedData.teamGoogleProjectID, r.Config.WalGsBucket)
+		storageBucketIAM := resourcecreator.CreateStorageBucketIAMPolicyMember(preparedData.teamGoogleProjectID, r.Config.WalGsBucket)
 		actions = append(actions, action.CreateIfNotExists(storageBucketIAM, obj, iamConditionGetter, r.Recorder))
 	}
 
