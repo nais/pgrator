@@ -114,6 +114,8 @@ jobs:
           google_service_account: gh-pgrator
           push: ${{ github.actor != 'dependabot[bot]' }}
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          cache_from: type=gha
+          cache_to: type=gha,mode=max
     outputs:
       version: "${{ steps.build-push-sign.outputs.version }}"
 
