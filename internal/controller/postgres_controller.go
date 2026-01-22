@@ -36,7 +36,10 @@ type PostgresReconciler struct {
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
-const ProjectIDLabel = "google-cloud-project"
+const (
+	ProjectIDLabel              = "google-cloud-project"
+	ProjectIDAnnotationFallback = "cnrm.cloud.google.com/project-id"
+)
 
 type PreparedData struct {
 	teamGoogleProjectID string
@@ -57,15 +60,24 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to get namespace %q: %w", obj.Namespace, err)
 	}
 
-	if namespace.Labels == nil {
-		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no labels", obj.Namespace)
+	var projectID string
+	var ok bool
+
+	// Try to get project ID from label first
+	if namespace.Labels != nil {
+		projectID, ok = namespace.Labels[ProjectIDLabel]
 	}
 
-	if projectID, ok := namespace.Labels[ProjectIDLabel]; !ok {
-		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no %q label", obj.Namespace, ProjectIDLabel)
-	} else {
-		return PreparedData{teamGoogleProjectID: projectID}, ctrl.Result{}, nil
+	// If not found in labels, try annotation fallback
+	if !ok && namespace.Annotations != nil {
+		projectID, ok = namespace.Annotations[ProjectIDAnnotationFallback]
 	}
+
+	if !ok || projectID == "" {
+		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no %q label or %q annotation", obj.Namespace, ProjectIDLabel, ProjectIDAnnotationFallback)
+	}
+
+	return PreparedData{teamGoogleProjectID: projectID}, ctrl.Result{}, nil
 }
 
 func (r *PostgresReconciler) OwnedTypes() []client.Object {

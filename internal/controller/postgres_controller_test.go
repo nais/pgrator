@@ -303,6 +303,60 @@ var _ = Describe("Postgres Controller", func() {
 			Expect(ksa.Annotations).To(HaveKey("iam.gke.io/gcp-service-account"))
 		})
 	})
+
+	Context("When namespace uses annotation instead of label for project ID", func() {
+		const annotationNamespace = "annotation-team"
+		const annotationPostgresNamespace = "pg-annotation-team"
+
+		reconcilerConfig := config.Config{
+			PrometheusRulesDisabled: true,
+			GoogleProjectID:         "cluster-project",
+		}
+		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
+
+		ctx := context.Background()
+
+		BeforeEach(func() {
+			By("creating the synchronizer for postgres")
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+
+			By("creating the resource namespace with annotation instead of label")
+			ensureNamespaceWithAnnotationExists(annotationNamespace, "annotation-project")
+
+			By("creating the serviceaccounts namespace")
+			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
+
+			By("creating the postgres namespace")
+			ensureNamespaceWithAnnotationExists(annotationPostgresNamespace, "annotation-project")
+
+			By("creating the custom resource for the Kind Postgres")
+			key := types.NamespacedName{Name: "annotation-test", Namespace: annotationNamespace}
+			ensurePostgresExists(key, true)
+		})
+
+		AfterEach(func() {
+			By("Cleanup the resource")
+			resource := &data_nais_io_v1.Postgres{}
+			key := types.NamespacedName{Name: "annotation-test", Namespace: annotationNamespace}
+			err := k8sClient.Get(ctx, key, resource)
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}
+		})
+
+		It("should successfully reconcile using cnrm.cloud.google.com/project-id annotation", func() {
+			key := types.NamespacedName{Name: "annotation-test", Namespace: annotationNamespace}
+
+			By("Reconciling the created resource")
+			ensureReconciled(key, controllerReconciler)
+
+			By("Checking that service account was created with correct project ID from annotation")
+			sa := &core_v1.ServiceAccount{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: annotationPostgresNamespace}, sa)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sa.Annotations["iam.gke.io/gcp-service-account"]).To(Equal("postgres-pod@annotation-project.iam.gserviceaccount.com"))
+		})
+	})
 })
 
 func ensureReconciled(key types.NamespacedName, controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]) {
@@ -348,6 +402,22 @@ func ensureNamespaceExists(name string, projectID string) {
 				Name: name,
 				Labels: map[string]string{
 					ProjectIDLabel: projectID,
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+	}
+}
+
+func ensureNamespaceWithAnnotationExists(name string, projectID string) {
+	namespace := &core_v1.Namespace{}
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, namespace)
+	if err != nil && apierrors.IsNotFound(err) {
+		namespace = &core_v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				Annotations: map[string]string{
+					ProjectIDAnnotationFallback: projectID,
 				},
 			},
 		}
