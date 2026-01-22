@@ -111,7 +111,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj.GetNamespace(), preparedData.teamGoogleProjectID)
+	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID)
 	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
 
 	if r.Config.WalGsBucket != "" {

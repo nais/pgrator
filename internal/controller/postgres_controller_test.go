@@ -55,6 +55,7 @@ var _ = Describe("Postgres Controller", func() {
 		reconcilerConfig := config.Config{
 			PrometheusRulesDisabled: true,
 			WalGsBucket:             "postgres-backup-bucket",
+			GoogleProjectID:         "cluster-project",
 		}
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
@@ -125,7 +126,7 @@ var _ = Describe("Postgres Controller", func() {
 				policyMemberWI := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod-wi-user", Namespace: resourceNamespace}, policyMemberWI)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(policyMemberWI.Spec.Member).To(Equal("serviceAccount:test-project.svc.id.goog[team/postgres-pod]"))
+				Expect(policyMemberWI.Spec.Member).To(Equal("serviceAccount:cluster-project.svc.id.goog[pg-team/postgres-pod]"))
 				Expect(policyMemberWI.Spec.Role).To(Equal("roles/iam.workloadIdentityUser"))
 
 				policyMemberStorage := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}

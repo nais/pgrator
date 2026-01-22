@@ -48,10 +48,10 @@ func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud
 	return iamServiceAccount
 }
 
-func CreateWorkloadIdentityIAMPolicyMember(teamNamespace, teamGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateWorkloadIdentityIAMPolicyMember(teamNamespace, pgNamespace, clusterGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := CreateMinimalIAMPolicyMember(GSAName+"-wi-user", teamNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
-		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", teamGoogleProjectID, teamNamespace, KSAName),
+		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
 		Role:   WorkloadIdentityRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
 			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
