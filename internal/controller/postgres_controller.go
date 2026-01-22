@@ -111,19 +111,33 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
+	// Choose action for IAMPolicyMember based on ResyncIAMPermissions flag
+	// IAMPolicyMember resources are immutable and need recreation to resync permissions
+	iamPolicyMemberActionFunc := action.CreateIfNotExists
+	if r.Config.ResyncIAMPermissions {
+		iamPolicyMemberActionFunc = action.CreateOrRecreate
+	}
+
 	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID)
-	actions = append(actions, action.CreateIfNotExists(iampm, obj, iamConditionGetter, r.Recorder))
+	actions = append(actions, iamPolicyMemberActionFunc(iampm, obj, iamConditionGetter, r.Recorder))
 
 	if r.Config.WalGsBucket != "" {
 		storageBucketIAM := resourcecreator.CreateStorageBucketIAMPolicyMember(obj.GetNamespace(), preparedData.teamGoogleProjectID, r.Config.WalGsBucket)
-		actions = append(actions, action.CreateIfNotExists(storageBucketIAM, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, iamPolicyMemberActionFunc(storageBucketIAM, obj, iamConditionGetter, r.Recorder))
+	}
+
+	// IAMServiceAccount and K8s ServiceAccount are mutable resources
+	// Choose action based on ResyncIAMPermissions flag
+	serviceAccountActionFunc := action.CreateIfNotExists
+	if r.Config.ResyncIAMPermissions {
+		serviceAccountActionFunc = action.CreateOrUpdate
 	}
 
 	gsa := resourcecreator.CreateIAMServiceAccount(obj)
-	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
+	actions = append(actions, serviceAccountActionFunc(gsa, obj, iamConditionGetter, r.Recorder))
 
 	ksa := resourcecreator.CreateKubernetesServiceAccount(obj, pgNamespace, preparedData.teamGoogleProjectID)
-	actions = append(actions, action.CreateIfNotExists(ksa, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, serviceAccountActionFunc(ksa, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)

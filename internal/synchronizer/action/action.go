@@ -205,6 +205,71 @@ func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionG
 	}
 }
 
+type createOrRecreate struct {
+	action
+}
+
+func (a *createOrRecreate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+	log := logf.FromContext(ctx)
+	log.Info(fmt.Sprintf("CreateOrRecreate %s", typeName(a.obj)))
+
+	var conditions []meta_v1.Condition
+
+	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	if err != nil {
+		return fmt.Errorf("internal error: %w", err)
+	}
+
+	key := client.ObjectKeyFromObject(a.obj)
+	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		// Resource doesn't exist, create it
+		if err = c.Create(ctx, a.obj); err != nil {
+			return err
+		}
+		conditions = a.conditionGetter(a.obj)
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s %s", describeObj(a.obj))
+	} else {
+		// Resource exists, delete and recreate it
+		if err = c.Delete(ctx, existing.(client.Object)); err != nil {
+			return fmt.Errorf("failed to delete existing resource: %w", err)
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s for recreation", describeObj(a.obj))
+
+		// Create the new resource
+		if err = c.Create(ctx, a.obj); err != nil {
+			return fmt.Errorf("failed to recreate resource: %w", err)
+		}
+		conditions = a.conditionGetter(a.obj)
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Recreated", "Recreated %s", describeObj(a.obj))
+	}
+
+	status := a.owner.GetStatus()
+	if status.Conditions == nil {
+		status.Conditions = new([]meta_v1.Condition)
+	}
+
+	for _, condition := range conditions {
+		meta.SetStatusCondition(status.Conditions, condition)
+	}
+
+	return nil
+}
+
+func CreateOrRecreate(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+	return &createOrRecreate{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+			recorder:        recorder,
+		},
+	}
+}
+
 func copyMeta(dst, src runtime.Object) error {
 	srcacc, err := meta.Accessor(src)
 	if err != nil {

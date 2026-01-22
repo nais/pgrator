@@ -262,6 +262,47 @@ var _ = Describe("Postgres Controller", func() {
 			Expect(found).To(BeTrue(), "Expected to find IAMPolicyMember with role roles/storage.objectUser")
 		})
 	})
+
+	Context("When reconciling with ResyncIAMPermissions enabled", func() {
+		It("should use CreateOrUpdate for service accounts to ensure they are synced", func() {
+			reconcilerConfig := config.Config{
+				PrometheusRulesDisabled: true,
+				WalGsBucket:             "test-wal-bucket",
+				GoogleProjectID:         "cluster-project",
+				ResyncIAMPermissions:    true,
+			}
+			reconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+
+			ensureNamespaceExists(resourceNamespace, "test-project")
+			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
+			ensureNamespaceExists(postgresNamespace, "test-project")
+
+			key := types.NamespacedName{Name: "resync-test", Namespace: resourceNamespace}
+			ensurePostgresExists(key, true)
+
+			By("cleaning up any existing service account from previous tests")
+			existingKsa := &core_v1.ServiceAccount{}
+			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "postgres-pod", Namespace: postgresNamespace}, existingKsa); err == nil {
+				Expect(k8sClient.Delete(context.Background(), existingKsa)).To(Succeed())
+			}
+
+			By("pre-creating Kubernetes service account with incomplete annotations")
+			ksa := &core_v1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "postgres-pod",
+					Namespace: postgresNamespace,
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), ksa)).To(Succeed())
+
+			By("reconciling")
+			ensureReconciled(key, reconciler)
+
+			By("verifying IAM annotation was added via CreateOrUpdate")
+			Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(ksa), ksa)).To(Succeed())
+			Expect(ksa.Annotations).To(HaveKey("iam.gke.io/gcp-service-account"))
+		})
+	})
 })
 
 func ensureReconciled(key types.NamespacedName, controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]) {

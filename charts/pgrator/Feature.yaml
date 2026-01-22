@@ -23,3 +23,8 @@ values:
     displayName: WAL GCS bucket name
     computed:
       template: '"{{.Env.postgres_backup_bucket_name}}"'
+  resyncIAMPermissions:
+    displayName: Resync IAM permissions
+    description: Enable resyncing of IAM permissions by recreating IAMPolicyMember resources
+    config:
+      type: bool

@@ -19,6 +19,7 @@ type Config struct {
 
 	DryRun                  bool `env:"DRY_RUN"`
 	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED"`
+	ResyncIAMPermissions    bool `env:"RESYNC_IAM_PERMISSIONS"`
 
 	WalGsBucket string `env:"WAL_GS_BUCKET"`
 }

@@ -41,6 +41,10 @@ spec:
             - name: WAL_GS_BUCKET
               value: {{ .Values.walGsBucket }}
             {{- end }}
+            {{- if .Values.resyncIAMPermissions }}
+            - name: RESYNC_IAM_PERMISSIONS
+              value: "{{ .Values.resyncIAMPermissions }}"
+            {{- end }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}
