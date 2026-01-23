@@ -63,7 +63,7 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 			return err
 		}
 		conditions = a.conditionGetter(a.obj)
-		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s %s", describeObj(a.obj))
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
 	} else {
 		conditions = a.conditionGetter(existing.(client.Object))
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s already exists", describeObj(a.obj))
@@ -198,8 +198,6 @@ func (a *createOrRecreate) Do(ctx context.Context, c client.Client, scheme *runt
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("CreateOrRecreate %s", typeName(a.obj)))
 
-	var conditions []meta_v1.Condition
-
 	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
 	if err != nil {
 		return fmt.Errorf("internal error: %w", err)
@@ -215,8 +213,7 @@ func (a *createOrRecreate) Do(ctx context.Context, c client.Client, scheme *runt
 		if err = c.Create(ctx, a.obj); err != nil {
 			return err
 		}
-		conditions = a.conditionGetter(a.obj)
-		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s %s", describeObj(a.obj))
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
 	} else {
 		// Resource exists, delete and recreate it
 		if err = c.Delete(ctx, existing.(client.Object)); err != nil {
@@ -228,17 +225,11 @@ func (a *createOrRecreate) Do(ctx context.Context, c client.Client, scheme *runt
 		if err = c.Create(ctx, a.obj); err != nil {
 			return fmt.Errorf("failed to recreate resource: %w", err)
 		}
-		conditions = a.conditionGetter(a.obj)
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Recreated", "Recreated %s", describeObj(a.obj))
 	}
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
-	for _, condition := range conditions {
-		meta.SetStatusCondition(status.Conditions, condition)
+	for _, condition := range a.conditionGetter(a.obj) {
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil

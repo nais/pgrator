@@ -64,13 +64,6 @@ func CreateAivenValkeySpec(
 ) (*aiven_v1alpha1.Valkey, error) {
 	aivenValkey := MinimalAivenValkey(valkey)
 
-	// Build tags
-	tags := map[string]string{
-		"team":   valkey.GetNamespace(),
-		"app":    valkey.GetName(),
-		"tenant": tenant.Name,
-	}
-
 	plan, err := valkey.AivenPlan()
 	if err != nil {
 		return nil, err
@@ -81,7 +74,11 @@ func CreateAivenValkeySpec(
 		Plan:                  plan,
 		ProjectVPCID:          aiven.ProjectVPCID,
 		TerminationProtection: ptr.To(true),
-		Tags:                  tags,
+		Tags: map[string]string{
+			"team":   valkey.GetNamespace(),
+			"app":    valkey.GetName(),
+			"tenant": tenant.Name,
+		},
 	}
 
 	if valkey.Spec.MaxMemoryPolicy != "" || valkey.Spec.NotifyKeyspaceEvents != "" {
