@@ -101,7 +101,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 	}
 
 	key := client.ObjectKeyFromObject(a.obj)
-	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+	if err := c.Get(ctx, key, existing.(client.Object)); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -110,17 +110,16 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 			return err
 		}
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
-		return nil
-	}
+	} else {
+		if err = copyMeta(a.obj, existing); err != nil {
+			return fmt.Errorf("copying metadata: %w", err)
+		}
 
-	if err = copyMeta(a.obj, existing); err != nil {
-		return fmt.Errorf("copying metadata: %w", err)
+		if err = c.Update(ctx, a.obj); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
-
-	if err = c.Update(ctx, a.obj); err != nil {
-		return err
-	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
 	for _, condition := range a.conditionGetter(a.obj) {
 		a.owner.GetStatus().SetCondition(condition)

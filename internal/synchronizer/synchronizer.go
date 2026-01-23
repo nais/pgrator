@@ -97,13 +97,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	status.SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
-		logger.Info(fmt.Sprintf("status before update: %#v", status))
 		if err := s.client.Status().Update(ctx, obj); err != nil {
 			logger.Error(err, "failed to update status")
 			return err
 		}
 		status = obj.GetStatus()
-		logger.Info(fmt.Sprintf("status after update: %#v", status))
 		return nil
 	}
 
@@ -217,6 +215,14 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
 			return ctrl.Result{}, err
 		}
+
+		// Re-fetch object to get fresh resourceVersion after finalizer update
+		// Otherwise the deferred status update will fail with a conflict
+		if err = s.client.Get(ctx, req.NamespacedName, obj); err != nil {
+			logger.Error(err, "failed to re-fetch object after finalizer update")
+			return ctrl.Result{}, err
+		}
+		status = obj.GetStatus()
 	}
 
 	status.SetReconcilePhase("Completed")
