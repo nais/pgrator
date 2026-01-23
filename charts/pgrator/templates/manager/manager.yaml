@@ -37,6 +37,14 @@ spec:
                   key: postgres_image
                   name: postgres-image
                   optional: true
+            - name: AIVEN_PROJECT
+              value: {{ .Values.aiven.project | quote }}
+            - name: AIVEN_PROJECT_VPC_ID
+              value: {{ .Values.aiven.projectVPCID | quote }}
+            - name: AIVEN_METRICS_DESTINATION_ENDPOINT_ID
+              value: {{ .Values.aiven.metricsDestinationEndpointID | quote }}
+            - name: TENANT_NAME
+              value: {{ .Values.fasit.tenant.name }}
             {{- if .Values.walGsBucket }}
             - name: WAL_GS_BUCKET
               value: {{ .Values.walGsBucket }}

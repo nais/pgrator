@@ -86,9 +86,10 @@ rules:
     - patch
     - update
 - apiGroups:
-    - aiven.io/v1alpha1
+    - aiven.io
   resources:
     - valkeys
+    - serviceintegrations
   verbs:
     - create
     - delete
