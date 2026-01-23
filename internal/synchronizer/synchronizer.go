@@ -85,6 +85,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
+		if apierrors.IsNotFound(err) {
+			logger.Info("object not found, skipping reconciliation")
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -94,8 +97,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	status.SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
-		err = s.client.Status().Update(ctx, obj)
-		if err != nil {
+		if err := s.client.Status().Update(ctx, obj); err != nil {
 			logger.Error(err, "failed to update status")
 			return err
 		}
@@ -114,8 +116,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
 
 	status.SetReconcilePhase("Preparing")
-	if err = updateStatus(); err != nil {
+	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in Preparing phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -140,6 +143,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
 			if err = updateStatus(); err != nil {
 				if apierrors.IsConflict(err) {
+					logger.Info("conflict during status update in EvaluatingDeletion phase, requeuing")
 					return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 				}
 				return ctrl.Result{}, err
@@ -157,6 +161,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingUpdate", "Evaluating update of resources")
 		if err = updateStatus(); err != nil {
 			if apierrors.IsConflict(err) {
+				logger.Info("conflict during status update in EvaluatingUpdate phase, requeuing")
 				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 			}
 			return ctrl.Result{}, err
@@ -173,6 +178,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in DetectingUnreferenced phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -187,8 +193,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	status.SetReconcilePhase("PerformingActions")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
-	if err = updateStatus(); err != nil {
+	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in PerformingActions phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -216,11 +223,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
-	var err error
 	for _, a := range actions {
 		// TODO: s.addOwnerAnnotation(a)
 		// Must handle IAMPolicyMember before adding owner annotation here
-		err = a.Do(ctx, s.client, s.scheme)
+		err := a.Do(ctx, s.client, s.scheme)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
