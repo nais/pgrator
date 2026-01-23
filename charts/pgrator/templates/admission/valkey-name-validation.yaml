@@ -1,0 +1,29 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: valkey-name-length
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["nais.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["valkeys"]
+  validations:
+    - expression: "object.metadata.name.size() <= 63 - (9 + object.metadata.namespace.size())"
+      message: "metadata.name is too long; generated Valkey service name \"valkey-{namespace}-{name}\" must be <= 63 characters"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: valkey-name-length
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  policyName: valkey-name-length
+  validationActions:
+    - Deny

@@ -104,7 +104,6 @@ type ValkeyStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 // +kubebuilder:printcolumn:name="Last rollout",type="string",JSONPath=".status.rolloutCompleteTime"
-// +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 63 - (9 + self.metadata.namespace.size())",message="metadata.name is too long; generated Valkey service name \"valkey-{namespace}-{name}\" must be <= 63 characters"
 // Valkey is the Schema for the valkeys API
 type Valkey struct {
 	metav1.TypeMeta `json:",inline"`

@@ -177,10 +177,6 @@ spec:
         required:
         - spec
         type: object
-        x-kubernetes-validations:
-        - message: metadata.name is too long; generated Valkey service name "valkey-{namespace}-{name}"
-            must be <= 63 characters
-          rule: self.metadata.name.size() <= 63 - (9 + self.metadata.namespace.size())
     served: true
     storage: true
     subresources:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -22,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/yaml"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/golden"
@@ -134,6 +137,10 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// Install ValidatingAdmissionPolicy for Valkey name validation
+	err = installAdmissionPolicies(ctx, k8sClient)
+	Expect(err).NotTo(HaveOccurred())
 	recorder = events.NewRecorder(record.NewFakeRecorder(100))
 	Expect(recorder).NotTo(BeNil())
 
@@ -150,6 +157,54 @@ var _ = AfterSuite(func() {
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+// installAdmissionPolicies reads and installs ValidatingAdmissionPolicy resources from charts/admission
+func installAdmissionPolicies(ctx context.Context, c client.Client) error {
+	_, filename, _, _ := runtime.Caller(0)
+	admissionDir := filepath.Join(filepath.Dir(filename), "../../charts/pgrator/templates/admission")
+
+	entries, err := os.ReadDir(admissionDir)
+	if err != nil {
+		return err
+	}
+
+	// Regex to strip Helm template directives (lines containing {{ ... }})
+	helmTemplateRegex := regexp.MustCompile(`(?m)^.*\{\{.*\}\}.*\n?`)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yaml") && !strings.HasSuffix(entry.Name(), ".yml")) {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(admissionDir, entry.Name()))
+		if err != nil {
+			return err
+		}
+
+		// Strip Helm template directives before parsing
+		cleanedData := helmTemplateRegex.ReplaceAll(data, nil)
+
+		// Split YAML documents
+		docs := strings.Split(string(cleanedData), "---")
+		for _, doc := range docs {
+			doc = strings.TrimSpace(doc)
+			if doc == "" {
+				continue
+			}
+
+			obj := &unstructured.Unstructured{}
+			if err := yaml.Unmarshal([]byte(doc), obj); err != nil {
+				return err
+			}
+
+			if err := c.Create(ctx, obj); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
 
 // getEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

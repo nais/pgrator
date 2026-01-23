@@ -19,7 +19,7 @@ object:
     project: test-project
     plan: startup-14
     projectVpcId: test-vpc-id
-    terminationProtection: true
+    terminationProtection: false
     tags:
       team: config-team
       app: configured-valkey
