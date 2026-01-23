@@ -219,11 +219,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if deletionTimestamp.IsZero() {
 			// Re-fetch object to get fresh resourceVersion after finalizer update
 			// Otherwise the deferred status update will fail with a conflict
-			if err := s.client.Get(ctx, req.NamespacedName, obj); err != nil {
+			tmpObj := s.reconciler.New()
+			if err := s.client.Get(ctx, req.NamespacedName, tmpObj); err != nil {
 				logger.Error(err, "failed to re-fetch object after finalizer update")
 				return ctrl.Result{}, err
 			}
-			status = obj.GetStatus()
+			status = tmpObj.GetStatus()
 		}
 	}
 
