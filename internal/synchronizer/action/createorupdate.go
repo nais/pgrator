@@ -37,6 +37,8 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		if err = c.Create(ctx, a.obj); err != nil {
 			return err
 		}
+		// Ensure GVK is set for describeObj
+		a.ensureGVK()
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
 		return nil
 	}
