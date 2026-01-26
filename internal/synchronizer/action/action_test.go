@@ -562,8 +562,8 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := NoOp(serviceAccount, postgres, testConditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			// NoOp doesn't call conditionGetter, so seenGVK will be empty
-			// Just verify the action stores the GVK and doesn't error
+			// NoOp should NOT call conditionGetter, verify seenGVK remains empty
+			Expect(seenGVK).To(BeEmpty(), "NoOp should not invoke the condition getter")
 		})
 	})
 })
