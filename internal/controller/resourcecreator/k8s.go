@@ -8,9 +8,9 @@ import (
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func CreateKubernetesServiceAccount(obj *data_nais_io_v1.Postgres, pgNamespace, teamGoogleProjectID string) *core_v1.ServiceAccount {
+func CreateKubernetesServiceAccount(name string, obj *data_nais_io_v1.Postgres, pgNamespace, teamGoogleProjectID, GSAName string) *core_v1.ServiceAccount {
 	objectMeta := CreateObjectMeta(obj)
-	objectMeta.Name = KSAName
+	objectMeta.Name = name
 	objectMeta.Namespace = pgNamespace
 
 	gsaEmail := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID)

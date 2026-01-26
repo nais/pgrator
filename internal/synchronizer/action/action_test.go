@@ -16,7 +16,7 @@ import (
 
 type mockRecorder struct{}
 
-func (m *mockRecorder) RecordEvent(obj object.NaisObject, eventType, reason, messageFmt string, args ...interface{}) {
+func (m *mockRecorder) RecordEvent(obj object.NaisObject, eventType, reason, messageFmt string, args ...any) {
 	// Mock implementation - does nothing
 }
 
@@ -79,7 +79,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 				},
 			}
 
-			action := CreateOrRecreate(serviceAccount, postgres, conditionGetter, recorder)
+			action := Recreate(serviceAccount, postgres, conditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -124,7 +124,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 				},
 			}
 
-			action := CreateOrRecreate(newServiceAccount, postgres, conditionGetter, recorder)
+			action := Recreate(newServiceAccount, postgres, conditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -221,7 +221,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 				},
 			}
 
-			recreateAction := CreateOrRecreate(newRecreateServiceAccount, postgres, conditionGetter, recorder)
+			recreateAction := Recreate(newRecreateServiceAccount, postgres, conditionGetter, recorder)
 			err = recreateAction.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -289,7 +289,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 					},
 				}
 
-				action := CreateOrRecreate(newSA, postgres, conditionGetter, recorder)
+				action := Recreate(newSA, postgres, conditionGetter, recorder)
 				err := action.Do(ctx, fakeClient, scheme)
 				Expect(err).NotTo(HaveOccurred())
 
