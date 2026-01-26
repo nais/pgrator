@@ -374,10 +374,27 @@ var _ = Describe("CreateOrRecreate Action", func() {
 	})
 
 	Context("GVK preservation", func() {
-		It("should preserve and restore GroupVersionKind when calling condition getters", func() {
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+		var testConditionGetter ConditionGetter
+		var seenGVK string
 
-			// Create a ServiceAccount with proper TypeMeta
+		BeforeEach(func() {
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+			seenGVK = ""
+			// Track what GVK the condition getter sees
+			testConditionGetter = func(obj client.Object) []meta_v1.Condition {
+				gvk := obj.GetObjectKind().GroupVersionKind()
+				seenGVK = gvk.String()
+				return []meta_v1.Condition{
+					{
+						Type:   "serviceaccount/Available",
+						Status: meta_v1.ConditionTrue,
+						Reason: "Exists",
+					},
+				}
+			}
+		})
+
+		It("should preserve GVK in Recreate action", func() {
 			serviceAccount := &core_v1.ServiceAccount{
 				TypeMeta: meta_v1.TypeMeta{
 					Kind:       "ServiceAccount",
@@ -389,25 +406,106 @@ var _ = Describe("CreateOrRecreate Action", func() {
 				},
 			}
 
-			// Track what GVK the condition getter sees
-			var seenGVK string
-			testConditionGetter := func(obj client.Object) []meta_v1.Condition {
-				gvk := obj.GetObjectKind().GroupVersionKind()
-				seenGVK = gvk.String()
-				return []meta_v1.Condition{
-					{
-						Type:   "serviceaccount/Available",
-						Status: meta_v1.ConditionTrue,
-						Reason: "Exists",
-					},
-				}
-			}
-
 			action := Recreate(serviceAccount, postgres, testConditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+		})
 
-			// Verify the condition getter saw the correct GVK
+		It("should preserve GVK in Create action", func() {
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-create",
+					Namespace: "test-namespace",
+				},
+			}
+
+			action := Create(serviceAccount, postgres, testConditionGetter, recorder)
+			err := action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+		})
+
+		It("should preserve GVK in CreateIfNotExists action (create path)", func() {
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-cine",
+					Namespace: "test-namespace",
+				},
+			}
+
+			action := CreateIfNotExists(serviceAccount, postgres, testConditionGetter, recorder)
+			err := action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+		})
+
+		It("should preserve GVK in CreateIfNotExists action (exists path)", func() {
+			// Pre-create the resource
+			existing := &core_v1.ServiceAccount{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-exists",
+					Namespace: "test-namespace",
+				},
+			}
+			err := fakeClient.Create(ctx, existing)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now try to create it again with CreateIfNotExists
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-exists",
+					Namespace: "test-namespace",
+				},
+			}
+
+			action := CreateIfNotExists(serviceAccount, postgres, testConditionGetter, recorder)
+			err = action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+		})
+
+		It("should preserve GVK in CreateOrUpdate action (update path)", func() {
+			// Pre-create the resource
+			existing := &core_v1.ServiceAccount{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-update",
+					Namespace: "test-namespace",
+				},
+			}
+			err := fakeClient.Create(ctx, existing)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now update it with CreateOrUpdate
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-update",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						"updated": "true",
+					},
+				},
+			}
+
+			action := CreateOrUpdate(serviceAccount, postgres, testConditionGetter, recorder)
+			err = action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
 		})
 	})
