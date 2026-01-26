@@ -28,6 +28,8 @@ func (a *create) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	if err := c.Create(ctx, a.obj); err != nil {
 		return fmt.Errorf("failed to create resource: %w", err)
 	}
+	// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+	a.ensureGVK()
 	conditions = a.conditionGetter(a.obj)
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
 
@@ -50,6 +52,7 @@ func Create(obj client.Object, owner object.NaisObject, conditionGetter Conditio
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }

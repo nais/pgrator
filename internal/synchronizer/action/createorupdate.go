@@ -50,6 +50,9 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
+	// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+	a.ensureGVK()
+
 	status := a.owner.GetStatus()
 	if status.Conditions == nil {
 		status.Conditions = new([]meta_v1.Condition)
@@ -69,6 +72,7 @@ func CreateOrUpdate(obj client.Object, owner object.NaisObject, conditionGetter 
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,6 +26,7 @@ type action struct {
 	owner           object.NaisObject
 	conditionGetter ConditionGetter
 	recorder        events.Recorder
+	gvk             schema.GroupVersionKind // Store GVK to restore before calling conditionGetter
 }
 
 func (a *action) GetObject() client.Object {
@@ -33,6 +35,15 @@ func (a *action) GetObject() client.Object {
 
 func (a *action) GetOwner() object.NaisObject {
 	return a.owner
+}
+
+// ensureGVK restores the GroupVersionKind on the object before it's used by condition getters.
+// The Kubernetes API server doesn't return TypeMeta in responses, so we store the GVK
+// at action construction time and restore it when needed.
+func (a *action) ensureGVK() {
+	if !a.gvk.Empty() {
+		a.obj.GetObjectKind().SetGroupVersionKind(a.gvk)
+	}
 }
 
 type noOp struct {
@@ -48,6 +59,7 @@ func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionG
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }

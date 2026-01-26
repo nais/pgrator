@@ -30,6 +30,9 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
 
+	// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+	a.ensureGVK()
+
 	status := a.owner.GetStatus()
 	if status.Conditions == nil {
 		status.Conditions = new([]meta_v1.Condition)
@@ -49,6 +52,7 @@ func DeleteIfExists(obj client.Object, owner object.NaisObject, conditionGetter 
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }

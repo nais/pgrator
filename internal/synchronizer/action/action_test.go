@@ -372,4 +372,43 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			}),
 		)
 	})
+
+	Context("GVK preservation", func() {
+		It("should preserve and restore GroupVersionKind when calling condition getters", func() {
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			// Create a ServiceAccount with proper TypeMeta
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa",
+					Namespace: "test-namespace",
+				},
+			}
+
+			// Track what GVK the condition getter sees
+			var seenGVK string
+			testConditionGetter := func(obj client.Object) []meta_v1.Condition {
+				gvk := obj.GetObjectKind().GroupVersionKind()
+				seenGVK = gvk.String()
+				return []meta_v1.Condition{
+					{
+						Type:   "serviceaccount/Available",
+						Status: meta_v1.ConditionTrue,
+						Reason: "Exists",
+					},
+				}
+			}
+
+			action := Recreate(serviceAccount, postgres, testConditionGetter, recorder)
+			err := action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the condition getter saw the correct GVK
+			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+		})
+	})
 })

@@ -70,6 +70,7 @@ func CreateIfNotExists(obj client.Object, owner object.NaisObject, conditionGett
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }

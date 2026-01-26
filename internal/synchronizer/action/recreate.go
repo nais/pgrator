@@ -55,6 +55,8 @@ func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Sche
 	if err := c.Create(ctx, a.obj); err != nil {
 		return fmt.Errorf("failed to recreate resource: %w", err)
 	}
+	// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+	a.ensureGVK()
 	conditions = a.conditionGetter(a.obj)
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Recreated", "Recreated %s", describeObj(a.obj))
 
@@ -77,6 +79,7 @@ func Recreate(obj client.Object, owner object.NaisObject, conditionGetter Condit
 			owner:           owner,
 			conditionGetter: conditionGetter,
 			recorder:        recorder,
+			gvk:             obj.GetObjectKind().GroupVersionKind(),
 		},
 	}
 }
