@@ -39,6 +39,8 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 		if err = c.Create(ctx, a.obj); err != nil {
 			return err
 		}
+		// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+		a.ensureGVK()
 		conditions = a.conditionGetter(a.obj)
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s %s", describeObj(a.obj))
 	} else {
