@@ -554,15 +554,7 @@ var _ = Describe("Valkey Controller", func() {
 
 			conditions := serviceIntegrationConditionGetter(integration)
 
-			Expect(conditions).To(HaveLen(3))
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
-
-			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
+			Expect(conditions).To(BeNil())
 		})
 	})
 
@@ -650,8 +642,7 @@ var _ = Describe("Valkey Controller", func() {
 
 	When("reconciling a Valkey resource", Serial, Ordered, func() {
 		const (
-			testNamespace  = "sync-integration-ns"
-			testValkeyName = "sync-integration-valkey"
+			testNamespace = "sync-integration-ns"
 		)
 
 		var reconciler *synchronizer.Synchronizer[*v1.Valkey, ValkeyPreparedData]
@@ -683,7 +674,9 @@ var _ = Describe("Valkey Controller", func() {
 		})
 
 		When("the resource is created", func() {
-			It("should set .Status.ReconcilePhase to Completed", func() {
+			It("should set .Status.ReconcilePhase to Completed after first reconcile (finalizer addition)", func() {
+				testValkeyName := "sync-first-reconcile"
+
 				By("creating the resource")
 				valkey := &v1.Valkey{
 					ObjectMeta: metav1.ObjectMeta{
@@ -704,15 +697,76 @@ var _ = Describe("Valkey Controller", func() {
 					},
 				}
 
-				By("reconciling the created resource")
+				By("reconciling the created resource (first reconcile adds finalizer)")
 				_, err := reconciler.Reconcile(ctx, req)
 				Expect(err).NotTo(HaveOccurred())
 
-				By("verifying that .Status.ReconcilePhase")
+				By("verifying that .Status.ReconcilePhase is Completed")
 				updatedValkey := &v1.Valkey{}
 				Expect(k8sClient.Get(ctx, req.NamespacedName, updatedValkey)).To(Succeed())
 				Expect(updatedValkey.Status).NotTo(BeNil())
 				Expect(updatedValkey.Status.ReconcilePhase).To(Equal("Completed"))
+
+				By("verifying that the finalizer was added")
+				Expect(updatedValkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
+
+				By("verifying that ObservedGeneration matches the resource generation")
+				Expect(updatedValkey.Status.ObservedGeneration).To(Equal(updatedValkey.Generation))
+			})
+
+			It("should reach Completed after spec update triggers reconciliation", func() {
+				testValkeyName := "sync-spec-update"
+
+				By("creating the resource")
+				valkey := &v1.Valkey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testValkeyName,
+						Namespace: testNamespace,
+					},
+					Spec: v1.ValkeySpec{
+						Tier:   v1.ValkeyTierSingleNode,
+						Memory: v1.ValkeyMemory4GB,
+					},
+				}
+				Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+				req := ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      valkey.Name,
+						Namespace: valkey.Namespace,
+					},
+				}
+
+				By("reconciling the created resource (first reconcile adds finalizer)")
+				_, err := reconciler.Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying first reconcile completed successfully")
+				firstValkey := &v1.Valkey{}
+				Expect(k8sClient.Get(ctx, req.NamespacedName, firstValkey)).To(Succeed())
+				Expect(firstValkey.Status.ReconcilePhase).To(Equal("Completed"))
+				initialGeneration := firstValkey.Generation
+
+				By("updating the spec to trigger a new reconciliation")
+				firstValkey.Spec.Memory = v1.ValkeyMemory8GB
+				Expect(k8sClient.Update(ctx, firstValkey)).To(Succeed())
+
+				By("verifying the generation increased")
+				Expect(k8sClient.Get(ctx, req.NamespacedName, firstValkey)).To(Succeed())
+				Expect(firstValkey.Generation).To(BeNumerically(">", initialGeneration))
+
+				By("reconciling after spec change (no finalizer change this time)")
+				_, err = reconciler.Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying that .Status.ReconcilePhase is Completed")
+				updatedValkey := &v1.Valkey{}
+				Expect(k8sClient.Get(ctx, req.NamespacedName, updatedValkey)).To(Succeed())
+				Expect(updatedValkey.Status).NotTo(BeNil())
+				Expect(updatedValkey.Status.ReconcilePhase).To(Equal("Completed"))
+
+				By("verifying that ObservedGeneration matches the new generation")
+				Expect(updatedValkey.Status.ObservedGeneration).To(Equal(updatedValkey.Generation))
 			})
 		})
 	})

@@ -91,17 +91,15 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	status := obj.GetStatus()
-	status.SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
-	status.SetObservedGeneration(obj.GetGeneration())
-	status.SetCorrelationID(obj.GetCorrelationId())
+	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
+	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
+	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
 		if err := s.client.Status().Update(ctx, obj); err != nil {
 			logger.Error(err, "failed to update status")
 			return err
 		}
-		status = obj.GetStatus()
 		return nil
 	}
 
@@ -111,11 +109,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}()
 
-	var actions []action.Action
-	var result ctrl.Result
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
 
-	status.SetReconcilePhase("Preparing")
+	obj.GetStatus().SetReconcilePhase("Preparing")
 	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
 			logger.Info("conflict during status update in Preparing phase, requeuing")
@@ -139,9 +135,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		finalizer = f.FinalizerName()
 	}
 	finalizerFunc := controllerutil.AddFinalizer
+	var actions []action.Action
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
-			status.SetReconcilePhase("EvaluatingDeletion")
+			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
 			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
 			if err = updateStatus(); err != nil {
 				if apierrors.IsConflict(err) {
@@ -159,7 +156,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			finalizerFunc = controllerutil.RemoveFinalizer
 		}
 	} else {
-		status.SetReconcilePhase("EvaluatingUpdate")
+		obj.GetStatus().SetReconcilePhase("EvaluatingUpdate")
 		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingUpdate", "Evaluating update of resources")
 		if err = updateStatus(); err != nil {
 			if apierrors.IsConflict(err) {
@@ -176,7 +173,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	status.SetReconcilePhase("DetectingUnreferenced")
+	obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
@@ -193,7 +190,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	status.SetReconcilePhase("PerformingActions")
+	obj.GetStatus().SetReconcilePhase("PerformingActions")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
 	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
@@ -219,7 +216,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	status.SetReconcilePhase("Completed")
+	obj.GetStatus().SetReconcilePhase("Completed")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Completed", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
 	return result, nil
 }

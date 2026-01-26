@@ -136,13 +136,15 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 
 // serviceIntegrationConditionGetter extracts conditions from an Aiven ServiceIntegration resource
 func serviceIntegrationConditionGetter(obj client.Object) []meta_v1.Condition {
+	// TODO: Check the entire logic and verify the conditions for the ServiceIntegration resource
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	integration := obj.(*aiven_v1alpha1.ServiceIntegration)
 
-	var statusCondition meta_v1.Condition
-	if len(integration.Status.Conditions) > 0 {
-		statusCondition = integration.Status.Conditions[0]
+	// TODO: Handle multiple conditions if needed
+	if len(integration.Status.Conditions) == 0 {
+		return nil
 	}
+	statusCondition := integration.Status.Conditions[0]
 
 	type conditionConfig struct {
 		Type   string
