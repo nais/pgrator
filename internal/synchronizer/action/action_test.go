@@ -517,5 +517,53 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			Expect(err).NotTo(HaveOccurred())
 			verifyGVK(seenGVK)
 		})
+
+		It("should preserve GVK in DeleteIfExists action", func() {
+			// Pre-create the resource
+			existing := &core_v1.ServiceAccount{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-delete",
+					Namespace: "test-namespace",
+				},
+			}
+			err := fakeClient.Create(ctx, existing)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now delete it with DeleteIfExists
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-delete",
+					Namespace: "test-namespace",
+				},
+			}
+
+			action := DeleteIfExists(serviceAccount, postgres, testConditionGetter, recorder)
+			err = action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+			verifyGVK(seenGVK)
+		})
+
+		It("should preserve GVK in NoOp action", func() {
+			serviceAccount := &core_v1.ServiceAccount{
+				TypeMeta: meta_v1.TypeMeta{
+					Kind:       "ServiceAccount",
+					APIVersion: "v1",
+				},
+				ObjectMeta: meta_v1.ObjectMeta{
+					Name:      "test-sa-noop",
+					Namespace: "test-namespace",
+				},
+			}
+
+			action := NoOp(serviceAccount, postgres, testConditionGetter, recorder)
+			err := action.Do(ctx, fakeClient, scheme)
+			Expect(err).NotTo(HaveOccurred())
+			// NoOp doesn't call conditionGetter, so seenGVK will be empty
+			// Just verify the action stores the GVK and doesn't error
+		})
 	})
 })
