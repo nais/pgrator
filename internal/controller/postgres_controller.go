@@ -168,8 +168,8 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
-	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 
+	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	if preparedData.workloadIdentityPolicy == nil {
 		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
