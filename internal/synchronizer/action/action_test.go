@@ -381,6 +381,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
 			seenGVK = ""
 			// Track what GVK the condition getter sees
+			// This simulates the real condition getters that rely on GVK being set
 			testConditionGetter = func(obj client.Object) []meta_v1.Condition {
 				gvk := obj.GetObjectKind().GroupVersionKind()
 				seenGVK = gvk.String()
