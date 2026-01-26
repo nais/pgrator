@@ -219,6 +219,12 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	var statusCondition meta_v1.Condition
 	if len(iamConditions) > 0 {
 		statusCondition = iamConditions[0]
+	} else {
+		statusCondition = meta_v1.Condition{
+			Status:  meta_v1.ConditionUnknown,
+			Reason:  "Unknown",
+			Message: "No status available on source resource",
+		}
 	}
 
 	type conditionConfig struct {
