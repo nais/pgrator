@@ -31,6 +31,8 @@ func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Sche
 	if err := c.Delete(ctx, a.obj); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete existing resource: %w", err)
 	}
+	// Ensure GVK is set for describeObj
+	a.ensureGVK()
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s for recreation", describeObj(a.obj))
 
 	// Wait for deletion to complete

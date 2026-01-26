@@ -28,10 +28,9 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 		return err
 	}
 
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
-
-	// Ensure GVK is set for condition getters that rely on GetObjectKind().GroupVersionKind()
+	// Ensure GVK is set for describeObj and condition getters that rely on GetObjectKind().GroupVersionKind()
 	a.ensureGVK()
+	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
 
 	status := a.owner.GetStatus()
 	if status.Conditions == nil {
