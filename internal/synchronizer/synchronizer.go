@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -250,7 +251,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	opts := controller.Options{
 		ReconciliationTimeout: 60 * time.Second,
 	}
-	builder := ctrl.NewControllerManagedBy(mgr).
+	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New()).
 		WithOptions(opts).
 		WithEventFilter(predicate.Or(
@@ -263,11 +264,15 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		)).
 		Named(s.reconciler.Name())
 	for _, t := range s.reconciler.OwnedTypes() {
-		builder = builder.Owns(t)
+		bldr = bldr.Owns(t, builder.WithPredicates(
+			predicate.Or(
+				predicate.GenerationChangedPredicate{},
+			),
+		))
 	}
 
 	for _, t := range s.reconciler.AdditionalTypes() {
-		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		bldr = bldr.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 			if value, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok {
 				name, err := parseNamespacedName(value)
 				if err != nil {
@@ -284,7 +289,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 			return nil
 		}))
 	}
-	return builder.
+	return bldr.
 		Complete(s)
 }
 
