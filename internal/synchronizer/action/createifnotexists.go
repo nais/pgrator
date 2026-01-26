@@ -46,8 +46,7 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 	} else {
 		// Restore GVK on the retrieved object since the Kubernetes API server doesn't return TypeMeta.
 		// This is necessary for condition getters that rely on GetObjectKind().GroupVersionKind().
-		gvk := a.obj.GetObjectKind().GroupVersionKind()
-		existing.(client.Object).GetObjectKind().SetGroupVersionKind(gvk)
+		a.ensureGVKFor(existing.(client.Object))
 
 		conditions = a.conditionGetter(existing.(client.Object))
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s already exists", describeObj(a.obj))

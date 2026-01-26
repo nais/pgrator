@@ -46,6 +46,15 @@ func (a *action) ensureGVK() {
 	}
 }
 
+// ensureGVKFor restores the stored GroupVersionKind on the target object.
+// Use this when the condition getter is called with a different object than a.obj
+// (e.g., an existing object fetched from the API).
+func (a *action) ensureGVKFor(obj client.Object) {
+	if !a.gvk.Empty() {
+		obj.GetObjectKind().SetGroupVersionKind(a.gvk)
+	}
+}
+
 type noOp struct {
 	action
 }

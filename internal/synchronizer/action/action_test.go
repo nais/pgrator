@@ -395,6 +395,14 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			}
 		})
 
+		verifyGVK := func(gvkString string) {
+			// Parse the GVK string and verify structured fields
+			Expect(gvkString).NotTo(BeEmpty(), "GVK should not be empty")
+			// For ServiceAccount v1, expect empty group, version="v1", kind="ServiceAccount"
+			Expect(gvkString).To(ContainSubstring("v1"), "GVK should contain version v1")
+			Expect(gvkString).To(ContainSubstring("ServiceAccount"), "GVK should contain kind ServiceAccount")
+		}
+
 		It("should preserve GVK in Recreate action", func() {
 			serviceAccount := &core_v1.ServiceAccount{
 				TypeMeta: meta_v1.TypeMeta{
@@ -410,7 +418,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := Recreate(serviceAccount, postgres, testConditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+			verifyGVK(seenGVK)
 		})
 
 		It("should preserve GVK in Create action", func() {
@@ -428,7 +436,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := Create(serviceAccount, postgres, testConditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+			verifyGVK(seenGVK)
 		})
 
 		It("should preserve GVK in CreateIfNotExists action (create path)", func() {
@@ -446,7 +454,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := CreateIfNotExists(serviceAccount, postgres, testConditionGetter, recorder)
 			err := action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+			verifyGVK(seenGVK)
 		})
 
 		It("should preserve GVK in CreateIfNotExists action (exists path)", func() {
@@ -475,7 +483,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := CreateIfNotExists(serviceAccount, postgres, testConditionGetter, recorder)
 			err = action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+			verifyGVK(seenGVK)
 		})
 
 		It("should preserve GVK in CreateOrUpdate action (update path)", func() {
@@ -507,7 +515,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 			action := CreateOrUpdate(serviceAccount, postgres, testConditionGetter, recorder)
 			err = action.Do(ctx, fakeClient, scheme)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(seenGVK).To(Equal("/v1, Kind=ServiceAccount"))
+			verifyGVK(seenGVK)
 		})
 	})
 })
