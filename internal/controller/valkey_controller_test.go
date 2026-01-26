@@ -16,8 +16,14 @@ import (
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+)
+
+var (
+	_ reconciler.Reconciler[*v1.Valkey, ValkeyPreparedData] = &ValkeyReconciler{}
+	_ reconciler.FinalizerNamer                             = &ValkeyReconciler{}
 )
 
 var _ = Describe("Valkey Controller", func() {
@@ -83,6 +89,13 @@ var _ = Describe("Valkey Controller", func() {
 			It("should return valkey.nais.io", func() {
 				r := &ValkeyReconciler{}
 				Expect(r.Name()).To(Equal("valkey.nais.io"))
+			})
+		})
+
+		Describe("FinalizerName", func() {
+			It("should return valkey.nais.io/finalizer", func() {
+				r := &ValkeyReconciler{}
+				Expect(r.FinalizerName()).To(Equal("valkey.nais.io/finalizer"))
 			})
 		})
 

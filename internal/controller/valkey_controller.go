@@ -10,7 +10,6 @@ import (
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,14 +30,16 @@ type ValkeyReconciler struct {
 // ValkeyPreparedData contains data prepared during the Prepare phase
 type ValkeyPreparedData struct{}
 
-var _ reconciler.Reconciler[*v1.Valkey, ValkeyPreparedData] = &ValkeyReconciler{}
-
 func (r *ValkeyReconciler) Name() string {
 	return "valkey.nais.io"
 }
 
 func (r *ValkeyReconciler) New() *v1.Valkey {
 	return &v1.Valkey{}
+}
+
+func (r *ValkeyReconciler) FinalizerName() string {
+	return "valkey.nais.io/finalizer"
 }
 
 func (r *ValkeyReconciler) Prepare(_ctx context.Context, _reader client.Reader, obj *v1.Valkey) (ValkeyPreparedData, ctrl.Result, error) {

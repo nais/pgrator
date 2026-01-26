@@ -66,8 +66,8 @@ func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T
 			}
 			for _, relevantGvk := range relevantGvks {
 				if relevantGvk.Group == groupVersionKind.Group &&
-						relevantGvk.Version == groupVersionKind.Version &&
-						fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
+					relevantGvk.Version == groupVersionKind.Version &&
+					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
 					listTypes[groupVersionKind] = r
 				}
 			}
@@ -135,10 +135,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	deletionTimestamp := obj.GetDeletionTimestamp()
 	finalizer := s.reconciler.Name()
-	finalizers := obj.GetFinalizers()
+	if f, ok := s.reconciler.(reconciler.FinalizerNamer); ok {
+		finalizer = f.FinalizerName()
+	}
 	finalizerFunc := controllerutil.AddFinalizer
 	if deletionTimestamp != nil {
-		if len(finalizers) > 0 && finalizers[0] == finalizer {
+		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			status.SetReconcilePhase("EvaluatingDeletion")
 			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
 			if err = updateStatus(); err != nil {
@@ -254,14 +256,14 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New()).
 		WithOptions(opts).
-			WithEventFilter(predicate.Or(
-				GenerationChangedPredicate{
-					Scheme:   mgr.GetScheme(),
-					MainKind: findKind(s.reconciler.New(), mgr.GetScheme()),
-				},
-				predicate.AnnotationChangedPredicate{},
-				predicate.LabelChangedPredicate{},
-			)).
+		WithEventFilter(predicate.Or(
+			GenerationChangedPredicate{
+				Scheme:   mgr.GetScheme(),
+				MainKind: findKind(s.reconciler.New(), mgr.GetScheme()),
+			},
+			predicate.AnnotationChangedPredicate{},
+			predicate.LabelChangedPredicate{},
+		)).
 		Named(s.reconciler.Name())
 	for _, t := range s.reconciler.OwnedTypes() {
 		builder = builder.Owns(t)
@@ -389,11 +391,11 @@ func findKind(obj client.Object, scheme *runtime.Scheme) string {
 
 func isNil(arg any) bool {
 	if v := reflect.ValueOf(arg); !v.IsValid() || ((v.Kind() == reflect.Ptr ||
-			v.Kind() == reflect.Interface ||
-			v.Kind() == reflect.Slice ||
-			v.Kind() == reflect.Map ||
-			v.Kind() == reflect.Chan ||
-			v.Kind() == reflect.Func) && v.IsNil()) {
+		v.Kind() == reflect.Interface ||
+		v.Kind() == reflect.Slice ||
+		v.Kind() == reflect.Map ||
+		v.Kind() == reflect.Chan ||
+		v.Kind() == reflect.Func) && v.IsNil()) {
 		return true
 	}
 	return false

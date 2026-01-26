@@ -35,3 +35,8 @@ type Reconciler[T client.Object, P any] interface {
 	// Delete returns the actions needed to handle the reconciled object being deleted
 	Delete(T) ([]action.Action, ctrl.Result, error)
 }
+
+type FinalizerNamer interface {
+	// FinalizerName returns the finalizer name to use for this reconciler
+	FinalizerName() string
+}
