@@ -97,7 +97,7 @@ func CreateAivenValkeySpec(
 		aivenValkey.Spec.UserConfig = userConfig
 	}
 
-	err = controllerutil.SetOwnerReference(valkey, aivenValkey, scheme)
+	err = controllerutil.SetControllerReference(valkey, aivenValkey, scheme)
 	if err != nil {
 		return nil, fmt.Errorf("setting controller reference: %w", err)
 	}
@@ -129,7 +129,7 @@ func CreateServiceIntegrationSpec(scheme *runtime.Scheme, valkey *v1.Valkey, cfg
 		DestinationEndpointID: cfg.MetricsDestinationEndpointID,
 	}
 
-	err := controllerutil.SetOwnerReference(valkey, integration, scheme)
+	err := controllerutil.SetControllerReference(valkey, integration, scheme)
 	if err != nil {
 		return nil, fmt.Errorf("setting controller reference: %w", err)
 	}

@@ -9,7 +9,7 @@ controllerManager:
   container:
     image:
       repository: europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator
-      tag: "latest"
+      tag: "2026-01-26-104031-95a7112"
     imagePullPolicy: IfNotPresent
     resources:
       requests:
