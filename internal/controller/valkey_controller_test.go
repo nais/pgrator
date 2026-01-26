@@ -7,10 +7,15 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/events"
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
@@ -628,6 +633,75 @@ var _ = Describe("Valkey Controller", func() {
 				Expect(*result.Spec.UserConfig.ValkeyMaxmemoryPolicy).To(Equal(string(policy)))
 			})
 		}
+	})
+
+	When("reconciling a Valkey resource", Serial, Ordered, func() {
+		const (
+			testNamespace  = "sync-integration-ns"
+			testValkeyName = "sync-integration-valkey"
+		)
+
+		var reconciler *synchronizer.Synchronizer[*v1.Valkey, ValkeyPreparedData]
+
+		BeforeAll(func() {
+			By("using a fresh recorder to avoid blocking on full channel from previous tests")
+			recorder := events.NewRecorder(record.NewFakeRecorder(100))
+
+			By("creating a synchronizer for valkey")
+			valkeyReconciler := &ValkeyReconciler{
+				Aiven: &config.Aiven{
+					Project:                      "test-project",
+					ProjectVPCID:                 "test-vpc-id",
+					MetricsDestinationEndpointID: "test-metrics-service",
+				},
+				Tenant:   &config.Tenant{Name: "test-tenant"},
+				Recorder: recorder,
+				Scheme:   scheme.Scheme,
+			}
+			reconciler = synchronizer.NewSynchronizer(k8sClient, scheme.Scheme, valkeyReconciler, recorder)
+
+			By("creating the resource namespace")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: testNamespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+		})
+
+		When("the resource is created", func() {
+			It("should set .Status.ReconcilePhase to Completed", func() {
+				By("creating the resource")
+				valkey := &v1.Valkey{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testValkeyName,
+						Namespace: testNamespace,
+					},
+					Spec: v1.ValkeySpec{
+						Tier:   v1.ValkeyTierSingleNode,
+						Memory: v1.ValkeyMemory4GB,
+					},
+				}
+				Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+				req := ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      valkey.Name,
+						Namespace: valkey.Namespace,
+					},
+				}
+
+				By("reconciling the created resource")
+				_, err := reconciler.Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying that .Status.ReconcilePhase")
+				updatedValkey := &v1.Valkey{}
+				Expect(k8sClient.Get(ctx, req.NamespacedName, updatedValkey)).To(Succeed())
+				Expect(updatedValkey.Status).NotTo(BeNil())
+				Expect(updatedValkey.Status.ReconcilePhase).To(Equal("Completed"))
+			})
+		})
 	})
 })
 
