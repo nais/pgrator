@@ -6,12 +6,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/aiven/go-client-codegen/handler/service"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -80,27 +82,30 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	aivenValkey := obj.(*aiven_v1alpha1.Valkey)
 
-	// Map Aiven service state to our condition types
-	state := aivenValkey.Status.State
+	state := service.ServiceStateType(aivenValkey.Status.State)
 
 	type conditionConfig struct {
 		Type   string
 		Status bool
 	}
 
-	// Aiven states: POWEROFF, REBUILDING, REBALANCING, RUNNING
+	// Aiven states: POWEROFF, REBUILDING, REBALANCING, RUNNING (available in [service.ServiceStateTypeChoices()])
 	conditions := []conditionConfig{
 		{
 			Type:   "Available",
-			Status: state == "RUNNING",
+			Status: state == service.ServiceStateTypeRunning,
 		},
 		{
-			Type:   "Progressing",
-			Status: slices.Contains([]string{"REBUILDING", "REBALANCING", ""}, state),
+			Type: "Progressing",
+			Status: slices.Contains([]service.ServiceStateType{
+				service.ServiceStateTypeRebuilding,
+				service.ServiceStateTypeRebalancing,
+				"",
+			}, state),
 		},
 		{
 			Type:   "Degraded",
-			Status: state == "POWEROFF",
+			Status: state == service.ServiceStateTypePoweroff,
 		},
 	}
 
@@ -109,8 +114,10 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
 
 		// Determine reason from Aiven conditions if available
-		reason := state
+		reason := string(state)
 		message := ""
+
+		// TODO: Handle multiple conditions if needed
 		if len(aivenValkey.Status.Conditions) > 0 {
 			aivenCondition := aivenValkey.Status.Conditions[0]
 			if aivenCondition.Reason != "" {
@@ -118,6 +125,7 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 			}
 			message = aivenCondition.Message
 		}
+
 		if reason == "" {
 			reason = "Unknown"
 		}
@@ -136,47 +144,46 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 
 // serviceIntegrationConditionGetter extracts conditions from an Aiven ServiceIntegration resource
 func serviceIntegrationConditionGetter(obj client.Object) []meta_v1.Condition {
-	// TODO: Check the entire logic and verify the conditions for the ServiceIntegration resource
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	integration := obj.(*aiven_v1alpha1.ServiceIntegration)
 
-	// TODO: Handle multiple conditions if needed
 	if len(integration.Status.Conditions) == 0 {
 		return nil
 	}
-	statusCondition := integration.Status.Conditions[0]
 
-	type conditionConfig struct {
-		Type   string
-		Status bool
-	}
-
-	conditions := []conditionConfig{
-		{
-			Type:   "Available",
-			Status: statusCondition.Status == meta_v1.ConditionTrue && slices.Contains([]string{"UpToDate", "Updating", "Created"}, statusCondition.Reason),
-		},
-		{
-			Type:   "Progressing",
-			Status: slices.Contains([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason),
-		},
-		{
-			Type:   "Degraded",
-			Status: strings.Contains(statusCondition.Reason, "Failed"),
-		},
-	}
-
+	conditions := integration.Status.Conditions
 	result := make([]meta_v1.Condition, 0, len(conditions))
-	for _, condition := range conditions {
-		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
-		result = append(result, meta_v1.Condition{
-			Type:               t,
-			Status:             makeCondition(condition.Status),
-			ObservedGeneration: obj.GetGeneration(),
-			Reason:             statusCondition.Reason,
-			Message:            statusCondition.Message,
-		})
-	}
+
+	// Progressing
+	// TODO
+	initialized := meta.FindStatusCondition(conditions, "Initialized")
+	meta.SetStatusCondition(&result, meta_v1.Condition{
+		Type:               fmt.Sprintf("%s/%s", typePrefix, "Progressing"),
+		Status:             makeCondition(initialized != nil && initialized.Status == meta_v1.ConditionTrue),
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             makeReason(initialized),
+		Message:            makeMessage(initialized),
+	})
+
+	// Degraded
+	errorCondition := meta.FindStatusCondition(conditions, "Error")
+	meta.SetStatusCondition(&result, meta_v1.Condition{
+		Type:               fmt.Sprintf("%s/%s", typePrefix, "Degraded"),
+		Status:             makeCondition(errorCondition != nil && errorCondition.Status == meta_v1.ConditionTrue),
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             makeReason(errorCondition),
+		Message:            makeMessage(errorCondition),
+	})
+
+	// Available
+	running := meta.FindStatusCondition(conditions, "Running")
+	meta.SetStatusCondition(&result, meta_v1.Condition{
+		Type:               fmt.Sprintf("%s/%s", typePrefix, "Available"),
+		Status:             makeCondition(running != nil && running.Status == meta_v1.ConditionTrue),
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             makeReason(running),
+		Message:            makeMessage(running),
+	})
 
 	return result
 }

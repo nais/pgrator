@@ -261,26 +261,6 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	return result
 }
 
-func makeCondition(value bool) meta_v1.ConditionStatus {
-	if value {
-		return meta_v1.ConditionTrue
-	} else {
-		return meta_v1.ConditionFalse
-	}
-}
-
-func existsConditionGetter(obj client.Object) []meta_v1.Condition {
-	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
-	return []meta_v1.Condition{
-		{
-			Type:               fmt.Sprintf("%s/Available", typePrefix),
-			Status:             makeCondition(obj != nil),
-			ObservedGeneration: obj.GetGeneration(),
-			Reason:             "Exists",
-		},
-	}
-}
-
 func postgresqlConditionGetter(obj client.Object) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	pg := obj.(*acid_zalan_do_v1.Postgresql)
