@@ -84,12 +84,26 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 
 	state := service.ServiceStateType(aivenValkey.Status.State)
 
+	reason := ""
+	message := string(state)
+	lastTransition := meta_v1.Time{}
+	for _, c := range aivenValkey.Status.Conditions {
+		if c.LastTransitionTime.Time.After(lastTransition.Time) {
+			lastTransition = c.LastTransitionTime
+			reason = makeReason(&c)
+			message = makeMessage(&c)
+		}
+	}
+
+	if reason == "" {
+		reason = "NoConditions"
+	}
+
+	// Aiven states: POWEROFF, REBUILDING, REBALANCING, RUNNING (available in [service.ServiceStateTypeChoices()])
 	type conditionConfig struct {
 		Type   string
 		Status bool
 	}
-
-	// Aiven states: POWEROFF, REBUILDING, REBALANCING, RUNNING (available in [service.ServiceStateTypeChoices()])
 	conditions := []conditionConfig{
 		{
 			Type:   "Available",
@@ -112,23 +126,6 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
-
-		// Determine reason from Aiven conditions if available
-		reason := string(state)
-		message := ""
-
-		// TODO: Handle multiple conditions if needed
-		if len(aivenValkey.Status.Conditions) > 0 {
-			aivenCondition := aivenValkey.Status.Conditions[0]
-			if aivenCondition.Reason != "" {
-				reason = aivenCondition.Reason
-			}
-			message = aivenCondition.Message
-		}
-
-		if reason == "" {
-			reason = "Unknown"
-		}
 
 		result = append(result, meta_v1.Condition{
 			Type:               t,
@@ -155,7 +152,6 @@ func serviceIntegrationConditionGetter(obj client.Object) []meta_v1.Condition {
 	result := make([]meta_v1.Condition, 0, len(conditions))
 
 	// Progressing
-	// TODO
 	initialized := meta.FindStatusCondition(conditions, "Initialized")
 	meta.SetStatusCondition(&result, meta_v1.Condition{
 		Type:               fmt.Sprintf("%s/%s", typePrefix, "Progressing"),

@@ -300,10 +300,26 @@ var _ = Describe("Valkey Controller", func() {
 	})
 
 	Describe("aivenValkeyConditionGetter", func() {
-		It("should return Available=True for RUNNING state", func() {
+		It("should return Available=True for RUNNING state with conditions", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "RUNNING",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               "Running",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CheckRunning",
+							Message:            "Instance is running on Aiven side",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
@@ -314,7 +330,7 @@ var _ = Describe("Valkey Controller", func() {
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available).NotTo(BeNil())
 			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-			Expect(available.Reason).To(Equal("RUNNING"))
+			Expect(available.Reason).To(Equal("CheckRunning"))
 
 			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
 			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
@@ -327,6 +343,15 @@ var _ = Describe("Valkey Controller", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "REBUILDING",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
@@ -347,6 +372,15 @@ var _ = Describe("Valkey Controller", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "REBALANCING",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
@@ -361,6 +395,15 @@ var _ = Describe("Valkey Controller", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "POWEROFF",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
@@ -377,10 +420,19 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(degraded.Status).To(Equal(metav1.ConditionTrue))
 		})
 
-		It("should return Progressing=True for empty state", func() {
+		It("should return Progressing=True for empty state with conditions", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
@@ -389,22 +441,30 @@ var _ = Describe("Valkey Controller", func() {
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-			Expect(available.Reason).To(Equal("Unknown"))
+			Expect(available.Reason).To(Equal("CreatedOrUpdated"))
 
 			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
 			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
 		})
 
-		It("should use Aiven conditions when available", func() {
+		It("should use reason and message from most recent Aiven condition", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "RUNNING",
 					Conditions: []metav1.Condition{
 						{
-							Type:    "Ready",
-							Status:  metav1.ConditionTrue,
-							Reason:  "ServiceRunning",
-							Message: "Service is fully operational",
+							Type:               "Initialized",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CreatedOrUpdated",
+							Message:            "Successfully created or updated the instance in Aiven",
+							LastTransitionTime: metav1.Time{Time: metav1.Now().Add(-1 * 60 * 1e9)}, // 1 minute ago
+						},
+						{
+							Type:               "Running",
+							Status:             metav1.ConditionTrue,
+							Reason:             "CheckRunning",
+							Message:            "Instance is running on Aiven side",
+							LastTransitionTime: metav1.Now(),
 						},
 					},
 				},
@@ -415,20 +475,45 @@ var _ = Describe("Valkey Controller", func() {
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-			Expect(available.Reason).To(Equal("ServiceRunning"))
-			Expect(available.Message).To(Equal("Service is fully operational"))
+			Expect(available.Reason).To(Equal("CheckRunning"))
+			Expect(available.Message).To(Equal("Instance is running on Aiven side"))
+		})
+
+		It("should return NoConditions reason when no conditions exist", func() {
+			aivenValkey := &aiven_v1alpha1.Valkey{
+				Status: aiven_v1alpha1.ServiceStatus{
+					State:      "RUNNING",
+					Conditions: []metav1.Condition{},
+				},
+			}
+			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
+
+			conditions := aivenValkeyConditionGetter(aivenValkey)
+
+			Expect(conditions).To(HaveLen(3))
+			available := findCondition(conditions, "valkey.aiven.io/Available")
+			Expect(available.Status).To(Equal(metav1.ConditionTrue))
+			Expect(available.Reason).To(Equal("NoConditions"))
+			Expect(available.Message).To(Equal("RUNNING"))
 		})
 	})
 
 	Describe("serviceIntegrationConditionGetter", func() {
-		It("should return Available=True for UpToDate condition", func() {
+		It("should return Available=True when Running condition is true", func() {
 			integration := &aiven_v1alpha1.ServiceIntegration{
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:   "Ready",
-							Status: metav1.ConditionTrue,
-							Reason: "UpToDate",
+							Type:    "Initialized",
+							Status:  metav1.ConditionTrue,
+							Reason:  "CreatedOrUpdated",
+							Message: "Successfully created or updated",
+						},
+						{
+							Type:    "Running",
+							Status:  metav1.ConditionTrue,
+							Reason:  "CheckRunning",
+							Message: "Integration is running",
 						},
 					},
 				},
@@ -442,20 +527,21 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(available.Status).To(Equal(metav1.ConditionTrue))
 
 			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
+			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
 
 			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
 			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("should return Available=True for Created condition", func() {
+		It("should return Available=False when Running condition is not present", func() {
 			integration := &aiven_v1alpha1.ServiceIntegration{
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:   "Ready",
-							Status: metav1.ConditionTrue,
-							Reason: "Created",
+							Type:    "Initialized",
+							Status:  metav1.ConditionTrue,
+							Reason:  "CreatedOrUpdated",
+							Message: "Successfully created or updated",
 						},
 					},
 				},
@@ -465,17 +551,18 @@ var _ = Describe("Valkey Controller", func() {
 			conditions := serviceIntegrationConditionGetter(integration)
 
 			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
+			Expect(available.Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("should return Progressing=True for Creating condition", func() {
+		It("should return Progressing=True when Initialized condition is true", func() {
 			integration := &aiven_v1alpha1.ServiceIntegration{
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:   "Ready",
-							Status: metav1.ConditionFalse,
-							Reason: "Creating",
+							Type:    "Initialized",
+							Status:  metav1.ConditionTrue,
+							Reason:  "CreatedOrUpdated",
+							Message: "Successfully created or updated",
 						},
 					},
 				},
@@ -494,38 +581,42 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("should return both Available and Progressing=True for Updating condition", func() {
+		It("should return Progressing=False when Initialized condition is false", func() {
 			integration := &aiven_v1alpha1.ServiceIntegration{
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:   "Ready",
-							Status: metav1.ConditionTrue,
-							Reason: "Updating",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration)
-
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-		})
-
-		It("should return Degraded=True for Failed condition", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    "Ready",
+							Type:    "Initialized",
 							Status:  metav1.ConditionFalse,
+							Reason:  "Pending",
+							Message: "Waiting for initialization",
+						},
+					},
+				},
+			}
+			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
+
+			conditions := serviceIntegrationConditionGetter(integration)
+
+			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
+			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
+		})
+
+		It("should return Degraded=True when Error condition is true", func() {
+			integration := &aiven_v1alpha1.ServiceIntegration{
+				Status: aiven_v1alpha1.ServiceIntegrationStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:    "Initialized",
+							Status:  metav1.ConditionTrue,
+							Reason:  "CreatedOrUpdated",
+							Message: "Successfully created or updated",
+						},
+						{
+							Type:    "Error",
+							Status:  metav1.ConditionTrue,
 							Reason:  "CreateFailed",
-							Message: "Failed to create",
+							Message: "Failed to create integration",
 						},
 					},
 				},
@@ -538,10 +629,12 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
 
 			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
+			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
 
 			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
 			Expect(degraded.Status).To(Equal(metav1.ConditionTrue))
+			Expect(degraded.Reason).To(Equal("CreateFailed"))
+			Expect(degraded.Message).To(Equal("Failed to create integration"))
 		})
 
 		It("should handle empty conditions", func() {
