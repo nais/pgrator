@@ -88,7 +88,7 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 	message := string(state)
 	lastTransition := meta_v1.Time{}
 	for _, c := range aivenValkey.Status.Conditions {
-		if c.LastTransitionTime.Time.After(lastTransition.Time) {
+		if c.LastTransitionTime.After(lastTransition.Time) {
 			lastTransition = c.LastTransitionTime
 			reason = makeReason(&c)
 			message = makeMessage(&c)
