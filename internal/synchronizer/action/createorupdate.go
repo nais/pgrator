@@ -47,7 +47,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
 
-	for _, condition := range a.conditionGetter(a.obj) {
+	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 

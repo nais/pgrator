@@ -2,9 +2,9 @@ package controller
 
 import (
 	"fmt"
-	"strings"
 
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -31,11 +31,10 @@ func makeMessage(condition *meta_v1.Condition) string {
 	return condition.Message
 }
 
-func existsConditionGetter(obj client.Object) []meta_v1.Condition {
-	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
+func existsConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	return []meta_v1.Condition{
 		{
-			Type:               fmt.Sprintf("%s/Available", typePrefix),
+			Type:               fmt.Sprintf("%s/Available", typePrefix(obj, scheme)),
 			Status:             makeCondition(obj != nil),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             "Exists",

@@ -24,11 +24,9 @@ func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Sche
 
 	key := client.ObjectKeyFromObject(a.obj)
 	// Resource exists, delete and recreate it
-	gvk := a.obj.GetObjectKind().GroupVersionKind()
 	if err := c.Delete(ctx, a.obj); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete existing resource: %w", err)
 	}
-	a.obj.GetObjectKind().SetGroupVersionKind(gvk)
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s for recreation", describeObj(a.obj))
 
 	// Wait for deletion to complete
@@ -55,7 +53,7 @@ func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Sche
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Recreated", "Recreated %s", describeObj(a.obj))
 
-	for _, condition := range a.conditionGetter(a.obj) {
+	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 

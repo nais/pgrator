@@ -78,7 +78,7 @@ func (r *ValkeyReconciler) Update(obj *v1.Valkey, preparedData ValkeyPreparedDat
 }
 
 // aivenValkeyConditionGetter extracts conditions from an Aiven Valkey resource
-func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
+func aivenValkeyConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	aivenValkey := obj.(*aiven_v1alpha1.Valkey)
 
@@ -140,7 +140,7 @@ func aivenValkeyConditionGetter(obj client.Object) []meta_v1.Condition {
 }
 
 // serviceIntegrationConditionGetter extracts conditions from an Aiven ServiceIntegration resource
-func serviceIntegrationConditionGetter(obj client.Object) []meta_v1.Condition {
+func serviceIntegrationConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
 	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
 	integration := obj.(*aiven_v1alpha1.ServiceIntegration)
 

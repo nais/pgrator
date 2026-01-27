@@ -324,7 +324,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			Expect(conditions).To(HaveLen(3))
 			available := findCondition(conditions, "valkey.aiven.io/Available")
@@ -356,7 +356,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -385,7 +385,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
 			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
@@ -408,7 +408,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -437,7 +437,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -471,7 +471,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			available := findCondition(conditions, "valkey.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionTrue))
@@ -488,7 +488,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey)
+			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
 
 			Expect(conditions).To(HaveLen(3))
 			available := findCondition(conditions, "valkey.aiven.io/Available")
@@ -520,7 +520,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			Expect(conditions).To(HaveLen(3))
 			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
@@ -548,7 +548,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -569,7 +569,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -596,7 +596,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
 			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
@@ -623,7 +623,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
 			Expect(available.Status).To(Equal(metav1.ConditionFalse))
@@ -645,7 +645,7 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration)
+			conditions := serviceIntegrationConditionGetter(integration, nil)
 
 			Expect(conditions).To(BeNil())
 		})

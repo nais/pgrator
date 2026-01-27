@@ -17,7 +17,7 @@ type deleteIfExists struct {
 	action
 }
 
-func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Scheme) error {
+func (a *deleteIfExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("DeleteIfExists %s", typeName(a.obj)))
 
@@ -28,7 +28,7 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
 
-	for _, condition := range a.conditionGetter(a.obj) {
+	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 
