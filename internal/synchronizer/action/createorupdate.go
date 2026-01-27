@@ -55,7 +55,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		status.Conditions = new([]meta_v1.Condition)
 	}
 
-	for _, condition := range a.conditionGetter(a.obj) {
+	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		meta.SetStatusCondition(status.Conditions, condition)
 	}
 

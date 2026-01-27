@@ -330,7 +330,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	}
 	// Add DeleteIfExists action for remainder
 	for _, existing := range unreferenced {
-		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object) []meta_v1.Condition { return nil }, s.recorder))
+		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
 	}
 
 	return actions, nil

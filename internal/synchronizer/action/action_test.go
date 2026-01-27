@@ -51,7 +51,7 @@ var _ = Describe("CreateOrRecreate Action", func() {
 
 		recorder = &mockRecorder{}
 
-		conditionGetter = func(obj client.Object) []meta_v1.Condition {
+		conditionGetter = func(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 			return []meta_v1.Condition{
 				{
 					Type:   "serviceaccount/Available",

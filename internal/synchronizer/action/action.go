@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type ConditionGetter func(obj client.Object) []meta_v1.Condition
+type ConditionGetter func(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition
 
 type Action interface {
 	Do(context.Context, client.Client, *runtime.Scheme) error

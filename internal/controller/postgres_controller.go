@@ -21,8 +21,10 @@ import (
 	networking_v1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 const (
@@ -203,9 +205,15 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	return actions, ctrl.Result{}, nil
 }
 
-func iamConditionGetter(obj client.Object) []meta_v1.Condition {
-	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
+func typePrefix(obj client.Object, scheme *runtime.Scheme) string {
+	gvk, err := apiutil.GVKForObject(obj, scheme)
+	if err != nil {
+		panic(fmt.Sprintf("Programming error: get GVK for object: %v", err))
+	}
+	return strings.ToLower(gvk.GroupKind().String())
+}
 
+func iamConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	var iamConditions []meta_v1.Condition
 	switch o := obj.(type) {
 	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
@@ -213,7 +221,7 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
 		iamConditions = o.Status.Conditions
 	default:
-		panic(fmt.Sprintf("unsupported type for groupkind: %s (%T)", typePrefix, o))
+		panic(fmt.Sprintf("unsupported type for groupkind: %s (%T)", typePrefix(obj, scheme), o))
 	}
 
 	var statusCondition meta_v1.Condition
@@ -248,9 +256,8 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
-		t := fmt.Sprintf("%s.%s/%s", typePrefix, obj.GetName(), condition.Type)
 		result = append(result, meta_v1.Condition{
-			Type:               t,
+			Type:               fmt.Sprintf("%s.%s/%s", typePrefix(obj, scheme), obj.GetName(), condition.Type),
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             statusCondition.Reason,
@@ -269,11 +276,10 @@ func makeCondition(value bool) meta_v1.ConditionStatus {
 	}
 }
 
-func existsConditionGetter(obj client.Object) []meta_v1.Condition {
-	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
+func existsConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	return []meta_v1.Condition{
 		{
-			Type:               fmt.Sprintf("%s/Available", typePrefix),
+			Type:               fmt.Sprintf("%s/Available", typePrefix(obj, scheme)),
 			Status:             makeCondition(obj != nil),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             "Exists",
@@ -281,8 +287,7 @@ func existsConditionGetter(obj client.Object) []meta_v1.Condition {
 	}
 }
 
-func postgresqlConditionGetter(obj client.Object) []meta_v1.Condition {
-	typePrefix := strings.ToLower(obj.GetObjectKind().GroupVersionKind().GroupKind().String())
+func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	pg := obj.(*acid_zalan_do_v1.Postgresql)
 
 	type conditionConfig struct {
@@ -306,9 +311,8 @@ func postgresqlConditionGetter(obj client.Object) []meta_v1.Condition {
 
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
-		t := fmt.Sprintf("%s/%s", typePrefix, condition.Type)
 		result = append(result, meta_v1.Condition{
-			Type:               t,
+			Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), condition.Type),
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             pg.Status.String(),

@@ -19,7 +19,7 @@ type deleteIfExists struct {
 	action
 }
 
-func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Scheme) error {
+func (a *deleteIfExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("DeleteIfExists %s", typeName(a.obj)))
 
@@ -35,7 +35,7 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, _ *runtime.Sch
 		status.Conditions = new([]meta_v1.Condition)
 	}
 
-	for _, condition := range a.conditionGetter(a.obj) {
+	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		meta.SetStatusCondition(status.Conditions, condition)
 	}
 
