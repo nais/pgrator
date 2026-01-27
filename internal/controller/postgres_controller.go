@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	core_v1 "k8s.io/api/core/v1"
 	networking_v1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,7 +27,12 @@ import (
 
 const (
 	// Max length is 63, but we need to save space for suffixes added by Zalando operator or StatefulSets
-	maxClusterNameLength = 50
+	maxClusterNameLength        = 50
+	GSAName                     = "postgres-pod"
+	KSAName                     = "postgres-pod"
+	ServiceAccountsNamespace    = "serviceaccounts"
+	ProjectIDLabel              = "google-cloud-project"
+	ProjectIDAnnotationFallback = "cnrm.cloud.google.com/project-id"
 )
 
 // PostgresReconciler reconciles a Postgres object
@@ -34,15 +41,22 @@ type PostgresReconciler struct {
 	Recorder events.Recorder
 }
 
+func IAMPolicyMemberNames(teamNamespace string) (string, string) {
+	workloadIdentityPolicyName := GSAName + "-wi-user"
+	storageBucketPolicyName, err := namegen.ShortName("pg-gcs-"+teamNamespace, 63)
+	if err != nil {
+		panic(err)
+	}
+
+	return workloadIdentityPolicyName, storageBucketPolicyName
+}
+
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
-const (
-	ProjectIDLabel              = "google-cloud-project"
-	ProjectIDAnnotationFallback = "cnrm.cloud.google.com/project-id"
-)
-
 type PreparedData struct {
-	teamGoogleProjectID string
+	teamGoogleProjectID    string
+	storageBucketPolicy    *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember
+	workloadIdentityPolicy *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember
 }
 
 func (r *PostgresReconciler) Name() string {
@@ -53,9 +67,26 @@ func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
 	return &data_nais_io_v1.Postgres{}
 }
 
+func loadResourceIntoPreparedData[T any, PT interface {
+	client.Object
+	*T
+}](ctx context.Context, reader client.Reader, name, namespace string, dst *PT) error {
+	tmp := PT(new(T))
+	err := reader.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, tmp)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	*dst = tmp
+	return nil
+}
+
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
-	namespace := &core_v1.Namespace{}
-	err := reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, namespace)
+	teamNamespace := &core_v1.Namespace{}
+	err := reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, teamNamespace)
 	if err != nil {
 		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to get namespace %q: %w", obj.Namespace, err)
 	}
@@ -64,20 +95,35 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 	var ok bool
 
 	// Try to get project ID from label first
-	if namespace.Labels != nil {
-		projectID, ok = namespace.Labels[ProjectIDLabel]
+	if teamNamespace.Labels != nil {
+		projectID, ok = teamNamespace.Labels[ProjectIDLabel]
 	}
 
 	// If not found in labels, try annotation fallback
-	if !ok && namespace.Annotations != nil {
-		projectID, ok = namespace.Annotations[ProjectIDAnnotationFallback]
+	if !ok && teamNamespace.Annotations != nil {
+		projectID, ok = teamNamespace.Annotations[ProjectIDAnnotationFallback]
 	}
 
 	if !ok || projectID == "" {
 		return PreparedData{}, ctrl.Result{}, fmt.Errorf("namespace %q has no %q label or %q annotation", obj.Namespace, ProjectIDLabel, ProjectIDAnnotationFallback)
 	}
 
-	return PreparedData{teamGoogleProjectID: projectID}, ctrl.Result{}, nil
+	p := PreparedData{
+		teamGoogleProjectID: projectID,
+	}
+
+	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(teamNamespace.Name)
+	errs := []error{
+		loadResourceIntoPreparedData(ctx, reader, workloadIdentityPolicyName, teamNamespace.Name, &p.workloadIdentityPolicy),
+		loadResourceIntoPreparedData(ctx, reader, storageBucketPolicyName, ServiceAccountsNamespace, &p.storageBucketPolicy),
+	}
+
+	err = errors.Join(errs...)
+	if err != nil {
+		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to prepare data for Postgres %q: %w", obj.GetName(), err)
+	}
+
+	return p, ctrl.Result{}, nil
 }
 
 func (r *PostgresReconciler) OwnedTypes() []client.Object {
@@ -123,33 +169,30 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	// Choose action for IAMPolicyMember based on ResyncIAMPermissions flag
-	// IAMPolicyMember resources are immutable and need recreation to resync permissions
-	iamPolicyMemberActionFunc := action.CreateIfNotExists
-	if r.Config.ResyncIAMPermissions {
-		iamPolicyMemberActionFunc = action.CreateOrRecreate
+	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	if preparedData.workloadIdentityPolicy == nil {
+		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if r.Config.ResyncIAMPermissions && iamPolicyHasChanges(workloadIdentityPolicy, preparedData.workloadIdentityPolicy) {
+		actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	iampm := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID)
-	actions = append(actions, iamPolicyMemberActionFunc(iampm, obj, iamConditionGetter, r.Recorder))
-
 	if r.Config.WalGsBucket != "" {
-		storageBucketIAM := resourcecreator.CreateStorageBucketIAMPolicyMember(obj.GetNamespace(), preparedData.teamGoogleProjectID, r.Config.WalGsBucket)
-		actions = append(actions, iamPolicyMemberActionFunc(storageBucketIAM, obj, iamConditionGetter, r.Recorder))
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		if preparedData.storageBucketPolicy == nil {
+			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		} else if r.Config.ResyncIAMPermissions && iamPolicyHasChanges(storageBucketPolicy, preparedData.storageBucketPolicy) {
+			actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		}
 	}
 
 	// IAMServiceAccount and K8s ServiceAccount are mutable resources
 	// Choose action based on ResyncIAMPermissions flag
-	serviceAccountActionFunc := action.CreateIfNotExists
-	if r.Config.ResyncIAMPermissions {
-		serviceAccountActionFunc = action.CreateOrUpdate
-	}
+	gsa := resourcecreator.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
+	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
 
-	gsa := resourcecreator.CreateIAMServiceAccount(obj)
-	actions = append(actions, serviceAccountActionFunc(gsa, obj, iamConditionGetter, r.Recorder))
-
-	ksa := resourcecreator.CreateKubernetesServiceAccount(obj, pgNamespace, preparedData.teamGoogleProjectID)
-	actions = append(actions, serviceAccountActionFunc(ksa, obj, existsConditionGetter, r.Recorder))
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, obj, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	actions = append(actions, action.CreateOrUpdate(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
@@ -176,6 +219,12 @@ func iamConditionGetter(obj client.Object) []meta_v1.Condition {
 	var statusCondition meta_v1.Condition
 	if len(iamConditions) > 0 {
 		statusCondition = iamConditions[0]
+	} else {
+		statusCondition = meta_v1.Condition{
+			Status:  meta_v1.ConditionUnknown,
+			Reason:  "Unknown",
+			Message: "No status available on source resource",
+		}
 	}
 
 	type conditionConfig struct {
@@ -308,4 +357,15 @@ func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, 
 	}
 	pgNamespace := fmt.Sprintf("pg-%s", obj.GetNamespace())
 	return pgClusterName, pgNamespace, nil
+}
+
+func iamPolicyHasChanges(a, b *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember) bool {
+	return a == nil || b == nil ||
+		a.Spec.Member != b.Spec.Member ||
+		a.Spec.Role != b.Spec.Role ||
+		a.Spec.ResourceRef.APIVersion != b.Spec.ResourceRef.APIVersion ||
+		a.Spec.ResourceRef.External != b.Spec.ResourceRef.External ||
+		a.Spec.ResourceRef.Kind != b.Spec.ResourceRef.Kind ||
+		a.Spec.ResourceRef.Name != b.Spec.ResourceRef.Name ||
+		a.Spec.ResourceRef.Namespace != b.Spec.ResourceRef.Namespace
 }

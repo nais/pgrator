@@ -3,18 +3,13 @@ package resourcecreator
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/namegen"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	WorkloadIdentityRole     = "roles/iam.workloadIdentityUser"
-	StorageBucketRole        = "roles/storage.objectUser"
-	GSAName                  = "postgres-pod"
-	KSAName                  = "postgres-pod"
-	ServiceAccountsNamespace = "serviceaccounts"
+	WorkloadIdentityRole = "roles/iam.workloadIdentityUser"
+	StorageBucketRole    = "roles/storage.objectUser"
 )
 
 func CreateMinimalIAMPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
@@ -30,26 +25,26 @@ func CreateMinimalIAMPolicyMember(name, namespace string) *iam_cnrm_cloud_google
 	}
 }
 
-func CreateIAMServiceAccount(postgres *data_nais_io_v1.Postgres) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
+func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
 	iamServiceAccount := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMServiceAccount",
 			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
 		},
 		ObjectMeta: v1.ObjectMeta{
-			Name:      GSAName,
-			Namespace: postgres.GetNamespace(),
+			Name:      name,
+			Namespace: namespace,
 		},
 		Spec: iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccountSpec{
-			DisplayName: fmt.Sprintf("Postgres Pod Service Account for team %q", postgres.Namespace),
+			DisplayName: fmt.Sprintf("Postgres Pod Service Account for team %q", namespace),
 		},
 	}
 
 	return iamServiceAccount
 }
 
-func CreateWorkloadIdentityIAMPolicyMember(teamNamespace, pgNamespace, clusterGoogleProjectID string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(GSAName+"-wi-user", teamNamespace)
+func CreateWorkloadIdentityIAMPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(name, teamNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
 		Role:   WorkloadIdentityRole,
@@ -62,12 +57,8 @@ func CreateWorkloadIdentityIAMPolicyMember(teamNamespace, pgNamespace, clusterGo
 	return iamPolicyMember
 }
 
-func CreateStorageBucketIAMPolicyMember(teamNamespace, teamGoogleProjectID, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	name, err := namegen.ShortName(fmt.Sprintf("pg-gcs-%s", teamNamespace), 63)
-	if err != nil {
-		panic(err)
-	}
-	iamPolicyMember := CreateMinimalIAMPolicyMember(name, ServiceAccountsNamespace)
+func CreateStorageBucketIAMPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   StorageBucketRole,
