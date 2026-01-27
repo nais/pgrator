@@ -6,6 +6,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 type Reconciler[T client.Object, P any] interface {
@@ -17,8 +18,10 @@ type Reconciler[T client.Object, P any] interface {
 	New() T
 
 	// OwnedTypes returns a list of types this reconciler owns
-	// Such objects must reside in the same namespace as the main object, and have ownerReference set
-	OwnedTypes() []client.Object
+	// Such objects must reside in the same namespace as the main object, and have ownerReference set.
+	// The main object will be requeued if any of these owned objects change, if the generation changes or
+	// if the AdditionalPredicate (if any) returns true.
+	OwnedTypes() []OwnedType
 
 	// AdditionalTypes returns a list of additional types to watch
 	// Such object must have the annotation "<name>/owner" set to "<namespace>:<name>" of the owning object.
@@ -39,4 +42,9 @@ type Reconciler[T client.Object, P any] interface {
 type FinalizerNamer interface {
 	// FinalizerName returns the finalizer name to use for this reconciler
 	FinalizerName() string
+}
+
+type OwnedType struct {
+	Type                client.Object
+	AdditionalPredicate predicate.Predicate
 }

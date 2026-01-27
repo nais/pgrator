@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 const (
@@ -128,7 +127,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 	return p, ctrl.Result{}, nil
 }
 
-func (r *PostgresReconciler) OwnedTypes() []client.Object {
+func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 	return nil
 }
 
@@ -203,14 +202,6 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	}
 
 	return actions, ctrl.Result{}, nil
-}
-
-func typePrefix(obj client.Object, scheme *runtime.Scheme) string {
-	gvk, err := apiutil.GVKForObject(obj, scheme)
-	if err != nil {
-		panic(fmt.Sprintf("Programming error: get GVK for object: %v", err))
-	}
-	return strings.ToLower(gvk.GroupKind().String())
 }
 
 func iamConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {

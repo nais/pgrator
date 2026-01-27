@@ -1,16 +1,20 @@
 package controller
 
 import (
+	"context"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
@@ -81,53 +85,6 @@ var _ = Describe("Valkey Controller", func() {
 
 			err = k8sClient.Create(ctx, valkey)
 			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	Describe("ValkeyReconciler", func() {
-		Describe("Name", func() {
-			It("should return valkey.nais.io", func() {
-				r := &ValkeyReconciler{}
-				Expect(r.Name()).To(Equal("valkey.nais.io"))
-			})
-		})
-
-		Describe("FinalizerName", func() {
-			It("should return valkey.nais.io/finalizer", func() {
-				r := &ValkeyReconciler{}
-				Expect(r.FinalizerName()).To(Equal("valkey.nais.io/finalizer"))
-			})
-		})
-
-		Describe("New", func() {
-			It("should return a new Valkey instance", func() {
-				r := &ValkeyReconciler{}
-				got := r.New()
-				Expect(got).NotTo(BeNil())
-				_, ok := interface{}(got).(*v1.Valkey)
-				Expect(ok).To(BeTrue())
-			})
-		})
-
-		Describe("OwnedTypes", func() {
-			It("should return Aiven Valkey and ServiceIntegration types", func() {
-				r := &ValkeyReconciler{}
-				got := r.OwnedTypes()
-				Expect(got).To(HaveLen(2))
-
-				_, ok := got[0].(*aiven_v1alpha1.Valkey)
-				Expect(ok).To(BeTrue())
-
-				_, ok = got[1].(*aiven_v1alpha1.ServiceIntegration)
-				Expect(ok).To(BeTrue())
-			})
-		})
-
-		Describe("AdditionalTypes", func() {
-			It("should return nil", func() {
-				r := &ValkeyReconciler{}
-				Expect(r.AdditionalTypes()).To(BeNil())
-			})
 		})
 	})
 
@@ -300,215 +257,48 @@ var _ = Describe("Valkey Controller", func() {
 	})
 
 	Describe("aivenValkeyConditionGetter", func() {
-		It("should return Available=True for RUNNING state with conditions", func() {
+		It("should return ObservedState=True when state is non-empty", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "RUNNING",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Now(),
-						},
-						{
-							Type:               "Running",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CheckRunning",
-							Message:            "Instance is running on Aiven side",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
+			conditions := aivenValkeyConditionGetter(aivenValkey, scheme.Scheme)
 
-			Expect(conditions).To(HaveLen(3))
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available).NotTo(BeNil())
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-			Expect(available.Reason).To(Equal("CheckRunning"))
-
-			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
-
-			degraded := findCondition(conditions, "valkey.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
+			Expect(conditions).To(HaveLen(1))
+			observedState := meta.FindStatusCondition(conditions, "valkey.aiven.io/ObservedState")
+			Expect(observedState).NotTo(BeNil())
+			Expect(observedState.Status).To(Equal(metav1.ConditionTrue))
+			Expect(observedState.Reason).To(Equal("Reconciled"))
+			Expect(observedState.Message).To(Equal("Valkey is in state: RUNNING"))
 		})
 
-		It("should return Progressing=True for REBUILDING state", func() {
-			aivenValkey := &aiven_v1alpha1.Valkey{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: "REBUILDING",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
-				},
-			}
-			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
-
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
-
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-
-			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-
-			degraded := findCondition(conditions, "valkey.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
-		})
-
-		It("should return Progressing=True for REBALANCING state", func() {
-			aivenValkey := &aiven_v1alpha1.Valkey{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: "REBALANCING",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
-				},
-			}
-			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
-
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
-
-			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-		})
-
-		It("should return Degraded=True for POWEROFF state", func() {
-			aivenValkey := &aiven_v1alpha1.Valkey{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: "POWEROFF",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
-				},
-			}
-			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
-
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
-
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-
-			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
-
-			degraded := findCondition(conditions, "valkey.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionTrue))
-		})
-
-		It("should return Progressing=True for empty state with conditions", func() {
+		It("should return ObservedState=False when state is empty", func() {
 			aivenValkey := &aiven_v1alpha1.Valkey{
 				Status: aiven_v1alpha1.ServiceStatus{
 					State: "",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
 				},
 			}
 			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
 
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
+			conditions := aivenValkeyConditionGetter(aivenValkey, scheme.Scheme)
 
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-			Expect(available.Reason).To(Equal("CreatedOrUpdated"))
-
-			progressing := findCondition(conditions, "valkey.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-		})
-
-		It("should use reason and message from most recent Aiven condition", func() {
-			aivenValkey := &aiven_v1alpha1.Valkey{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: "RUNNING",
-					Conditions: []metav1.Condition{
-						{
-							Type:               "Initialized",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CreatedOrUpdated",
-							Message:            "Successfully created or updated the instance in Aiven",
-							LastTransitionTime: metav1.Time{Time: metav1.Now().Add(-1 * 60 * 1e9)}, // 1 minute ago
-						},
-						{
-							Type:               "Running",
-							Status:             metav1.ConditionTrue,
-							Reason:             "CheckRunning",
-							Message:            "Instance is running on Aiven side",
-							LastTransitionTime: metav1.Now(),
-						},
-					},
-				},
-			}
-			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
-
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
-
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-			Expect(available.Reason).To(Equal("CheckRunning"))
-			Expect(available.Message).To(Equal("Instance is running on Aiven side"))
-		})
-
-		It("should return NoConditions reason when no conditions exist", func() {
-			aivenValkey := &aiven_v1alpha1.Valkey{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State:      "RUNNING",
-					Conditions: []metav1.Condition{},
-				},
-			}
-			aivenValkey.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("Valkey"))
-
-			conditions := aivenValkeyConditionGetter(aivenValkey, nil)
-
-			Expect(conditions).To(HaveLen(3))
-			available := findCondition(conditions, "valkey.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-			Expect(available.Reason).To(Equal("NoConditions"))
-			Expect(available.Message).To(Equal("RUNNING"))
+			Expect(conditions).To(HaveLen(1))
+			observedState := meta.FindStatusCondition(conditions, "valkey.aiven.io/ObservedState")
+			Expect(observedState).NotTo(BeNil())
+			Expect(observedState.Status).To(Equal(metav1.ConditionFalse))
+			Expect(observedState.Reason).To(Equal("Reconciled"))
+			Expect(observedState.Message).To(Equal("Valkey is in state: "))
 		})
 	})
 
 	Describe("serviceIntegrationConditionGetter", func() {
-		It("should return Available=True when Running condition is true", func() {
+		It("should return nil", func() {
 			integration := &aiven_v1alpha1.ServiceIntegration{
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
-						{
-							Type:    "Initialized",
-							Status:  metav1.ConditionTrue,
-							Reason:  "CreatedOrUpdated",
-							Message: "Successfully created or updated",
-						},
 						{
 							Type:    "Running",
 							Status:  metav1.ConditionTrue,
@@ -520,134 +310,165 @@ var _ = Describe("Valkey Controller", func() {
 			}
 			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := serviceIntegrationConditionGetter(integration, nil)
-
-			Expect(conditions).To(HaveLen(3))
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionTrue))
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-
-			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
-		})
-
-		It("should return Available=False when Running condition is not present", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    "Initialized",
-							Status:  metav1.ConditionTrue,
-							Reason:  "CreatedOrUpdated",
-							Message: "Successfully created or updated",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration, nil)
-
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-		})
-
-		It("should return Progressing=True when Initialized condition is true", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    "Initialized",
-							Status:  metav1.ConditionTrue,
-							Reason:  "CreatedOrUpdated",
-							Message: "Successfully created or updated",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration, nil)
-
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-
-			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
-		})
-
-		It("should return Progressing=False when Initialized condition is false", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    "Initialized",
-							Status:  metav1.ConditionFalse,
-							Reason:  "Pending",
-							Message: "Waiting for initialization",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration, nil)
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionFalse))
-		})
-
-		It("should return Degraded=True when Error condition is true", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    "Initialized",
-							Status:  metav1.ConditionTrue,
-							Reason:  "CreatedOrUpdated",
-							Message: "Successfully created or updated",
-						},
-						{
-							Type:    "Error",
-							Status:  metav1.ConditionTrue,
-							Reason:  "CreateFailed",
-							Message: "Failed to create integration",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration, nil)
-
-			available := findCondition(conditions, "serviceintegration.aiven.io/Available")
-			Expect(available.Status).To(Equal(metav1.ConditionFalse))
-
-			progressing := findCondition(conditions, "serviceintegration.aiven.io/Progressing")
-			Expect(progressing.Status).To(Equal(metav1.ConditionTrue))
-
-			degraded := findCondition(conditions, "serviceintegration.aiven.io/Degraded")
-			Expect(degraded.Status).To(Equal(metav1.ConditionTrue))
-			Expect(degraded.Reason).To(Equal("CreateFailed"))
-			Expect(degraded.Message).To(Equal("Failed to create integration"))
-		})
-
-		It("should handle empty conditions", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
-
-			conditions := serviceIntegrationConditionGetter(integration, nil)
+			conditions := serviceIntegrationConditionGetter(integration, scheme.Scheme)
 
 			Expect(conditions).To(BeNil())
+		})
+	})
+
+	Describe("Valkey state change reconciliation", func() {
+		const (
+			valkeyStateTestNamespace = "valkey-state-test"
+		)
+
+		var controllerReconciler *synchronizer.Synchronizer[*v1.Valkey, ValkeyPreparedData]
+
+		BeforeEach(func() {
+			By("using a fresh recorder to avoid blocking on full channel from previous tests")
+			recorder := events.NewRecorder(record.NewFakeRecorder(100))
+
+			By("creating the synchronizer for valkey")
+			valkeyReconciler := &ValkeyReconciler{
+				Aiven: &config.Aiven{
+					Project:                      "test-project",
+					ProjectVPCID:                 "test-vpc-id",
+					MetricsDestinationEndpointID: "test-metrics-service",
+				},
+				Tenant:   &config.Tenant{Name: "test-tenant"},
+				Recorder: recorder,
+				Scheme:   k8sClient.Scheme(),
+			}
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), valkeyReconciler, recorder)
+
+			By("creating the test namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: valkeyStateTestNamespace,
+				},
+			}
+			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: valkeyStateTestNamespace}, ns)
+			if apierrors.IsNotFound(err) {
+				Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
+			}
+		})
+
+		It("should update condition when Aiven Valkey state changes from empty to RUNNING", func() {
+			valkeyName := "state-change-test"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: valkeyStateTestNamespace}
+			aivenValkeyName := "valkey-" + valkeyStateTestNamespace + "-" + valkeyName
+
+			By("creating a Valkey resource")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: valkeyStateTestNamespace,
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), valkey)).To(Succeed())
+
+			By("reconciling the Valkey resource (initial)")
+			_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the Aiven Valkey was created")
+			aivenValkey := &aiven_v1alpha1.Valkey{}
+			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenValkeyName, Namespace: valkeyStateTestNamespace}, aivenValkey)).To(Succeed())
+
+			By("checking initial condition (state is empty)")
+			Expect(k8sClient.Get(context.Background(), valkeyKey, valkey)).To(Succeed())
+			initialCondition := meta.FindStatusCondition(valkey.GetStatus().GetConditions(), "valkey.aiven.io/ObservedState")
+			Expect(initialCondition).NotTo(BeNil())
+			Expect(initialCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(initialCondition.Message).To(Equal("Valkey is in state: "))
+			Expect(initialCondition.LastTransitionTime.IsZero()).To(BeFalse())
+
+			By("simulating Aiven Valkey state change to RUNNING")
+			aivenValkey.Status.State = "RUNNING"
+			Expect(k8sClient.Status().Update(context.Background(), aivenValkey)).To(Succeed())
+
+			By("reconciling the Valkey resource again")
+			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the condition was updated with new state")
+			Expect(k8sClient.Get(context.Background(), valkeyKey, valkey)).To(Succeed())
+			updatedCondition := meta.FindStatusCondition(valkey.GetStatus().GetConditions(), "valkey.aiven.io/ObservedState")
+			Expect(updatedCondition).NotTo(BeNil())
+			Expect(updatedCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(updatedCondition.Message).To(Equal("Valkey is in state: RUNNING"))
+			// Transition time should be set (not zero) since status changed from False to True
+			Expect(updatedCondition.LastTransitionTime.IsZero()).To(BeFalse())
+
+			By("cleaning up")
+			Expect(k8sClient.Delete(context.Background(), valkey)).To(Succeed())
+		})
+
+		It("should not update transition time when state changes from REBALANCING to RUNNING", func() {
+			valkeyName := "state-no-transition-test"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: valkeyStateTestNamespace}
+			aivenValkeyName := "valkey-" + valkeyStateTestNamespace + "-" + valkeyName
+
+			By("creating a Valkey resource")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: valkeyStateTestNamespace,
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), valkey)).To(Succeed())
+
+			By("reconciling the Valkey resource (initial)")
+			_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the Aiven Valkey was created")
+			aivenValkey := &aiven_v1alpha1.Valkey{}
+			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenValkeyName, Namespace: valkeyStateTestNamespace}, aivenValkey)).To(Succeed())
+
+			By("simulating Aiven Valkey state set to REBALANCING")
+			aivenValkey.Status.State = "REBALANCING"
+			Expect(k8sClient.Status().Update(context.Background(), aivenValkey)).To(Succeed())
+
+			By("reconciling to pick up REBALANCING state")
+			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("capturing the transition time after REBALANCING")
+			Expect(k8sClient.Get(context.Background(), valkeyKey, valkey)).To(Succeed())
+			rebalancingCondition := meta.FindStatusCondition(valkey.GetStatus().GetConditions(), "valkey.aiven.io/ObservedState")
+			Expect(rebalancingCondition).NotTo(BeNil())
+			Expect(rebalancingCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(rebalancingCondition.Message).To(Equal("Valkey is in state: REBALANCING"))
+			rebalancingTransitionTime := rebalancingCondition.LastTransitionTime
+
+			By("simulating Aiven Valkey state change to RUNNING")
+			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenValkeyName, Namespace: valkeyStateTestNamespace}, aivenValkey)).To(Succeed())
+			aivenValkey.Status.State = "RUNNING"
+			Expect(k8sClient.Status().Update(context.Background(), aivenValkey)).To(Succeed())
+
+			By("reconciling the Valkey resource again")
+			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the condition message changed but transition time stayed the same")
+			Expect(k8sClient.Get(context.Background(), valkeyKey, valkey)).To(Succeed())
+			runningCondition := meta.FindStatusCondition(valkey.GetStatus().GetConditions(), "valkey.aiven.io/ObservedState")
+			Expect(runningCondition).NotTo(BeNil())
+			Expect(runningCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(runningCondition.Message).To(Equal("Valkey is in state: RUNNING"))
+			// Transition time should NOT be updated since status remained True
+			Expect(runningCondition.LastTransitionTime.Time).To(Equal(rebalancingTransitionTime.Time))
+
+			By("cleaning up")
+			Expect(k8sClient.Delete(context.Background(), valkey)).To(Succeed())
 		})
 	})
 
@@ -864,13 +685,3 @@ var _ = Describe("Valkey Controller", func() {
 		})
 	})
 })
-
-// Helper function to find a condition by type
-func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
-	for i := range conditions {
-		if conditions[i].Type == conditionType {
-			return &conditions[i]
-		}
-	}
-	return nil
-}

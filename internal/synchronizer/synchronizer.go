@@ -1,9 +1,7 @@
 package synchronizer
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -57,7 +55,9 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 
 func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
 	relevantTypes := make([]client.Object, 0)
-	relevantTypes = append(relevantTypes, r.OwnedTypes()...)
+	for _, ownedType := range r.OwnedTypes() {
+		relevantTypes = append(relevantTypes, ownedType.Type)
+	}
 	relevantTypes = append(relevantTypes, r.AdditionalTypes()...)
 
 	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
@@ -211,11 +211,20 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if finalizerFunc(obj, finalizer) {
+		// Preserve conditions before Update, as the client will overwrite obj with server response
+		// which doesn't have our in-memory condition changes yet
+		conditions := obj.GetStatus().GetConditions()
+
 		err := s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update finalizer")
 			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
 			return ctrl.Result{}, err
+		}
+
+		// Restore the conditions that were set during action execution
+		for _, c := range conditions {
+			obj.GetStatus().SetCondition(c)
 		}
 	}
 
@@ -260,7 +269,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		Named(s.reconciler.Name())
 
 	for _, t := range s.reconciler.OwnedTypes() {
-		bldr = bldr.Owns(t, builder.WithPredicates(ownedTypesEventFilter()))
+		bldr = bldr.Owns(t.Type, builder.WithPredicates(ownedTypesEventFilter(t.AdditionalPredicate)))
 	}
 
 	for _, t := range s.reconciler.AdditionalTypes() {
@@ -355,36 +364,16 @@ func (p GenerationChangedPredicate) Update(e event.TypedUpdateEvent[client.Objec
 	return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration()
 }
 
-func ownedTypesEventFilter() predicate.Predicate {
-	return predicate.Or(
-		predicate.GenerationChangedPredicate{},
-		predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
-			oldStatus, err := statusBytes(e.ObjectOld)
-			if err != nil {
-				return false
-			}
-			newStatus, err := statusBytes(e.ObjectNew)
-			if err != nil {
-				return false
-			}
-
-			return !bytes.Equal(oldStatus, newStatus)
-		}},
-	)
-}
-
-func statusBytes(obj any) ([]byte, error) {
-	v := struct {
-		Status json.RawMessage `json:"status"`
-	}{}
-	b, err := json.Marshal(obj)
-	if err != nil {
-		return nil, err
+func ownedTypesEventFilter(additionalPredicates predicate.Predicate) predicate.Predicate {
+	base := predicate.GenerationChangedPredicate{}
+	if additionalPredicates != nil {
+		return predicate.Or(
+			base,
+			additionalPredicates,
+		)
 	}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return nil, err
-	}
-	return v.Status, nil
+
+	return base
 }
 
 func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Predicate {

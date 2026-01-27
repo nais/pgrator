@@ -3,7 +3,6 @@ module github.com/nais/pgrator
 go 1.25.5
 
 require (
-	github.com/aiven/go-client-codegen v0.146.0
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0

@@ -2,10 +2,12 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 const ConditionReasonUnknown = "Unknown"
@@ -17,18 +19,12 @@ func makeCondition(value bool) meta_v1.ConditionStatus {
 	return meta_v1.ConditionFalse
 }
 
-func makeReason(condition *meta_v1.Condition) string {
-	if condition == nil || condition.Reason == "" {
-		return ConditionReasonUnknown
+func typePrefix(obj client.Object, scheme *runtime.Scheme) string {
+	gvk, err := apiutil.GVKForObject(obj, scheme)
+	if err != nil {
+		panic(fmt.Sprintf("Programming error: get GVK for object: %v", err))
 	}
-	return condition.Reason
-}
-
-func makeMessage(condition *meta_v1.Condition) string {
-	if condition == nil {
-		return ""
-	}
-	return condition.Message
+	return strings.ToLower(gvk.GroupKind().String())
 }
 
 func existsConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
