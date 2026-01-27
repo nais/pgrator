@@ -1,7 +1,9 @@
 package synchronizer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -252,21 +254,25 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		ReconciliationTimeout: 60 * time.Second,
 	}
 	bldr := ctrl.NewControllerManagedBy(mgr).
-		For(s.reconciler.New()).
+		For(s.reconciler.New(), builder.WithPredicates(s.eventFilter(mgr.GetScheme()))).
 		WithOptions(opts).
-		WithEventFilter(predicate.Or(
-			GenerationChangedPredicate{
-				Scheme:   mgr.GetScheme(),
-				MainKind: findKind(s.reconciler.New(), mgr.GetScheme()),
-			},
-			predicate.AnnotationChangedPredicate{},
-			predicate.LabelChangedPredicate{},
-		)).
 		Named(s.reconciler.Name())
 	for _, t := range s.reconciler.OwnedTypes() {
 		bldr = bldr.Owns(t, builder.WithPredicates(
 			predicate.Or(
 				predicate.GenerationChangedPredicate{},
+				predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+					oldStatus, err := statusBytes(e.ObjectOld)
+					if err != nil {
+						return false
+					}
+					newStatus, err := statusBytes(e.ObjectNew)
+					if err != nil {
+						return false
+					}
+
+					return !bytes.Equal(oldStatus, newStatus)
+				}},
 			),
 		))
 	}
@@ -287,10 +293,34 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 				}
 			}
 			return nil
-		}))
+		}), builder.WithPredicates(s.eventFilter(mgr.GetScheme())))
 	}
-	return bldr.
-		Complete(s)
+	return bldr.Complete(s)
+}
+
+func statusBytes(obj any) ([]byte, error) {
+	v := struct {
+		Status json.RawMessage `json:"status"`
+	}{}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, err
+	}
+	return v.Status, nil
+}
+
+func (s *Synchronizer[T, P]) eventFilter(scheme *runtime.Scheme) predicate.Predicate {
+	return predicate.Or(
+		GenerationChangedPredicate{
+			Scheme:   scheme,
+			MainKind: findKind(s.reconciler.New(), scheme),
+		},
+		predicate.AnnotationChangedPredicate{},
+		predicate.LabelChangedPredicate{},
+	)
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
