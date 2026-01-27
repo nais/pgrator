@@ -135,9 +135,6 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
 				Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
 				Expect(*policyMemberStorage.Spec.ResourceRef.External).To(Equal("postgres-backup-bucket"))
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
 		})
 
@@ -173,13 +170,13 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
+				By("Checking that shared resource is not deleted")
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).NotTo(BeEmpty())
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
+				Expect(iamList.Items).To(HaveLen(1))
+				iamPolicyMember := iamList.Items[0]
+				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
 			})
 
 			It("should orphan dependent resources when deletion is not allowed", func() {
@@ -205,13 +202,13 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, undeletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
 
+				By("Checking that shared resource is not deleted")
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).NotTo(BeEmpty())
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
+				Expect(iamList.Items).To(HaveLen(1))
+				iamPolicyMember := iamList.Items[0]
+				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeTrue())
 			})
 		})
 	})
