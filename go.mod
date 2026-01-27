@@ -9,7 +9,7 @@ require (
 	github.com/imdario/mergo v0.3.16
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.88.0
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.88.1
 	github.com/sethvargo/go-envconfig v1.3.0
 	github.com/spf13/pflag v1.0.10
 	github.com/zalando/postgres-operator v1.15.1
