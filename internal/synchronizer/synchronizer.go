@@ -233,15 +233,9 @@ func (s *Synchronizer[T, P]) makeOwnerAnnotation(obj client.Object) string {
 
 func (s *Synchronizer[T, P]) HasOwnerAnnotation(obj, owner client.Object) bool {
 	ownerAnnotation := s.makeOwnerAnnotation(owner)
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		return false
-	}
-	if existingOwners, ok := annotations[s.ownerAnnotationKey]; ok {
-		for _, ownerReference := range strings.Split(existingOwners, ",") {
-			if ownerReference == ownerAnnotation {
-				return true
-			}
+	for _, ownerReference := range s.GetOwnerAnnotations(obj) {
+		if ownerReference == ownerAnnotation {
+			return true
 		}
 	}
 	return false
