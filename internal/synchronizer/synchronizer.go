@@ -246,15 +246,13 @@ func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.
 		return
 	}
 	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerReferences := s.GetOwnerAnnotations(obj)
+	ownerReferences = append(ownerReferences, ownerAnnotation)
+
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	var ownerReferences []string
-	if existingOwners, ok := annotations[s.ownerAnnotationKey]; ok {
-		ownerReferences = strings.Split(existingOwners, ",")
-	}
-	ownerReferences = append(ownerReferences, ownerAnnotation)
 	annotations[s.ownerAnnotationKey] = strings.Join(ownerReferences, ",")
 	obj.SetAnnotations(annotations)
 }
