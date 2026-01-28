@@ -248,6 +248,9 @@ func (s *Synchronizer[T, P]) HasOwnerAnnotation(obj, owner client.Object) bool {
 }
 
 func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.Object) {
+	if s.HasOwnerAnnotation(obj, owner) {
+		return
+	}
 	ownerAnnotation := s.makeOwnerAnnotation(owner)
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
@@ -265,12 +268,17 @@ func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.
 func (s *Synchronizer[T, P]) removeOwnerAnnotation(obj client.Object, owner client.Object) {
 	ownerAnnotation := s.makeOwnerAnnotation(owner)
 	ownerReferences := s.GetOwnerAnnotations(obj)
-	newOwnerReferences := make([]string, len(ownerReferences))
+	newOwnerReferences := make([]string, 0, len(ownerReferences))
+	found := false
 	for _, ownerReference := range ownerReferences {
 		if ownerReference == ownerAnnotation {
+			found = true
 			continue
 		}
 		newOwnerReferences = append(newOwnerReferences, ownerReference)
+	}
+	if !found {
+		return
 	}
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
