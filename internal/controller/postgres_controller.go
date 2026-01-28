@@ -200,7 +200,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	gsa := resourcecreator.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
 	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
 
-	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, obj, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
 	actions = append(actions, action.CreateOrUpdate(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 
 	if !r.Config.PrometheusRulesDisabled {
