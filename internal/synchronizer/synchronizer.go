@@ -381,6 +381,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 					// Copy owner annotation from existing object
 					ownerReferences := s.GetOwnerAnnotations(existing)
 					s.setOwnerAnnotations(obj, ownerReferences)
+					// Copy finalizers from existing object
+					finalizers := existing.GetFinalizers()
+					obj.SetFinalizers(finalizers)
 					return true
 				}
 			}
