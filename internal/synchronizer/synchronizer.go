@@ -326,6 +326,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 						mgr.GetLogger().Error(err, "unable to parse owner")
 						continue
 					}
+					mgr.GetLogger().Info("Reconcile triggered", "cause", client.ObjectKeyFromObject(object), "target", name)
 					requests = append(requests, reconcile.Request{
 						NamespacedName: name,
 					})
