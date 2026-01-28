@@ -265,13 +265,7 @@ func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.
 	ownerAnnotation := s.makeOwnerAnnotation(owner)
 	ownerReferences := s.GetOwnerAnnotations(obj)
 	ownerReferences = append(ownerReferences, ownerAnnotation)
-
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[s.ownerAnnotationKey] = strings.Join(ownerReferences, ",")
-	obj.SetAnnotations(annotations)
+	s.setOwnerAnnotations(obj, ownerReferences)
 }
 
 func (s *Synchronizer[T, P]) removeOwnerAnnotation(obj client.Object, owner client.Object) {
@@ -289,16 +283,7 @@ func (s *Synchronizer[T, P]) removeOwnerAnnotation(obj client.Object, owner clie
 	if !found {
 		return
 	}
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	if len(newOwnerReferences) == 0 {
-		delete(annotations, s.ownerAnnotationKey)
-	} else {
-		annotations[s.ownerAnnotationKey] = strings.Join(newOwnerReferences, ",")
-	}
-	obj.SetAnnotations(annotations)
+	s.setOwnerAnnotations(obj, newOwnerReferences)
 }
 
 func (s *Synchronizer[T, P]) GetOwnerAnnotations(obj client.Object) []string {
@@ -310,6 +295,19 @@ func (s *Synchronizer[T, P]) GetOwnerAnnotations(obj client.Object) []string {
 		return strings.Split(ownerAnnotations, ",")
 	}
 	return []string{}
+}
+
+func (s *Synchronizer[T, P]) setOwnerAnnotations(obj client.Object, ownerReferences []string) {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	if len(ownerReferences) == 0 {
+		delete(annotations, s.ownerAnnotationKey)
+	} else {
+		annotations[s.ownerAnnotationKey] = strings.Join(ownerReferences, ",")
+	}
+	obj.SetAnnotations(annotations)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -372,6 +370,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
 				if obj.GetName() == existing.GetName() {
+					// Copy owner annotation from existing object
+					ownerReferences := s.GetOwnerAnnotations(existing)
+					s.setOwnerAnnotations(obj, ownerReferences)
 					return true
 				}
 			}
@@ -459,6 +460,7 @@ func additionalTypesEnqueueFilter(mgr ctrl.Manager, annotationKey string) handle
 					mgr.GetLogger().Error(err, "unable to parse owner")
 					continue
 				}
+				mgr.GetLogger().Info("Reconcile triggered", "cause", client.ObjectKeyFromObject(object), "target", name)
 				requests = append(requests, reconcile.Request{
 					NamespacedName: name,
 				})

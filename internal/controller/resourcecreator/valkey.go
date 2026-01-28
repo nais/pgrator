@@ -57,10 +57,10 @@ func MinimalAivenValkey(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
 
 // CreateAivenValkeySpec creates an Aiven Valkey resource from a nais.io Valkey spec
 func CreateAivenValkeySpec(
-		scheme *runtime.Scheme,
-		valkey *v1.Valkey,
-		aiven config.Aiven,
-		tenant config.Tenant,
+	scheme *runtime.Scheme,
+	valkey *v1.Valkey,
+	aiven config.Aiven,
+	tenant config.Tenant,
 ) (*aiven_v1alpha1.Valkey, error) {
 	aivenValkey := MinimalAivenValkey(valkey)
 
