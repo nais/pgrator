@@ -171,6 +171,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 			return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
 		}
 	} else {
+		// Copy annotations
+		previousAnnotations := preparedData.workloadIdentityPolicy.GetAnnotations()
+		workloadIdentityPolicy.SetAnnotations(previousAnnotations)
 		actions = append(actions, action.Update(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
@@ -185,6 +188,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 				return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
 			}
 		} else {
+			// Copy annotations
+			previousAnnotations := preparedData.storageBucketPolicy.GetAnnotations()
+			storageBucketPolicy.SetAnnotations(previousAnnotations)
 			actions = append(actions, action.Update(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
