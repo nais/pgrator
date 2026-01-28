@@ -153,38 +153,39 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 		return nil, ctrl.Result{}, err
 	}
 
-	ownerAnnotationKey := fmt.Sprintf("%s/owner", r.Name())
-
-	ns := obj.GetNamespace()
-	// cluster-scoped resources cannot have an empty namespace in the owner annotation
-	if ns == "" {
-		ns = "_"
-	}
-	ownerAnnotationValue := fmt.Sprintf("%s/%s", ns, obj.GetName())
-
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
-	meta_v1.SetMetaDataAnnotation(&cluster.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter, r.Recorder))
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
-	meta_v1.SetMetaDataAnnotation(&netpol.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	if preparedData.workloadIdentityPolicy == nil {
 		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
-	} else if r.Config.ResyncIAMPermissions && iamPolicyHasChanges(workloadIdentityPolicy, preparedData.workloadIdentityPolicy) {
-		actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(workloadIdentityPolicy, preparedData.workloadIdentityPolicy) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
+		}
+	} else {
+		actions = append(actions, action.Update(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	if r.Config.WalGsBucket != "" {
 		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
 		if preparedData.storageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
-		} else if r.Config.ResyncIAMPermissions && iamPolicyHasChanges(storageBucketPolicy, preparedData.storageBucketPolicy) {
-			actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		} else if iamPolicyHasChanges(storageBucketPolicy, preparedData.storageBucketPolicy) {
+			if r.Config.ResyncIAMPermissions {
+				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			} else {
+				return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
+			}
+		} else {
+			actions = append(actions, action.Update(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
@@ -198,7 +199,6 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
-		meta_v1.SetMetaDataAnnotation(&prometheusRule.ObjectMeta, ownerAnnotationKey, ownerAnnotationValue)
 		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter, r.Recorder))
 	}
 
@@ -322,7 +322,7 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 	return result
 }
 
-func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
 	if !obj.Spec.Cluster.AllowDeletion {
 		actionFunc = action.NoOp
@@ -341,6 +341,20 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres) ([]action.Act
 
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter, r.Recorder))
+
+	if preparedData.workloadIdentityPolicy != nil {
+		if !obj.Spec.Cluster.AllowDeletion {
+			actions = append(actions, action.NoOp(preparedData.workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		}
+	}
+
+	if r.Config.WalGsBucket != "" {
+		if preparedData.storageBucketPolicy != nil {
+			if !obj.Spec.Cluster.AllowDeletion {
+				actions = append(actions, action.NoOp(preparedData.storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			}
+		}
+	}
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
@@ -364,12 +378,27 @@ func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, 
 }
 
 func iamPolicyHasChanges(a, b *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember) bool {
-	return a == nil || b == nil ||
-		a.Spec.Member != b.Spec.Member ||
-		a.Spec.Role != b.Spec.Role ||
-		a.Spec.ResourceRef.APIVersion != b.Spec.ResourceRef.APIVersion ||
-		a.Spec.ResourceRef.External != b.Spec.ResourceRef.External ||
+	if a == b {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	if a.Spec.Member != b.Spec.Member ||
+		a.Spec.Role != b.Spec.Role {
+		return true
+	}
+	if a.Spec.ResourceRef.APIVersion != b.Spec.ResourceRef.APIVersion ||
 		a.Spec.ResourceRef.Kind != b.Spec.ResourceRef.Kind ||
 		a.Spec.ResourceRef.Name != b.Spec.ResourceRef.Name ||
-		a.Spec.ResourceRef.Namespace != b.Spec.ResourceRef.Namespace
+		a.Spec.ResourceRef.Namespace != b.Spec.ResourceRef.Namespace {
+		return true
+	}
+	if a.Spec.ResourceRef.External == b.Spec.ResourceRef.External {
+		return false
+	}
+	if a.Spec.ResourceRef.External == nil || b.Spec.ResourceRef.External == nil {
+		return true
+	}
+	return *a.Spec.ResourceRef.External != *b.Spec.ResourceRef.External
 }

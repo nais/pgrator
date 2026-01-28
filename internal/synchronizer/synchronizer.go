@@ -144,7 +144,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				}
 				return ctrl.Result{}, err
 			}
-			actions, result, err = s.reconciler.Delete(obj)
+			actions, result, err = s.reconciler.Delete(obj, prep)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
 				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
@@ -218,7 +218,6 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
 	var err error
 	for _, a := range actions {
-		s.addOwnerAnnotation(a.GetObject(), a.GetOwner())
 		err = a.Do(ctx, s.client, s.scheme)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -379,6 +378,11 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		if !keep(existing) {
 			unreferenced = append(unreferenced, existing)
 		}
+	}
+
+	// Add owner annotation to referenced objects
+	for _, a := range actions {
+		s.addOwnerAnnotation(a.GetObject(), a.GetOwner())
 	}
 
 	// Remove owner annotation on shared resources, delete if last owner

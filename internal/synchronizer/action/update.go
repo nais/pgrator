@@ -22,7 +22,21 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("Update %s", typeName(a.obj)))
 
-	if err := c.Update(ctx, a.obj); err != nil {
+	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	if err != nil {
+		return fmt.Errorf("internal error: %w", err)
+	}
+
+	key := client.ObjectKeyFromObject(a.obj)
+	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+		return err
+	}
+
+	if err = copyMeta(a.obj, existing); err != nil {
+		return fmt.Errorf("copying metadata: %w", err)
+	}
+
+	if err = c.Update(ctx, a.obj); err != nil {
 		return err
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
