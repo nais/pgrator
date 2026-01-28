@@ -377,7 +377,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		for _, a := range actions {
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
-				if obj.GetName() == existing.GetName() {
+				if obj.GetName() == existing.GetName() && obj.GetNamespace() == existing.GetNamespace() {
 					// Copy owner annotation from existing object
 					ownerReferences := s.GetOwnerAnnotations(existing)
 					s.setOwnerAnnotations(obj, ownerReferences)
