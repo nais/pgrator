@@ -62,7 +62,7 @@ func TestControllers(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	ctx, cancel = context.WithCancel(context.TODO())
+	ctx, cancel = context.WithCancel(context.Background())
 
 	var err error
 	err = iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme.Scheme)
@@ -105,7 +105,7 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
-	recorder = events.NewRecorder(record.NewFakeRecorder(100))
+	recorder = events.NewRecorder(record.NewFakeRecorder(1000))
 	Expect(recorder).NotTo(BeNil())
 
 	err = g.ParseData(k8sClient.Scheme())
