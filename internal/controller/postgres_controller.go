@@ -41,6 +41,7 @@ const (
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
+	Scheme   *runtime.Scheme
 }
 
 func IAMPolicyMemberNames(teamNamespace string) (string, string) {
@@ -146,7 +147,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 	return objects
 }
 
-func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjectsMap) ([]action.Action, ctrl.Result, error) {
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
@@ -155,7 +156,15 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
-	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter, r.Recorder))
+	existingCluster, err := r.getExisting(relatedObjects, cluster)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	if existingCluster != nil {
+		// TODO: Calculate differences and create a patch instead of an update?
+	} else {
+		actions = append(actions, action.Create(cluster, obj, postgresqlConditionGetter, r.Recorder))
+	}
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
@@ -328,7 +337,7 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 	return result
 }
 
-func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjectsMap) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
 	if !obj.Spec.Cluster.AllowDeletion {
 		actionFunc = action.NoOp
@@ -368,6 +377,22 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresReconciler) getExisting(relatedObjects reconciler.RelatedObjectsMap, object client.Object) (client.Object, error) {
+	gvk, err := apiutil.GVKForObject(object, r.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	objectsMap := relatedObjects[gvk]
+	if objectsMap == nil {
+		return nil, nil
+	}
+	objectKey := client.ObjectKeyFromObject(object)
+	if existing, ok := objectsMap[objectKey]; ok {
+		return existing, nil
+	}
+	return nil, nil
 }
 
 func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, error) {

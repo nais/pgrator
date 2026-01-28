@@ -131,6 +131,13 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
+	relatedObjects, err := s.findRelatedObjects(ctx, obj)
+	if err != nil {
+		logger.Error(err, "failed to find related objects")
+		s.recorder.RecordErrorEvent(obj, "FindRelated", err)
+		return result, err
+	}
+
 	deletionTimestamp := obj.GetDeletionTimestamp()
 	finalizer := s.reconciler.Name()
 	finalizers := obj.GetFinalizers()
@@ -145,7 +152,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				}
 				return ctrl.Result{}, err
 			}
-			actions, result, err = s.reconciler.Delete(obj, prep)
+			actions, result, err = s.reconciler.Delete(obj, prep, relatedObjects)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
 				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
@@ -162,7 +169,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 			return ctrl.Result{}, err
 		}
-		actions, result, err = s.reconciler.Update(obj, prep)
+		actions, result, err = s.reconciler.Update(obj, prep, relatedObjects)
 		if err != nil {
 			logger.Error(err, "failed to calculate update actions")
 			s.recorder.RecordErrorEvent(obj, "EvaluatingUpdate", err)
@@ -413,6 +420,45 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	}
 
 	return actions, nil
+}
+
+func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, owner T) (reconciler.RelatedObjectsMap, error) {
+	// List all resources of owned or additional types
+	// Possible future improvement: Add app.kubernetes.io/managed-by label to all managed resources and filter to only care about those
+	// Possible future improvement: Extend Reconciler interface to return relevant namespaces for given object and filter to only those namespaces
+	allResources := make([]client.Object, 0)
+	for _, t := range s.relevantListTypes {
+		list := reflect.New(t).Interface().(client.ObjectList)
+		err := s.client.List(ctx, list)
+		if err != nil {
+			return nil, fmt.Errorf("unable to list %s: %w", t, err)
+		}
+		err = meta.EachListItem(list, func(obj runtime.Object) error {
+			if cObj, ok := obj.(client.Object); ok {
+				allResources = append(allResources, cObj)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract items from list: %w", err)
+		}
+	}
+
+	result := make(reconciler.RelatedObjectsMap)
+	for _, resource := range allResources {
+		gvk, err := apiutil.GVKForObject(resource, s.scheme)
+		if err != nil {
+			return nil, fmt.Errorf("unable to look up gvk for %s", resource)
+		}
+		objectsMap, ok := result[gvk]
+		if !ok {
+			objectsMap = make(map[types.NamespacedName]client.Object)
+			result[gvk] = objectsMap
+		}
+		objectKey := client.ObjectKeyFromObject(resource)
+		objectsMap[objectKey] = resource
+	}
+	return result, nil
 }
 
 type GenerationChangedPredicate struct {

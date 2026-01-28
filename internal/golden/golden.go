@@ -91,7 +91,8 @@ func (g *Golden[T, P]) DefineTests() {
 				var compareActions map[compareKey]action.Action
 
 				BeforeAll(func() {
-					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData)
+					// TODO: Extend framework to load related objects from filesystem
+					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData, reconciler.RelatedObjectsMap{})
 					Expect(err).NotTo(HaveOccurred())
 
 					compareActions = makeCompareMap(actions, makeActionListKey)

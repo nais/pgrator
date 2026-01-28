@@ -4,9 +4,13 @@ import (
 	"context"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+type RelatedObjectsMap map[schema.GroupVersionKind]map[types.NamespacedName]client.Object
 
 type Reconciler[T client.Object, P any] interface {
 	// Name returns a string identifying this reconciler
@@ -30,8 +34,8 @@ type Reconciler[T client.Object, P any] interface {
 
 	// Update returns the actions needed to handle an update of the reconciled object
 	// This includes the first time the object is seen (aka Create)
-	Update(T, P) ([]action.Action, ctrl.Result, error)
+	Update(T, P, RelatedObjectsMap) ([]action.Action, ctrl.Result, error)
 
 	// Delete returns the actions needed to handle the reconciled object being deleted
-	Delete(T, P) ([]action.Action, ctrl.Result, error)
+	Delete(T, P, RelatedObjectsMap) ([]action.Action, ctrl.Result, error)
 }

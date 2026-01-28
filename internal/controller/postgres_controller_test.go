@@ -62,7 +62,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
 
 			By("creating the resource namespace")
 			ensureNamespaceExists(resourceNamespace, "test-project")
@@ -218,7 +218,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres with WalGsBucket")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
 
 			By("ensuring the resource namespace has required labels")
 			ensureNamespaceExists(resourceNamespace, "test-project")
@@ -255,7 +255,7 @@ var _ = Describe("Postgres Controller", func() {
 				GoogleProjectID:         "cluster-project",
 				ResyncIAMPermissions:    true,
 			}
-			reconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+			reconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
 
 			ensureNamespaceExists(resourceNamespace, "test-project")
 			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
@@ -302,7 +302,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
 
 			By("creating the resource namespace with annotation instead of label")
 			ensureNamespaceWithAnnotationExists(annotationNamespace, "annotation-project")
