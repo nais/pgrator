@@ -109,7 +109,7 @@ func serviceIntegrationConditionGetter(obj client.Object, _ *runtime.Scheme) []m
 	return nil
 }
 
-func (r *ValkeyReconciler) Delete(obj *v1.Valkey) ([]action.Action, ctrl.Result, error) {
+func (r *ValkeyReconciler) Delete(obj *v1.Valkey, preparedData ValkeyPreparedData) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)

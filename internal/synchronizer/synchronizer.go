@@ -150,7 +150,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				}
 				return ctrl.Result{}, err
 			}
-			actions, result, err = s.reconciler.Delete(obj)
+			actions, result, err = s.reconciler.Delete(obj, prep)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
 				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
@@ -235,8 +235,6 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
 	for _, a := range actions {
-		// TODO: s.addOwnerAnnotation(a)
-		// Must handle IAMPolicyMember before adding owner annotation here
 		err := a.Do(ctx, s.client, s.scheme)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -246,16 +244,73 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 	return ctrl.Result{}, nil
 }
 
-// TODO: Must handle IAMPolicyMember before adding owner annotation
-// func (s *Synchronizer[T, P]) addOwnerAnnotation(a action.Action) {
-// 	obj := a.GetObject()
-// 	annotations := obj.GetAnnotations()
-// 	if annotations == nil {
-// 		annotations = make(map[string]string)
-// 		obj.SetAnnotations(annotations)
-// 	}
-// 	annotations[s.ownerAnnotationKey] = client.ObjectKeyFromObject(a.GetOwner()).String()
-// }
+func (s *Synchronizer[T, P]) makeOwnerAnnotation(obj client.Object) string {
+	return client.ObjectKeyFromObject(obj).String()
+}
+
+func (s *Synchronizer[T, P]) HasOwnerAnnotation(obj, owner client.Object) bool {
+	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	for _, ownerReference := range s.GetOwnerAnnotations(obj) {
+		if ownerReference == ownerAnnotation {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.Object) {
+	if s.HasOwnerAnnotation(obj, owner) {
+		return
+	}
+	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerReferences := s.GetOwnerAnnotations(obj)
+	ownerReferences = append(ownerReferences, ownerAnnotation)
+
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[s.ownerAnnotationKey] = strings.Join(ownerReferences, ",")
+	obj.SetAnnotations(annotations)
+}
+
+func (s *Synchronizer[T, P]) removeOwnerAnnotation(obj client.Object, owner client.Object) {
+	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerReferences := s.GetOwnerAnnotations(obj)
+	newOwnerReferences := make([]string, 0, len(ownerReferences))
+	found := false
+	for _, ownerReference := range ownerReferences {
+		if ownerReference == ownerAnnotation {
+			found = true
+			continue
+		}
+		newOwnerReferences = append(newOwnerReferences, ownerReference)
+	}
+	if !found {
+		return
+	}
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	if len(newOwnerReferences) == 0 {
+		delete(annotations, s.ownerAnnotationKey)
+	} else {
+		annotations[s.ownerAnnotationKey] = strings.Join(newOwnerReferences, ",")
+	}
+	obj.SetAnnotations(annotations)
+}
+
+func (s *Synchronizer[T, P]) GetOwnerAnnotations(obj client.Object) []string {
+	annotations := obj.GetAnnotations()
+	if ownerAnnotations, ok := annotations[s.ownerAnnotationKey]; ok {
+		if ownerAnnotations == "" {
+			return []string{}
+		}
+		return strings.Split(ownerAnnotations, ",")
+	}
+	return []string{}
+}
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
@@ -288,7 +343,6 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
-	annotationValue := client.ObjectKeyFromObject(owner).String()
 	allResources := make([]client.Object, 0)
 	for _, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
@@ -298,11 +352,8 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
-				annotations := cObj.GetAnnotations()
-				if v, ok := annotations[s.ownerAnnotationKey]; ok {
-					if v == annotationValue {
-						allResources = append(allResources, cObj)
-					}
+				if s.HasOwnerAnnotation(cObj, owner) {
+					allResources = append(allResources, cObj)
 				}
 			}
 			return nil
@@ -333,9 +384,20 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 			unreferenced = append(unreferenced, existing)
 		}
 	}
-	// Add DeleteIfExists action for remainder
+
+	// Add owner annotation to referenced objects
+	for _, a := range actions {
+		s.addOwnerAnnotation(a.GetObject(), a.GetOwner())
+	}
+
+	// Remove owner annotation on shared resources, delete if last owner
 	for _, existing := range unreferenced {
-		actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
+		s.removeOwnerAnnotation(existing, owner)
+		if len(s.GetOwnerAnnotations(existing)) > 0 {
+			actions = append(actions, action.Update(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
+		} else {
+			actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
+		}
 	}
 
 	return actions, nil
@@ -389,16 +451,20 @@ func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Pre
 
 func additionalTypesEnqueueFilter(mgr ctrl.Manager, annotationKey string) handler.MapFunc {
 	return func(ctx context.Context, object client.Object) []reconcile.Request {
-		if value, ok := object.GetAnnotations()[annotationKey]; ok {
-			name, err := parseNamespacedName(value)
-			if err != nil {
-				mgr.GetLogger().Error(err, "unable to parse owner")
-				return nil
+		requests := make([]reconcile.Request, 0)
+		if ownerReferences, ok := object.GetAnnotations()[annotationKey]; ok && ownerReferences != "" {
+			for _, ownerReference := range strings.Split(ownerReferences, ",") {
+				name, err := parseNamespacedName(ownerReference)
+				if err != nil {
+					mgr.GetLogger().Error(err, "unable to parse owner")
+					continue
+				}
+				requests = append(requests, reconcile.Request{
+					NamespacedName: name,
+				})
 			}
-
-			return []reconcile.Request{{NamespacedName: name}}
 		}
-		return nil
+		return requests
 	}
 }
 

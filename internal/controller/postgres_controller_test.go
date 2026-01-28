@@ -54,7 +54,6 @@ var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling a resource", func() {
 		reconcilerConfig := config.Config{
 			PrometheusRulesDisabled: true,
-			WalGsBucket:             "postgres-backup-bucket",
 			GoogleProjectID:         "cluster-project",
 		}
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
@@ -128,16 +127,6 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(policyMemberWI.Spec.Member).To(Equal("serviceAccount:cluster-project.svc.id.goog[pg-team/postgres-pod]"))
 				Expect(policyMemberWI.Spec.Role).To(Equal("roles/iam.workloadIdentityUser"))
-
-				policyMemberStorage := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: "pg-gcs-team-e4138be1", Namespace: serviceAccountsNamespace}, policyMemberStorage)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
-				Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
-				Expect(*policyMemberStorage.Spec.ResourceRef.External).To(Equal("postgres-backup-bucket"))
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
 			})
 		})
 
@@ -145,6 +134,7 @@ var _ = Describe("Postgres Controller", func() {
 			It("should successfully clean up dependent resources when deletion is allowed", func() {
 				By("Ensure the resource is reconciled before deletion")
 				ensureReconciled(deletableResourceKey, controllerReconciler)
+				ensureReconciled(undeletableResourceKey, controllerReconciler)
 
 				By("Delete the resource")
 				resource := &data_nais_io_v1.Postgres{}
@@ -173,13 +163,13 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
+				By("Checking that shared resource is not deleted")
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).NotTo(BeEmpty())
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
+				Expect(iamList.Items).To(HaveLen(1))
+				iamPolicyMember := iamList.Items[0]
+				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
 			})
 
 			It("should orphan dependent resources when deletion is not allowed", func() {
@@ -205,13 +195,13 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, undeletableClusterKey, netpol)
 				Expect(err).NotTo(HaveOccurred())
 
+				By("Checking that shared resource is not deleted")
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).NotTo(BeEmpty())
-
-				// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-				// Example: If you expect a certain status condition after reconciliation, verify it here.
+				Expect(iamList.Items).To(HaveLen(1))
+				iamPolicyMember := iamList.Items[0]
+				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeTrue())
 			})
 		})
 	})
@@ -219,7 +209,8 @@ var _ = Describe("Postgres Controller", func() {
 	Context("When reconciling with WalGsBucket configured", func() {
 		reconcilerConfig := config.Config{
 			PrometheusRulesDisabled: true,
-			WalGsBucket:             "test-wal-bucket",
+			WalGsBucket:             "postgres-backup-bucket",
+			GoogleProjectID:         "cluster-project",
 		}
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
@@ -247,19 +238,12 @@ var _ = Describe("Postgres Controller", func() {
 			ensureReconciled(deletableResourceKey, controllerReconciler)
 
 			By("Checking for creation of storage bucket IAM policy member")
-			iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
-			err := k8sClient.List(ctx, iamList, client.InNamespace(serviceAccountsNamespace))
+			policyMemberStorage := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "pg-gcs-team-e4138be1", Namespace: serviceAccountsNamespace}, policyMemberStorage)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(iamList.Items).NotTo(BeEmpty())
-
-			found := false
-			for _, item := range iamList.Items {
-				if item.Spec.Role == "roles/storage.objectUser" {
-					found = true
-					break
-				}
-			}
-			Expect(found).To(BeTrue(), "Expected to find IAMPolicyMember with role roles/storage.objectUser")
+			Expect(policyMemberStorage.Spec.Member).To(Equal("serviceAccount:postgres-pod@test-project.iam.gserviceaccount.com"))
+			Expect(policyMemberStorage.Spec.Role).To(Equal("roles/storage.objectUser"))
+			Expect(*policyMemberStorage.Spec.ResourceRef.External).To(Equal("postgres-backup-bucket"))
 		})
 	})
 
@@ -267,7 +251,7 @@ var _ = Describe("Postgres Controller", func() {
 		It("should use CreateOrUpdate for service accounts to ensure they are synced", func() {
 			reconcilerConfig := config.Config{
 				PrometheusRulesDisabled: true,
-				WalGsBucket:             "test-wal-bucket",
+				WalGsBucket:             "postgres-backup-bucket",
 				GoogleProjectID:         "cluster-project",
 				ResyncIAMPermissions:    true,
 			}
