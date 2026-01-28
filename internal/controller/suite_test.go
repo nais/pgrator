@@ -60,12 +60,12 @@ func TestControllers(t *testing.T) {
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
 
 	valkeyReconciler := &ValkeyReconciler{
-		Aiven: &config.Aiven{
+		Aiven: config.Aiven{
 			Project:                      "test-project",
 			ProjectVPCID:                 "test-vpc-id",
 			MetricsDestinationEndpointID: "test-metrics-service",
 		},
-		Tenant:   &config.Tenant{Name: "test-tenant"},
+		Tenant:   config.Tenant{Name: "test-tenant"},
 		Recorder: recorder,
 		// TODO: scheme should be set up through a function for consistency with actual runtime use
 		Scheme: scheme.Scheme,

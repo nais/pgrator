@@ -21,8 +21,8 @@ import (
 
 // ValkeyReconciler reconciles a Valkey object
 type ValkeyReconciler struct {
-	Aiven  *config.Aiven
-	Tenant *config.Tenant
+	Aiven  config.Aiven
+	Tenant config.Tenant
 
 	Recorder events.Recorder
 	Scheme   *runtime.Scheme

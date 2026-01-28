@@ -93,11 +93,11 @@ var _ = Describe("Valkey Controller", func() {
 			testValkeyName = "my-valkey"
 			testTeamName   = "my-team"
 		)
-		aiven := &config.Aiven{
+		aiven := config.Aiven{
 			Project:      "test-project",
 			ProjectVPCID: "vpc-123",
 		}
-		tenant := &config.Tenant{
+		tenant := config.Tenant{
 			Name: "test-tenant",
 		}
 
@@ -239,7 +239,7 @@ var _ = Describe("Valkey Controller", func() {
 					Memory: v1.ValkeyMemory4GB,
 				},
 			}
-			cfg := &config.Aiven{
+			cfg := config.Aiven{
 				Project:                      "test-project",
 				MetricsDestinationEndpointID: "metrics-service",
 			}
@@ -329,12 +329,12 @@ var _ = Describe("Valkey Controller", func() {
 
 			By("creating the synchronizer for valkey")
 			valkeyReconciler := &ValkeyReconciler{
-				Aiven: &config.Aiven{
+				Aiven: config.Aiven{
 					Project:                      "test-project",
 					ProjectVPCID:                 "test-vpc-id",
 					MetricsDestinationEndpointID: "test-metrics-service",
 				},
-				Tenant:   &config.Tenant{Name: "test-tenant"},
+				Tenant:   config.Tenant{Name: "test-tenant"},
 				Recorder: recorder,
 				Scheme:   k8sClient.Scheme(),
 			}
@@ -523,10 +523,10 @@ var _ = Describe("Valkey Controller", func() {
 			v1.ValkeyMaxMemoryPolicyVolatileTTL,
 		}
 
-		aiven := &config.Aiven{
+		aiven := config.Aiven{
 			Project: "test-project",
 		}
-		tenant := &config.Tenant{
+		tenant := config.Tenant{
 			Name: "test-tenant",
 		}
 
@@ -567,12 +567,12 @@ var _ = Describe("Valkey Controller", func() {
 
 			By("creating a synchronizer for valkey")
 			valkeyReconciler := &ValkeyReconciler{
-				Aiven: &config.Aiven{
+				Aiven: config.Aiven{
 					Project:                      "test-project",
 					ProjectVPCID:                 "test-vpc-id",
 					MetricsDestinationEndpointID: "test-metrics-service",
 				},
-				Tenant:   &config.Tenant{Name: "test-tenant"},
+				Tenant:   config.Tenant{Name: "test-tenant"},
 				Recorder: recorder,
 				Scheme:   scheme.Scheme,
 			}

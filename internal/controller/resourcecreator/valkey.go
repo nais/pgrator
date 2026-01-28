@@ -57,10 +57,10 @@ func MinimalAivenValkey(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
 
 // CreateAivenValkeySpec creates an Aiven Valkey resource from a nais.io Valkey spec
 func CreateAivenValkeySpec(
-	scheme *runtime.Scheme,
-	valkey *v1.Valkey,
-	aiven *config.Aiven,
-	tenant *config.Tenant,
+		scheme *runtime.Scheme,
+		valkey *v1.Valkey,
+		aiven config.Aiven,
+		tenant config.Tenant,
 ) (*aiven_v1alpha1.Valkey, error) {
 	aivenValkey := MinimalAivenValkey(valkey)
 
@@ -119,7 +119,7 @@ func MinimalServiceIntegration(valkey *v1.Valkey) *aiven_v1alpha1.ServiceIntegra
 }
 
 // CreateServiceIntegrationSpec creates a ServiceIntegration for metrics/logs integration
-func CreateServiceIntegrationSpec(scheme *runtime.Scheme, valkey *v1.Valkey, cfg *config.Aiven) (*aiven_v1alpha1.ServiceIntegration, error) {
+func CreateServiceIntegrationSpec(scheme *runtime.Scheme, valkey *v1.Valkey, cfg config.Aiven) (*aiven_v1alpha1.ServiceIntegration, error) {
 	integration := MinimalServiceIntegration(valkey)
 
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{

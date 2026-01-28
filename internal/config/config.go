@@ -22,8 +22,8 @@ type Config struct {
 	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS"`
 	WalGsBucket             string `env:"WAL_GS_BUCKET"`
 
-	Aiven  *Aiven
-	Tenant *Tenant
+	Aiven  Aiven
+	Tenant Tenant
 }
 
 type Aiven struct {
