@@ -21,6 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -324,7 +325,18 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 						mgr.GetLogger().Error(err, "unable to parse owner")
 						continue
 					}
-					mgr.GetLogger().Info("Reconcile triggered", "cause", client.ObjectKeyFromObject(object), "target", name)
+					gvkForObject, err := apiutil.GVKForObject(object, s.scheme)
+					if err != nil {
+						mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
+					}
+					causeDescriptor := struct {
+						GVK  schema.GroupVersionKind
+						Name types.NamespacedName
+					}{
+						GVK:  gvkForObject,
+						Name: client.ObjectKeyFromObject(object),
+					}
+					mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
 					requests = append(requests, reconcile.Request{
 						NamespacedName: name,
 					})
