@@ -327,7 +327,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	for _, t := range s.reconciler.AdditionalTypes() {
 		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 			requests := make([]reconcile.Request, 0)
-			if ownerReferences, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok {
+			if ownerReferences, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok && ownerReferences != "" {
 				for _, ownerReference := range strings.Split(ownerReferences, ",") {
 					name, err := parseNamespacedName(ownerReference)
 					if err != nil {
