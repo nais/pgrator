@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -69,8 +70,8 @@ func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T
 			}
 			for _, relevantGvk := range relevantGvks {
 				if relevantGvk.Group == groupVersionKind.Group &&
-					relevantGvk.Version == groupVersionKind.Version &&
-					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
+						relevantGvk.Version == groupVersionKind.Version &&
+						fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
 					listTypes[groupVersionKind] = r
 				}
 			}
@@ -373,6 +374,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 					// Copy owner annotation from existing object
 					ownerReferences := s.GetOwnerAnnotations(existing)
 					s.setOwnerAnnotations(obj, ownerReferences)
+					// Copy finalizers from existing object
+					finalizers := existing.GetFinalizers()
+					obj.SetFinalizers(finalizers)
 					return true
 				}
 			}
@@ -460,7 +464,18 @@ func additionalTypesEnqueueFilter(mgr ctrl.Manager, annotationKey string) handle
 					mgr.GetLogger().Error(err, "unable to parse owner")
 					continue
 				}
-				mgr.GetLogger().Info("Reconcile triggered", "cause", client.ObjectKeyFromObject(object), "target", name)
+				gvkForObject, err := apiutil.GVKForObject(object, mgr.GetScheme())
+				if err != nil {
+					mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
+				}
+				causeDescriptor := struct {
+					GVK  schema.GroupVersionKind
+					Name types.NamespacedName
+				}{
+					GVK:  gvkForObject,
+					Name: client.ObjectKeyFromObject(object),
+				}
+				mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
 				requests = append(requests, reconcile.Request{
 					NamespacedName: name,
 				})
@@ -487,11 +502,11 @@ func findKind(obj client.Object, scheme *runtime.Scheme) string {
 
 func isNil(arg any) bool {
 	if v := reflect.ValueOf(arg); !v.IsValid() || ((v.Kind() == reflect.Ptr ||
-		v.Kind() == reflect.Interface ||
-		v.Kind() == reflect.Slice ||
-		v.Kind() == reflect.Map ||
-		v.Kind() == reflect.Chan ||
-		v.Kind() == reflect.Func) && v.IsNil()) {
+			v.Kind() == reflect.Interface ||
+			v.Kind() == reflect.Slice ||
+			v.Kind() == reflect.Map ||
+			v.Kind() == reflect.Chan ||
+			v.Kind() == reflect.Func) && v.IsNil()) {
 		return true
 	}
 	return false
