@@ -14,8 +14,8 @@ spec:
         operations: ["CREATE"]
         resources: ["valkeys"]
   validations:
-    - expression: "object.metadata.name.size() <= 63 - (9 + object.metadata.namespace.size())"
-      messageExpression: "'metadata.name is too long; max length is ' + string(63 - (9 + object.metadata.namespace.size())) + ' characters'"
+    - expression: "object.metadata.name.size() <= 63 - (8 + object.metadata.namespace.size())"
+      messageExpression: "'metadata.name is too long; max length is ' + string(63 - (8 + object.metadata.namespace.size())) + ' characters'"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
