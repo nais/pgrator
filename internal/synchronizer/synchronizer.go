@@ -452,11 +452,11 @@ func additionalTypesEnqueueFilter(mgr ctrl.Manager, ownerManager ownership.Owner
 				mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
 			}
 			causeDescriptor := struct {
-					GVK  schema.GroupVersionKind
-					Name types.NamespacedName
+				GVK  schema.GroupVersionKind
+				Name types.NamespacedName
 			}{
-					GVK:  gvkForObject,
-					Name: client.ObjectKeyFromObject(object),
+				GVK:  gvkForObject,
+				Name: client.ObjectKeyFromObject(object),
 			}
 			mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
 			requests = append(requests, reconcile.Request{
