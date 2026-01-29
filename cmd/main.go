@@ -95,6 +95,7 @@ func main() {
 	reconciler := &controller.PostgresReconciler{
 		Config:   cfg,
 		Recorder: recorder,
+		Scheme:   mgr.GetScheme(),
 	}
 
 	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), reconciler, recorder)

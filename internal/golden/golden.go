@@ -91,7 +91,7 @@ func (g *Golden[T, P]) DefineTests() {
 				var compareActions map[compareKey]action.Action
 
 				BeforeAll(func() {
-					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData)
+					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData, testCase.RelatedObjects)
 					Expect(err).NotTo(HaveOccurred())
 
 					compareActions = makeCompareMap(actions, makeActionListKey)

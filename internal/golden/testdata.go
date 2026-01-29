@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -17,6 +19,11 @@ type TestData[T object.NaisObject, P any] struct {
 
 	// Prepared data to pass to the reconciler under test
 	PreparedData P
+
+	// Related objects to pass to the reconciler under test
+	RelatedObjects *relatedobjectsmap.RelatedObjectsMap
+	// Raw data for above field, parsed by parseExpectedData
+	relatedObjectsData []map[string]any
 
 	// The actual object to reconcile
 	Object T
@@ -54,6 +61,16 @@ func (t *TestData[T, P]) parseExpectedData(scheme *runtime.Scheme) error {
 
 		t.Contains = append(t.Contains, expected)
 	}
+
+	t.RelatedObjects = relatedobjectsmap.NewRelatedObjectsMap(scheme)
+	for _, datum := range t.relatedObjectsData {
+		expected, err := ParseObject(scheme, datum)
+		if err != nil {
+			return err
+		}
+		t.RelatedObjects.Insert(expected.(client.Object))
+	}
+
 	return nil
 }
 
@@ -64,6 +81,10 @@ func (t *TestData[T, P]) loadExpectedData(path string) error {
 		return err
 	}
 	t.consistsOfData, err = t.loadExpectedFromDir(filepath.Join(path, "consists_of"))
+	if err != nil {
+		return err
+	}
+	t.relatedObjectsData, err = t.loadExpectedFromDir(filepath.Join(path, "related_objects"))
 	if err != nil {
 		return err
 	}

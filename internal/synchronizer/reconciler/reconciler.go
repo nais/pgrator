@@ -8,6 +8,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type RelatedObjects interface {
+	GetMatching(obj client.Object) client.Object
+}
+
 type Reconciler[T client.Object, P any] interface {
 	// Name returns a string identifying this reconciler
 	// The name is used to create a suitable finalizer, and prefix annotations
@@ -30,8 +34,8 @@ type Reconciler[T client.Object, P any] interface {
 
 	// Update returns the actions needed to handle an update of the reconciled object
 	// This includes the first time the object is seen (aka Create)
-	Update(T, P) ([]action.Action, ctrl.Result, error)
+	Update(T, P, RelatedObjects) ([]action.Action, ctrl.Result, error)
 
 	// Delete returns the actions needed to handle the reconciled object being deleted
-	Delete(T, P) ([]action.Action, ctrl.Result, error)
+	Delete(T, P, RelatedObjects) ([]action.Action, ctrl.Result, error)
 }

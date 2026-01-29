@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	core_v1 "k8s.io/api/core/v1"
 	networking_v1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,6 +39,7 @@ const (
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
+	Scheme   *runtime.Scheme
 }
 
 func IAMPolicyMemberNames(teamNamespace string) (string, string) {
@@ -56,9 +55,7 @@ func IAMPolicyMemberNames(teamNamespace string) (string, string) {
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
 
 type PreparedData struct {
-	teamGoogleProjectID    string
-	storageBucketPolicy    *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember
-	workloadIdentityPolicy *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember
+	teamGoogleProjectID string
 }
 
 func (r *PostgresReconciler) Name() string {
@@ -67,23 +64,6 @@ func (r *PostgresReconciler) Name() string {
 
 func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
 	return &data_nais_io_v1.Postgres{}
-}
-
-func loadResourceIntoPreparedData[T any, PT interface {
-	client.Object
-	*T
-}](ctx context.Context, reader client.Reader, name, namespace string, dst *PT) error {
-	tmp := PT(new(T))
-	err := reader.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, tmp)
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	*dst = tmp
-	return nil
 }
 
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
@@ -114,17 +94,6 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		teamGoogleProjectID: projectID,
 	}
 
-	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(teamNamespace.Name)
-	errs := []error{
-		loadResourceIntoPreparedData(ctx, reader, workloadIdentityPolicyName, teamNamespace.Name, &p.workloadIdentityPolicy),
-		loadResourceIntoPreparedData(ctx, reader, storageBucketPolicyName, ServiceAccountsNamespace, &p.storageBucketPolicy),
-	}
-
-	err = errors.Join(errs...)
-	if err != nil {
-		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to prepare data for Postgres %q: %w", obj.GetName(), err)
-	}
-
 	return p, ctrl.Result{}, nil
 }
 
@@ -146,7 +115,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 	return objects
 }
 
-func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
@@ -155,16 +124,22 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 
 	var actions []action.Action
 	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
-	actions = append(actions, action.CreateOrUpdate(cluster, obj, postgresqlConditionGetter, r.Recorder))
+	existingCluster := relatedObjects.GetMatching(cluster)
+	if existingCluster != nil {
+		actions = append(actions, action.Update(cluster, obj, postgresqlConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(cluster, obj, postgresqlConditionGetter, r.Recorder))
+	}
 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
-	if preparedData.workloadIdentityPolicy == nil {
+	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
+	if existingWorkloadIdentityPolicy == nil {
 		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
-	} else if iamPolicyHasChanges(workloadIdentityPolicy, preparedData.workloadIdentityPolicy) {
+	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
 			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 		} else {
@@ -172,16 +147,17 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 		}
 	} else {
 		// Copy annotations
-		previousAnnotations := preparedData.workloadIdentityPolicy.GetAnnotations()
+		previousAnnotations := existingWorkloadIdentityPolicy.GetAnnotations()
 		workloadIdentityPolicy.SetAnnotations(previousAnnotations)
 		actions = append(actions, action.Update(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	if r.Config.WalGsBucket != "" {
 		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
-		if preparedData.storageBucketPolicy == nil {
+		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
-		} else if iamPolicyHasChanges(storageBucketPolicy, preparedData.storageBucketPolicy) {
+		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 			if r.Config.ResyncIAMPermissions {
 				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 			} else {
@@ -189,7 +165,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 			}
 		} else {
 			// Copy annotations
-			previousAnnotations := preparedData.storageBucketPolicy.GetAnnotations()
+			previousAnnotations := existingStorageBucketPolicy.GetAnnotations()
 			storageBucketPolicy.SetAnnotations(previousAnnotations)
 			actions = append(actions, action.Update(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
@@ -328,7 +304,7 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 	return result
 }
 
-func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
 	if !obj.Spec.Cluster.AllowDeletion {
 		actionFunc = action.NoOp
@@ -348,16 +324,21 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter, r.Recorder))
 
-	if preparedData.workloadIdentityPolicy != nil {
+	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
+	if existingWorkloadIdentityPolicy != nil {
 		if !obj.Spec.Cluster.AllowDeletion {
-			actions = append(actions, action.NoOp(preparedData.workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.NoOp(existingWorkloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
 	if r.Config.WalGsBucket != "" {
-		if preparedData.storageBucketPolicy != nil {
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+		if existingStorageBucketPolicy != nil {
 			if !obj.Spec.Cluster.AllowDeletion {
-				actions = append(actions, action.NoOp(preparedData.storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+				actions = append(actions, action.NoOp(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 			}
 		}
 	}
