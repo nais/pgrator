@@ -11,6 +11,7 @@ import (
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -24,7 +25,11 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 
 	var conditions []meta_v1.Condition
 
-	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	gvk, err := apiutil.GVKForObject(a.obj, scheme)
+	if err != nil {
+		panic(fmt.Sprintf("Programmer Error: Unable to find GVK for object %v: %v", a.obj, err))
+	}
+	existing, err := scheme.New(gvk)
 	if err != nil {
 		return fmt.Errorf("internal error: %w", err)
 	}
@@ -43,7 +48,6 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 	} else {
 		// Restore GVK on the retrieved object since the Kubernetes API server doesn't return TypeMeta.
 		// This is necessary for condition getters that rely on GetObjectKind().GroupVersionKind().
-		gvk := a.obj.GetObjectKind().GroupVersionKind()
 		existing.(client.Object).GetObjectKind().SetGroupVersionKind(gvk)
 
 		conditions = a.conditionGetter(existing.(client.Object), scheme)

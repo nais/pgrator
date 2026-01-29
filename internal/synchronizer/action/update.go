@@ -9,6 +9,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -20,7 +21,11 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("Update %s", typeName(a.obj)))
 
-	existing, err := scheme.New(a.obj.GetObjectKind().GroupVersionKind())
+	gvk, err := apiutil.GVKForObject(a.obj, scheme)
+	if err != nil {
+		panic(fmt.Sprintf("Programmer Error: Unable to find GVK for object %v: %v", a.obj, err))
+	}
+	existing, err := scheme.New(gvk)
 	if err != nil {
 		return fmt.Errorf("internal error: %w", err)
 	}
