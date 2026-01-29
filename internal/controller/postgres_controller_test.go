@@ -99,6 +99,7 @@ var _ = Describe("Postgres Controller", func() {
 			It("should successfully reconcile the resource", func() {
 				By("Reconciling the created resource")
 				ensureReconciled(deletableResourceKey, controllerReconciler)
+				ensureReconciled(undeletableResourceKey, controllerReconciler)
 
 				By("Checking for creation of dependent resource")
 				cluster := &acid_zalan_do_v1.Postgresql{}
@@ -118,6 +119,8 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: postgresNamespace}, sa)
 				Expect(sa.Annotations["iam.gke.io/gcp-service-account"]).To(Equal("postgres-pod@test-project.iam.gserviceaccount.com"))
 				Expect(err).NotTo(HaveOccurred())
+				Expect(controllerReconciler.GetOwnerAnnotations(sa)).To(ContainElement(deletableResourceKey.String()))
+				Expect(controllerReconciler.GetOwnerAnnotations(sa)).To(ContainElement(undeletableResourceKey.String()))
 
 				iamsa := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: resourceNamespace}, iamsa)

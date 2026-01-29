@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -176,7 +177,18 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
 
 	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
-	actions = append(actions, action.CreateOrUpdate(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
+	if existingKubernetesSA != nil {
+		// Copy annotations
+		annotations := existingKubernetesSA.GetAnnotations()
+		if annotations != nil {
+			maps.Insert(annotations, maps.All(kubernetesSA.GetAnnotations()))
+			kubernetesSA.SetAnnotations(annotations)
+		}
+		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	}
 
 	if !r.Config.PrometheusRulesDisabled {
 		prometheusRule := resourcecreator.CreatePrometheusRuleSpec(obj, pgClusterName, pgNamespace)
