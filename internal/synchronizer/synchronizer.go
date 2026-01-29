@@ -101,7 +101,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
-		if err := s.client.Status().Update(ctx, obj); err != nil {
+		err := s.client.Status().Update(ctx, obj)
+		if err != nil && !apierrors.IsNotFound(err) {
 			logger.Error(err, "failed to update status")
 			return err
 		}
