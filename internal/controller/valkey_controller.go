@@ -28,6 +28,8 @@ type ValkeyReconciler struct {
 	Scheme   *runtime.Scheme
 }
 
+var _ reconciler.Reconciler[*v1.Valkey, ValkeyPreparedData] = &ValkeyReconciler{}
+
 // ValkeyPreparedData contains data prepared during the Prepare phase
 type ValkeyPreparedData struct{}
 
@@ -43,7 +45,7 @@ func (r *ValkeyReconciler) FinalizerName() string {
 	return "valkey.nais.io/finalizer"
 }
 
-func (r *ValkeyReconciler) Prepare(_ctx context.Context, _reader client.Reader, obj *v1.Valkey) (ValkeyPreparedData, ctrl.Result, error) {
+func (r *ValkeyReconciler) Prepare(_ context.Context, _ client.Reader, _ *v1.Valkey) (ValkeyPreparedData, ctrl.Result, error) {
 	return ValkeyPreparedData{}, ctrl.Result{}, nil
 }
 
@@ -71,7 +73,7 @@ func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
 	return nil
 }
 
-func (r *ValkeyReconciler) Update(obj *v1.Valkey, preparedData ValkeyPreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *ValkeyReconciler) Update(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
 	aivenValkey, err := resourcecreator.CreateAivenValkeySpec(r.Scheme, obj, r.Aiven, r.Tenant)
@@ -105,11 +107,11 @@ func aivenValkeyConditionGetter(obj client.Object, scheme *runtime.Scheme) []met
 	}
 }
 
-func serviceIntegrationConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
+func serviceIntegrationConditionGetter(_ client.Object, _ *runtime.Scheme) []meta_v1.Condition {
 	return nil
 }
 
-func (r *ValkeyReconciler) Delete(obj *v1.Valkey, preparedData ValkeyPreparedData) ([]action.Action, ctrl.Result, error) {
+func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
