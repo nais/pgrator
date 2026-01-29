@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.aiven.metricsDestinationEndpointID | quote }}
             - name: TENANT_NAME
               value: {{ .Values.fasit.tenant.name }}
+            - name: LEADER_ELECTION_ENABLED
+              value: {{ .Values.controllerManager.leaderElection.enable | quote }}
             {{- if .Values.walGsBucket }}
             - name: WAL_GS_BUCKET
               value: {{ .Values.walGsBucket }}

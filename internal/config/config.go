@@ -18,6 +18,7 @@ type Config struct {
 	PostgresImage        string `env:"POSTGRES_IMAGE"`
 
 	DryRun                  bool   `env:"DRY_RUN"`
+	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED"`
 	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED"`
 	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS"`
 	WalGsBucket             string `env:"WAL_GS_BUCKET"`

@@ -38,6 +38,8 @@ controllerManager:
       type: RuntimeDefault
   terminationGracePeriodSeconds: 10
   serviceAccountName: pgrator
+  leaderElection:
+    enable: true
 
 # [RBAC]: To enable RBAC (Permissions) configurations
 rbac:

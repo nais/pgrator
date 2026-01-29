@@ -86,7 +86,8 @@ func main() {
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: ":8081",
-		LeaderElection:         false,
+		LeaderElection:         cfg.LeaderElectionEnabled,
+		LeaderElectionID:       "pgrator.nais.io",
 		Client: client.Options{
 			DryRun: &cfg.DryRun,
 		},
