@@ -28,9 +28,7 @@ For example, the `Postgres` CRD (group `data.nais.io`, version `v1`) with the ab
 Register the example function in `ExampleRegistry` in [docgen.go](docgen.go):
 
 ```go
-var ExampleRegistry = map[schema.GroupVersionKind]func() any{
-    {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: func() any { 
-        return datav1.ExamplePostgresForDocumentation() 
-    },
+var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
+   {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: datav1.ExamplePostgresForDocumentation,
 }
 ```

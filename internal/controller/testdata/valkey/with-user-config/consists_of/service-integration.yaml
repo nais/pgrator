@@ -1,0 +1,24 @@
+---
+action: createOrUpdate
+matcher: Equal
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: ServiceIntegration
+  metadata:
+    labels:
+      team: config-team
+      valkey.nais.io/name: configured-valkey
+    name: valkey-config-team-configured-valkey
+    namespace: config-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Valkey
+        name: configured-valkey
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    project: test-project
+    integrationType: prometheus
+    sourceServiceName: valkey-config-team-configured-valkey
+    destinationEndpointId: test-metrics-service

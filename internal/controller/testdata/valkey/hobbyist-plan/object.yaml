@@ -1,0 +1,11 @@
+---
+apiVersion: nais.io/v1
+kind: Valkey
+metadata:
+  name: hobbyist-valkey
+  namespace: dev-team
+  labels:
+    team: dev-team
+spec:
+  tier: SingleNode
+  memory: 1GB

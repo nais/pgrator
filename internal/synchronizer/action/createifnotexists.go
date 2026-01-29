@@ -8,7 +8,6 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,13 +50,8 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Exists", "%s already exists", describeObj(a.obj))
 	}
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
 	for _, condition := range conditions {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil

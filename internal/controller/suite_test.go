@@ -5,20 +5,17 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/golden"
-	"github.com/nais/pgrator/internal/synchronizer/events"
-	v1 "github.com/nais/pgrator/pkg/api/datav1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -27,6 +24,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/yaml"
+
+	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/golden"
+	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/pkg/api/datav1"
+	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -39,22 +45,42 @@ var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	recorder  events.Recorder
-	g         *golden.Golden[*v1.Postgres, PreparedData]
+
+	// Golden test instances
+	postgresGolden *golden.Golden[*datav1.Postgres, PreparedData]
+	valkeyGolden   *golden.Golden[*v1.Valkey, ValkeyPreparedData]
 )
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	reconcilerConfig := config.Config{
+	postgresReconcilerConfig := config.Config{
 		PrometheusRulesDisabled: true,
 	}
-	reconciler := &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}
+	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
+
+	valkeyReconciler := &ValkeyReconciler{
+		Aiven: config.Aiven{
+			Project:                      "test-project",
+			ProjectVPCID:                 "test-vpc-id",
+			MetricsDestinationEndpointID: "test-metrics-service",
+		},
+		Tenant:   config.Tenant{Name: "test-tenant"},
+		Recorder: recorder,
+		// TODO: scheme should be set up through a function for consistency with actual runtime use
+		Scheme: scheme.Scheme,
+	}
 
 	_, filename, _, _ := runtime.Caller(0)
 	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))
+	postgresTestDataDir := filepath.Join(testDataDir, "postgres")
+	valkeyTestDataDir := filepath.Join(testDataDir, "valkey")
 
-	g = golden.NewGolden(t, reconciler, testDataDir)
-	g.DefineTests()
+	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir)
+	postgresGolden.DefineTests()
+
+	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir)
+	valkeyGolden.DefineTests()
 
 	RunSpecs(t, "Controller Suite")
 }
@@ -68,13 +94,19 @@ var _ = BeforeSuite(func() {
 	err = iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = v1.AddToScheme(scheme.Scheme)
+	err = datav1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = pov1.AddToScheme(scheme.Scheme)
 	utilruntime.Must(err)
 
 	err = acid_zalan_do_v1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = v1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = aiven_v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
@@ -105,10 +137,17 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// Install ValidatingAdmissionPolicy for Valkey name validation
+	err = installAdmissionPolicies(ctx, k8sClient)
+	Expect(err).NotTo(HaveOccurred())
 	recorder = events.NewRecorder(record.NewFakeRecorder(1000))
 	Expect(recorder).NotTo(BeNil())
 
-	err = g.ParseData(k8sClient.Scheme())
+	err = postgresGolden.ParseData(k8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
+
+	err = valkeyGolden.ParseData(k8sClient.Scheme())
 	Expect(err).NotTo(HaveOccurred())
 })
 
@@ -118,6 +157,54 @@ var _ = AfterSuite(func() {
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+// installAdmissionPolicies reads and installs ValidatingAdmissionPolicy resources from charts/admission
+func installAdmissionPolicies(ctx context.Context, c client.Client) error {
+	_, filename, _, _ := runtime.Caller(0)
+	admissionDir := filepath.Join(filepath.Dir(filename), "../../charts/pgrator/templates/admission")
+
+	entries, err := os.ReadDir(admissionDir)
+	if err != nil {
+		return err
+	}
+
+	// Regex to strip Helm template directives (lines containing {{ ... }})
+	helmTemplateRegex := regexp.MustCompile(`(?m)^.*\{\{.*\}\}.*\n?`)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yaml") && !strings.HasSuffix(entry.Name(), ".yml")) {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(admissionDir, entry.Name()))
+		if err != nil {
+			return err
+		}
+
+		// Strip Helm template directives before parsing
+		cleanedData := helmTemplateRegex.ReplaceAll(data, nil)
+
+		// Split YAML documents
+		docs := strings.Split(string(cleanedData), "---")
+		for _, doc := range docs {
+			doc = strings.TrimSpace(doc)
+			if doc == "" {
+				continue
+			}
+
+			obj := &unstructured.Unstructured{}
+			if err := yaml.Unmarshal([]byte(doc), obj); err != nil {
+				return err
+			}
+
+			if err := c.Create(ctx, obj); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
 
 // getEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

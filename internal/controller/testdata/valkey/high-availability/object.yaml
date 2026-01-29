@@ -1,0 +1,11 @@
+---
+apiVersion: nais.io/v1
+kind: Valkey
+metadata:
+  name: ha-valkey
+  namespace: production-team
+  labels:
+    team: production-team
+spec:
+  tier: HighAvailability
+  memory: 8GB

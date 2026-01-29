@@ -19,7 +19,9 @@ import (
 
 	yaml2 "github.com/ghodss/yaml"
 	"github.com/imdario/mergo"
+	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/pkg/api/datav1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -36,12 +38,17 @@ var exampleResource any
 
 // ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
 // Add new CRD examples here when adding new CRDs to the project.
-var ExampleRegistry = map[schema.GroupVersionKind]func() any{
+var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
 	{
 		Group:   datav1.GroupVersion.Group,
 		Version: datav1.GroupVersion.Version,
 		Kind:    "Postgres",
-	}: func() any { return datav1.ExamplePostgresForDocumentation() },
+	}: datav1.ExamplePostgresForDocumentation,
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
+		Kind:    "Valkey",
+	}: v1.ExampleValkeyForDocumentation,
 }
 
 type Renderer func(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps)
@@ -651,12 +658,12 @@ func WriteReferenceDoc(w io.Writer, level int, jsonpath string, key string, pare
 	}
 }
 
-func getStructSubPath(keyWithDots string, object any) (any, error) {
+func getStructSubPath(keyWithDots string, obj any) (any, error) {
 	structure := make(map[string]any)
 	var leaf any = structure
 
 	keySlice := strings.Split(keyWithDots, ".")
-	v := reflect.ValueOf(object)
+	v := reflect.ValueOf(obj)
 
 	resolve := func(v reflect.Value) reflect.Value {
 		if v.Kind() == reflect.Ptr {

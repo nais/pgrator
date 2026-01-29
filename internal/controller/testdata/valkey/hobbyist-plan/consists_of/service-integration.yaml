@@ -1,0 +1,17 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: ServiceIntegration
+  metadata:
+    labels:
+      team: dev-team
+      valkey.nais.io/name: hobbyist-valkey
+    name: valkey-dev-team-hobbyist-valkey
+    namespace: dev-team
+  spec:
+    project: test-project
+    integrationType: prometheus
+    sourceServiceName: valkey-dev-team-hobbyist-valkey
+    destinationEndpointId: test-metrics-service

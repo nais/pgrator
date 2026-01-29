@@ -28,3 +28,15 @@ values:
     description: Enable resyncing of IAM permissions by recreating IAMPolicyMember resources
     config:
       type: bool
+  aiven.project:
+    displayName: Aiven project name
+    computed:
+      template: "{{.Env.aiven_project | quote}}"
+  aiven.projectVPCID:
+    displayName: Aiven project VPC ID
+    computed:
+      template: '{{(splitList "/" .Env.aiven_project_vpc_id | last) | quote}}'
+  aiven.metricsDestinationEndpointID:
+    displayName: Aiven metrics destination endpoint ID
+    computed:
+      template: '{{(splitList "/" .Env.aiven_prometheus_endpoint_id | last) | quote}}'

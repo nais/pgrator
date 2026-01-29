@@ -24,14 +24,22 @@ type eventRecorder struct {
 }
 
 func (e *eventRecorder) RecordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
+	correlationId := obj.GetCorrelationId()
+	if correlationId == "" {
+		correlationId = "no correlation id"
+	}
 	if e.recorder != nil {
 		msg := fmt.Sprintf(messageFmt, args...)
-		e.recorder.Eventf(obj, eventType, reason, "[%s] %s", obj.GetCorrelationId(), msg)
+		e.recorder.Eventf(obj, eventType, reason, "[%s] %s", correlationId, msg)
 	}
 }
 
 func (e *eventRecorder) RecordErrorEvent(obj object.NaisObject, phase string, err error) {
 	if e.recorder != nil {
-		e.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", obj.GetCorrelationId(), phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		correlationId := obj.GetCorrelationId()
+		if correlationId == "" {
+			correlationId = "no correlation id"
+		}
+		e.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }

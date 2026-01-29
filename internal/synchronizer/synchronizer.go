@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -56,7 +57,9 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 
 func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
 	relevantTypes := make([]client.Object, 0)
-	relevantTypes = append(relevantTypes, r.OwnedTypes()...)
+	for _, ownedType := range r.OwnedTypes() {
+		relevantTypes = append(relevantTypes, ownedType.Type)
+	}
 	relevantTypes = append(relevantTypes, r.AdditionalTypes()...)
 
 	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
@@ -87,21 +90,21 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
+		if apierrors.IsNotFound(err) {
+			logger.Info("object not found, skipping reconciliation")
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	status := obj.GetStatus()
-	status.ReconcileTime = ptr.To(meta_v1.NewTime(time.Now()))
-	status.ObservedGeneration = obj.GetGeneration()
-	status.CorrelationID = obj.GetCorrelationId()
+	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
+	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
+	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
-		err = s.client.Status().Update(ctx, obj)
-		if err != nil {
+		if err := s.client.Status().Update(ctx, obj); err != nil {
 			logger.Error(err, "failed to update status")
 			return err
 		}
-		status = obj.GetStatus()
 		return nil
 	}
 
@@ -111,13 +114,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}()
 
-	var actions []action.Action
-	var result ctrl.Result
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
 
-	status.ReconcilePhase = "Preparing"
-	if err = updateStatus(); err != nil {
+	obj.GetStatus().SetReconcilePhase("Preparing")
+	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in Preparing phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -141,14 +143,18 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	deletionTimestamp := obj.GetDeletionTimestamp()
 	finalizer := s.reconciler.Name()
-	finalizers := obj.GetFinalizers()
+	if f, ok := s.reconciler.(reconciler.FinalizerNamer); ok {
+		finalizer = f.FinalizerName()
+	}
 	finalizerFunc := controllerutil.AddFinalizer
+	var actions []action.Action
 	if deletionTimestamp != nil {
-		if len(finalizers) > 0 && finalizers[0] == finalizer {
-			status.ReconcilePhase = "EvaluatingDeletion"
+		if controllerutil.ContainsFinalizer(obj, finalizer) {
+			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
 			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
 			if err = updateStatus(); err != nil {
 				if apierrors.IsConflict(err) {
+					logger.Info("conflict during status update in EvaluatingDeletion phase, requeuing")
 					return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 				}
 				return ctrl.Result{}, err
@@ -162,10 +168,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			finalizerFunc = controllerutil.RemoveFinalizer
 		}
 	} else {
-		status.ReconcilePhase = "EvaluatingUpdate"
+		obj.GetStatus().SetReconcilePhase("EvaluatingUpdate")
 		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingUpdate", "Evaluating update of resources")
 		if err = updateStatus(); err != nil {
 			if apierrors.IsConflict(err) {
+				logger.Info("conflict during status update in EvaluatingUpdate phase, requeuing")
 				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 			}
 			return ctrl.Result{}, err
@@ -178,10 +185,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	status.ReconcilePhase = "DetectingUnreferenced"
+	obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 	if err = updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in DetectingUnreferenced phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -194,10 +202,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	status.ReconcilePhase = "PerformingActions"
+	obj.GetStatus().SetReconcilePhase("PerformingActions")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
-	if err = updateStatus(); err != nil {
+	if err := updateStatus(); err != nil {
 		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in PerformingActions phase, requeuing")
 			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -211,23 +220,31 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if finalizerFunc(obj, finalizer) {
-		err = s.client.Update(ctx, obj)
+		// Preserve conditions before Update, as the client will overwrite obj with server response
+		// which doesn't have our in-memory condition changes yet
+		conditions := obj.GetStatus().GetConditions()
+
+		err := s.client.Update(ctx, obj)
 		if err != nil {
 			logger.Error(err, "failed to update finalizer")
 			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
 			return ctrl.Result{}, err
 		}
+
+		// Restore the conditions that were set during action execution
+		for _, c := range conditions {
+			obj.GetStatus().SetCondition(c)
+		}
 	}
 
-	status.ReconcilePhase = "Completed"
+	obj.GetStatus().SetReconcilePhase("Completed")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Completed", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
 	return result, nil
 }
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
-	var err error
 	for _, a := range actions {
-		err = a.Do(ctx, s.client, s.scheme)
+		err := a.Do(ctx, s.client, s.scheme)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -307,57 +324,30 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	opts := controller.Options{
 		ReconciliationTimeout: 60 * time.Second,
 	}
-	builder := ctrl.NewControllerManagedBy(mgr).
-		For(s.reconciler.New()).
+
+	bldr := ctrl.NewControllerManagedBy(mgr).
+		For(s.reconciler.New(), builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New()))).
 		WithOptions(opts).
-		WithEventFilter(predicate.Or(
-			GenerationChangedPredicate{
-				Scheme:   mgr.GetScheme(),
-				MainKind: findKind(s.reconciler.New(), mgr.GetScheme()),
-			},
-			predicate.AnnotationChangedPredicate{},
-			predicate.LabelChangedPredicate{},
-		)).
 		Named(s.reconciler.Name())
+
 	for _, t := range s.reconciler.OwnedTypes() {
-		builder = builder.Owns(t)
+		bldr = bldr.Owns(t.Type, builder.WithPredicates(ownedTypesEventFilter(t.AdditionalPredicate)))
 	}
 
 	for _, t := range s.reconciler.AdditionalTypes() {
-		builder = builder.Watches(t, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			requests := make([]reconcile.Request, 0)
-			if ownerReferences, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok && ownerReferences != "" {
-				for _, ownerReference := range strings.Split(ownerReferences, ",") {
-					name, err := parseOwnerAnnotation(ownerReference)
-					if err != nil {
-						mgr.GetLogger().Error(err, "unable to parse owner")
-						continue
-					}
-					gvkForObject, err := apiutil.GVKForObject(object, s.scheme)
-					if err != nil {
-						mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
-					}
-					causeDescriptor := struct {
-						GVK  schema.GroupVersionKind
-						Name types.NamespacedName
-					}{
-						GVK:  gvkForObject,
-						Name: client.ObjectKeyFromObject(object),
-					}
-					mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
-					requests = append(requests, reconcile.Request{
-						NamespacedName: name,
-					})
-				}
-			}
-			return requests
-		}))
+		bldr = bldr.Watches(t,
+			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerAnnotationKey)),
+			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
+		)
 	}
-	return builder.
-		Complete(s)
+	return bldr.Complete(s)
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
+	// TODO: can this be replaced with ApplySets?
+	//  https://github.com/kubernetes/enhancements/tree/master/keps/sig-cli/3659-kubectl-apply-prune
+	//  https://github.com/kubernetes-sigs/kro/blob/37ab9d6e3d1dc46bf9e7585238745462b4ab153b/pkg/applyset/applyset.go#L15-L20
+
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
 	allResources := make([]client.Object, 0)
@@ -383,6 +373,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	// Filter resources referenced by already existing actions
 	keep := func(existing client.Object) bool {
 		for _, a := range actions {
+			// TODO: this should check GVK instead of just the Go type
+			//  This code is originally from Naiserator which justifies the use of Go types:
+			//  https://github.com/nais/naiserator/blob/24be6dea44da7c29e9bf729334eec5afe8c2d593/pkg/synchronizer/synchronizer.go#L425-L427
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
 				if obj.GetName() == existing.GetName() && obj.GetNamespace() == existing.GetNamespace() {
@@ -468,6 +461,60 @@ func (p GenerationChangedPredicate) Update(e event.TypedUpdateEvent[client.Objec
 	}
 
 	return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration()
+}
+
+func ownedTypesEventFilter(additionalPredicates predicate.Predicate) predicate.Predicate {
+	base := predicate.GenerationChangedPredicate{}
+	if additionalPredicates != nil {
+		return predicate.Or(
+			base,
+			additionalPredicates,
+		)
+	}
+
+	return base
+}
+
+func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Predicate {
+	return predicate.Or(
+		GenerationChangedPredicate{
+			Scheme:   scheme,
+			MainKind: findKind(obj, scheme),
+		},
+		predicate.AnnotationChangedPredicate{},
+		predicate.LabelChangedPredicate{},
+	)
+}
+
+func additionalTypesEnqueueFilter(mgr ctrl.Manager, annotationKey string) handler.MapFunc {
+	return func(ctx context.Context, object client.Object) []reconcile.Request {
+		requests := make([]reconcile.Request, 0)
+		if ownerReferences, ok := object.GetAnnotations()[annotationKey]; ok && ownerReferences != "" {
+			for _, ownerReference := range strings.Split(ownerReferences, ",") {
+				name, err := parseOwnerAnnotation(ownerReference)
+				if err != nil {
+					mgr.GetLogger().Error(err, "unable to parse owner")
+					continue
+				}
+				gvkForObject, err := apiutil.GVKForObject(object, mgr.GetScheme())
+				if err != nil {
+					mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
+				}
+				causeDescriptor := struct {
+					GVK  schema.GroupVersionKind
+					Name types.NamespacedName
+				}{
+					GVK:  gvkForObject,
+					Name: client.ObjectKeyFromObject(object),
+				}
+				mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
+				requests = append(requests, reconcile.Request{
+					NamespacedName: name,
+				})
+			}
+		}
+		return requests
+	}
 }
 
 func findKind(obj client.Object, scheme *runtime.Scheme) string {

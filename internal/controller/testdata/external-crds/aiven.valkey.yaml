@@ -1,0 +1,196 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: valkeys.aiven.io
+spec:
+  group: aiven.io
+  names:
+    kind: Valkey
+    listKind: ValkeyList
+    plural: valkeys
+    singular: valkey
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                project:
+                  type: string
+                plan:
+                  type: string
+                cloudName:
+                  type: string
+                projectVpcId:
+                  type: string
+                maintenanceWindowDow:
+                  type: string
+                maintenanceWindowTime:
+                  type: string
+                terminationProtection:
+                  type: boolean
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                connInfoSecretTargetDisabled:
+                  type: boolean
+                connInfoSecretTarget:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    prefix:
+                      type: string
+                authSecretRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                userConfig:
+                  type: object
+                  properties:
+                    valkey_maxmemory_policy:
+                      type: string
+                    valkey_notify_keyspace_events:
+                      type: string
+                    valkey_persistence:
+                      type: string
+                    valkey_io_threads:
+                      type: integer
+                    valkey_number_of_databases:
+                      type: integer
+                    valkey_timeout:
+                      type: integer
+                    valkey_lfu_decay_time:
+                      type: integer
+                    valkey_lfu_log_factor:
+                      type: integer
+                    valkey_ssl:
+                      type: boolean
+                    valkey_pubsub_client_output_buffer_limit:
+                      type: integer
+                    valkey_acl_channels_default:
+                      type: string
+                    backup_hour:
+                      type: integer
+                    backup_minute:
+                      type: integer
+                    additional_backup_regions:
+                      type: array
+                      items:
+                        type: string
+                    service_log:
+                      type: boolean
+                    static_ips:
+                      type: boolean
+                    enable_ipv6:
+                      type: boolean
+                    project_to_fork_from:
+                      type: string
+                    service_to_fork_from:
+                      type: string
+                    recovery_basebackup_name:
+                      type: string
+                    frequent_snapshots:
+                      type: boolean
+                    valkey_active_expire_effort:
+                      type: integer
+                    ip_filter:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          network:
+                            type: string
+                          description:
+                            type: string
+                    private_access:
+                      type: object
+                      properties:
+                        valkey:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    privatelink_access:
+                      type: object
+                      properties:
+                        valkey:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    public_access:
+                      type: object
+                      properties:
+                        valkey:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    migration:
+                      type: object
+                      properties:
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                        password:
+                          type: string
+                        ssl:
+                          type: boolean
+                        username:
+                          type: string
+                        dbname:
+                          type: string
+                        ignore_dbs:
+                          type: string
+                        method:
+                          type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                state:
+                  type: string
+      subresources:
+        status: {}

@@ -8,8 +8,6 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,25 +36,19 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 			return err
 		}
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Created", "Created %s", describeObj(a.obj))
-		return nil
-	}
+	} else {
+		if err = copyMeta(a.obj, existing); err != nil {
+			return fmt.Errorf("copying metadata: %w", err)
+		}
 
-	if err = copyMeta(a.obj, existing); err != nil {
-		return fmt.Errorf("copying metadata: %w", err)
-	}
-
-	if err = c.Update(ctx, a.obj); err != nil {
-		return err
-	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
-
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
+		if err = c.Update(ctx, a.obj); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
 
 	for _, condition := range a.conditionGetter(a.obj, scheme) {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil

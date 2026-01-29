@@ -1,6 +1,7 @@
 package datav1
 
 import (
+	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/pkg/annotation"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,30 +91,12 @@ type PostgresSpec struct {
 
 // PostgresStatus defines the observed state of Postgres.
 type PostgresStatus struct {
-	CorrelationID       string       `json:"correlationID,omitempty"`
-	ObservedGeneration  int64        `json:"observedGeneration,omitempty"`
-	ReconcilePhase      string       `json:"reconcilePhase,omitempty"`
-	ReconcileTime       *metav1.Time `json:"reconcileTime,omitempty"`
-	RolloutCompleteTime *metav1.Time `json:"rolloutCompleteTime,omitempty"`
-	RolloutStatus       string       `json:"rolloutStatus,omitempty"`
-
-	// conditions represent the current state of the Postgres resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions *[]metav1.Condition `json:"conditions,omitempty"`
+	object.BaseStatus `json:",inline"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:categories={nais}
 // +kubebuilder:printcolumn:name="Major Version",type="string",JSONPath=".spec.cluster.majorVersion"
 // +kubebuilder:printcolumn:name="Disk Size",type="string",JSONPath=".spec.cluster.resources.diskSize"
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.cluster.resources.cpu"
@@ -142,7 +125,7 @@ func (p *Postgres) GetCorrelationId() string {
 	return p.Annotations[annotation.DeploymentCorrelationIDAnnotation]
 }
 
-func (p *Postgres) GetStatus() *PostgresStatus {
+func (p *Postgres) GetStatus() object.Status {
 	if p.Status == nil {
 		p.Status = &PostgresStatus{}
 	}

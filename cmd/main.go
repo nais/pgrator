@@ -7,12 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/controller"
-	"github.com/nais/pgrator/internal/synchronizer"
-	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/pkg/api/datav1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -25,6 +19,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/controller"
+	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/pkg/api/datav1"
+	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
 var (
@@ -35,9 +38,11 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(datav1.AddToScheme(scheme))
+	utilruntime.Must(v1.AddToScheme(scheme))
 	utilruntime.Must(iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme))
 	utilruntime.Must(pov1.AddToScheme(scheme))
 	utilruntime.Must(acid_zalan_do_v1.AddToScheme(scheme))
+	utilruntime.Must(aiven_v1alpha1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo
@@ -92,15 +97,27 @@ func main() {
 	}
 
 	recorder := events.NewRecorder(mgr.GetEventRecorderFor("pgrator"))
-	reconciler := &controller.PostgresReconciler{
+
+	postgresReconciler := &controller.PostgresReconciler{
 		Config:   cfg,
 		Recorder: recorder,
 		Scheme:   mgr.GetScheme(),
 	}
-
-	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), reconciler, recorder)
+	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), postgresReconciler, recorder)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "postgresController", "Postgres")
+		setupLog.Error(err, "unable to create controller", "controller", "postgres")
+		os.Exit(1)
+	}
+
+	valkeyReconciler := &controller.ValkeyReconciler{
+		Aiven:    cfg.Aiven,
+		Tenant:   cfg.Tenant,
+		Recorder: recorder,
+		Scheme:   scheme,
+	}
+	valkeyController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), valkeyReconciler, recorder)
+	if err := valkeyController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "valkey")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

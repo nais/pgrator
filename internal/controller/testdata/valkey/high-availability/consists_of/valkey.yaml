@@ -1,0 +1,21 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: Valkey
+  metadata:
+    labels:
+      team: production-team
+      valkey.nais.io/name: ha-valkey
+    name: valkey-production-team-ha-valkey
+    namespace: production-team
+  spec:
+    project: test-project
+    plan: business-8
+    projectVpcId: test-vpc-id
+    terminationProtection: false
+    tags:
+      team: production-team
+      app: ha-valkey
+      tenant: test-tenant

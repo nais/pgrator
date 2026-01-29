@@ -59,3 +59,12 @@ certmanager:
 
 # [IAM]: To enable resyncing of IAM permissions by recreating IAMPolicyMember resources set true
 resyncIAMPermissions: false
+
+aiven:
+  project: ""
+  projectVPCID: ""
+  metricsDestinationEndpointID: ""
+
+fasit:
+  tenant:
+    name: ""

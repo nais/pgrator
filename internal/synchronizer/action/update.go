@@ -7,8 +7,6 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -41,13 +39,8 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
-	status := a.owner.GetStatus()
-	if status.Conditions == nil {
-		status.Conditions = new([]meta_v1.Condition)
-	}
-
 	for _, condition := range a.conditionGetter(a.obj, scheme) {
-		meta.SetStatusCondition(status.Conditions, condition)
+		a.owner.GetStatus().SetCondition(condition)
 	}
 
 	return nil
