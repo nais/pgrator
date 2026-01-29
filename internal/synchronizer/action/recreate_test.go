@@ -24,7 +24,7 @@ func (m *mockRecorder) RecordErrorEvent(obj object.NaisObject, phase string, err
 	// Mock implementation - does nothing
 }
 
-var _ = Describe("CreateOrRecreate Action", func() {
+var _ = Describe("Recreate Action", func() {
 	var (
 		scheme          *runtime.Scheme
 		fakeClient      client.Client
