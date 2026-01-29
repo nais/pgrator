@@ -24,12 +24,32 @@ func (m *mockRecorder) RecordErrorEvent(obj object.NaisObject, phase string, err
 	// Mock implementation - does nothing
 }
 
+type mockOwnerManager struct{}
+
+func (m mockOwnerManager) HasOwnerAnnotation(obj, owner client.Object) bool {
+	return false
+}
+
+func (m mockOwnerManager) AddOwnerAnnotation(obj client.Object, owner client.Object) {
+}
+
+func (m mockOwnerManager) RemoveOwnerAnnotation(obj client.Object, owner client.Object) {
+}
+
+func (m mockOwnerManager) GetOwnerAnnotations(obj client.Object) []string {
+	return []string{}
+}
+
+func (m mockOwnerManager) SetOwnerAnnotations(obj client.Object, ownerReferences []string) {
+}
+
 var _ = Describe("Recreate Action", func() {
 	var (
 		scheme          *runtime.Scheme
 		fakeClient      client.Client
 		postgres        *data_nais_io_v1.Postgres
 		recorder        *mockRecorder
+		ownerManager    *mockOwnerManager
 		conditionGetter ConditionGetter
 		ctx             context.Context
 	)
@@ -50,6 +70,7 @@ var _ = Describe("Recreate Action", func() {
 		postgres.Status = &data_nais_io_v1.PostgresStatus{}
 
 		recorder = &mockRecorder{}
+		ownerManager = &mockOwnerManager{}
 
 		conditionGetter = func(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 			return []meta_v1.Condition{
@@ -80,7 +101,7 @@ var _ = Describe("Recreate Action", func() {
 			}
 
 			action := Recreate(serviceAccount, postgres, conditionGetter, recorder)
-			err := action.Do(ctx, fakeClient, scheme)
+			err := action.Do(ctx, fakeClient, scheme, ownerManager)
 			Expect(err).NotTo(HaveOccurred())
 
 			var created core_v1.ServiceAccount
@@ -125,7 +146,7 @@ var _ = Describe("Recreate Action", func() {
 			}
 
 			action := Recreate(newServiceAccount, postgres, conditionGetter, recorder)
-			err := action.Do(ctx, fakeClient, scheme)
+			err := action.Do(ctx, fakeClient, scheme, ownerManager)
 			Expect(err).NotTo(HaveOccurred())
 
 			var recreated core_v1.ServiceAccount
@@ -183,7 +204,7 @@ var _ = Describe("Recreate Action", func() {
 			}
 
 			updateAction := CreateOrUpdate(updateServiceAccount, postgres, conditionGetter, recorder)
-			err := updateAction.Do(ctx, fakeClient, scheme)
+			err := updateAction.Do(ctx, fakeClient, scheme, ownerManager)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Now test CreateOrRecreate with a separate resource
@@ -222,7 +243,7 @@ var _ = Describe("Recreate Action", func() {
 			}
 
 			recreateAction := Recreate(newRecreateServiceAccount, postgres, conditionGetter, recorder)
-			err = recreateAction.Do(ctx, fakeClient, scheme)
+			err = recreateAction.Do(ctx, fakeClient, scheme, ownerManager)
 			Expect(err).NotTo(HaveOccurred())
 
 			var afterRecreate core_v1.ServiceAccount
@@ -290,7 +311,7 @@ var _ = Describe("Recreate Action", func() {
 				}
 
 				action := Recreate(newSA, postgres, conditionGetter, recorder)
-				err := action.Do(ctx, fakeClient, scheme)
+				err := action.Do(ctx, fakeClient, scheme, ownerManager)
 				Expect(err).NotTo(HaveOccurred())
 
 				var result core_v1.ServiceAccount

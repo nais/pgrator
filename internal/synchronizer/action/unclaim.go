@@ -14,13 +14,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type update struct {
+type unclaim struct {
 	action
 }
 
-func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
+func (a *unclaim) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, ownerManager ownership.OwnerManager) error {
 	log := logf.FromContext(ctx)
-	log.Info(fmt.Sprintf("Update %s", typeName(a.obj)))
+	log.Info(fmt.Sprintf("Unclaim %s", typeName(a.obj)))
 
 	gvk, err := apiutil.GVKForObject(a.obj, scheme)
 	if err != nil {
@@ -36,14 +36,22 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 		return err
 	}
 
-	if err = copyMeta(a.obj, existing); err != nil {
-		return fmt.Errorf("copying metadata: %w", err)
-	}
+	original := existing.DeepCopyObject().(client.Object)
+	patchSource := client.MergeFrom(original)
 
-	if err = c.Update(ctx, a.obj); err != nil {
-		return err
+	modified := existing.(client.Object)
+	ownerManager.RemoveOwnerAnnotation(modified, a.owner)
+	if len(ownerManager.GetOwnerAnnotations(modified)) == 0 {
+		if err = c.Delete(ctx, modified); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
+	} else {
+		if err = c.Patch(ctx, modified, patchSource); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Unclaimed", "Unclaimed ownership of %s", describeObj(a.obj))
 	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
 	for _, condition := range a.conditionGetter(a.obj, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
@@ -52,8 +60,8 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	return nil
 }
 
-func Update(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
-	return &update{
+func Unclaim(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+	return &unclaim{
 		action: action{
 			obj:             obj,
 			owner:           owner,

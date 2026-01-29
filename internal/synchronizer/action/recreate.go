@@ -7,6 +7,7 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,7 +20,7 @@ type recreate struct {
 	action
 }
 
-func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+func (a *recreate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("Recreate %s", typeName(a.obj)))
 

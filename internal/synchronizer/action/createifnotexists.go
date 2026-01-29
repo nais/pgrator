@@ -6,6 +6,7 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,7 +20,7 @@ type createIfNotExists struct {
 	action
 }
 
-func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("CreateIfNotExists %s", typeName(a.obj)))
 

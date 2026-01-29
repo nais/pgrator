@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -145,10 +144,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 			return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
 		}
 	} else {
-		// Copy annotations
-		previousAnnotations := existingWorkloadIdentityPolicy.GetAnnotations()
-		workloadIdentityPolicy.SetAnnotations(previousAnnotations)
-		actions = append(actions, action.Update(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	if r.Config.WalGsBucket != "" {
@@ -163,27 +159,21 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 				return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
 			}
 		} else {
-			// Copy annotations
-			previousAnnotations := existingStorageBucketPolicy.GetAnnotations()
-			storageBucketPolicy.SetAnnotations(previousAnnotations)
-			actions = append(actions, action.Update(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
-	// IAMServiceAccount and K8s ServiceAccount are mutable resources
-	// Choose action based on ResyncIAMPermissions flag
 	gsa := resourcecreator.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
-	actions = append(actions, action.CreateIfNotExists(gsa, obj, iamConditionGetter, r.Recorder))
+	existingGsa := relatedObjects.GetMatching(gsa)
+	if existingGsa != nil {
+		actions = append(actions, action.Claim(gsa, obj, iamConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
+	}
 
 	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
-		// Copy annotations
-		annotations := existingKubernetesSA.GetAnnotations()
-		if annotations != nil {
-			maps.Insert(annotations, maps.All(kubernetesSA.GetAnnotations()))
-			kubernetesSA.SetAnnotations(annotations)
-		}
 		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 	} else {
 		actions = append(actions, action.Create(kubernetesSA, obj, existsConditionGetter, r.Recorder))
@@ -274,13 +264,18 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 		},
 	}
 
+	statusReason := pg.Status.String()
+	if statusReason == "" {
+		statusReason = "Unknown"
+	}
+
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		result = append(result, meta_v1.Condition{
 			Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), condition.Type),
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
-			Reason:             pg.Status.String(),
+			Reason:             statusReason,
 		})
 	}
 
@@ -289,8 +284,10 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
+	sharedActionFunc := action.Unclaim
 	if !obj.Spec.Cluster.AllowDeletion {
 		actionFunc = action.NoOp
+		sharedActionFunc = action.NoOp
 	}
 
 	var err error
@@ -311,19 +308,21 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy != nil {
-		if !obj.Spec.Cluster.AllowDeletion {
-			actions = append(actions, action.NoOp(existingWorkloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
-		}
+		actions = append(actions, sharedActionFunc(existingWorkloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	if r.Config.WalGsBucket != "" {
 		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy != nil {
-			if !obj.Spec.Cluster.AllowDeletion {
-				actions = append(actions, action.NoOp(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
-			}
+			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
+	}
+
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
+	if existingKubernetesSA != nil {
+		actions = append(actions, sharedActionFunc(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 	}
 
 	if !r.Config.PrometheusRulesDisabled {

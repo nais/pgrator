@@ -6,6 +6,7 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,7 +16,7 @@ import (
 type ConditionGetter func(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition
 
 type Action interface {
-	Do(context.Context, client.Client, *runtime.Scheme) error
+	Do(context.Context, client.Client, *runtime.Scheme, ownership.OwnerManager) error
 	GetObject() client.Object
 	GetOwner() object.NaisObject
 }
@@ -39,7 +40,9 @@ type noOp struct {
 	action
 }
 
-func (n *noOp) Do(_ context.Context, _ client.Client, _ *runtime.Scheme) error { return nil }
+func (n *noOp) Do(_ context.Context, _ client.Client, _ *runtime.Scheme, _ ownership.OwnerManager) error {
+	return nil
+}
 
 func NoOp(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
 	return &noOp{

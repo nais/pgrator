@@ -191,7 +191,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
-				By("Reconcile the deleted resource")
+				By("Reconcile the undeletable resource which was just deleted")
 				ensureReconciled(undeletableResourceKey, controllerReconciler)
 
 				By("Checking that undeletable cluster is still present")

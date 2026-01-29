@@ -191,6 +191,17 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	obj.GetStatus().SetReconcilePhase("UpdatingOwnership")
+	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "UpdatingOwnership", "Updating ownership records")
+	if err = updateStatus(); err != nil {
+		if apierrors.IsConflict(err) {
+			logger.Info("conflict during status update in UpdatingOwnership phase, requeuing")
+			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		}
+		return ctrl.Result{}, err
+	}
+	s.UpdatingOwnership(actions, relatedObjects)
+
 	obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
 	if err = updateStatus(); err != nil {
@@ -250,7 +261,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
 	for _, a := range actions {
-		err := a.Do(ctx, s.client, s.scheme)
+		err := a.Do(ctx, s.client, s.scheme, s.ownerManager)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -281,6 +292,23 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		)
 	}
 	return bldr.Complete(s)
+}
+
+func (s *Synchronizer[T, P]) UpdatingOwnership(actions []action.Action, relatedObjects reconciler.RelatedObjects) {
+	// Add owner annotation to referenced objects
+	for _, a := range actions {
+		obj := a.GetObject()
+		existing := relatedObjects.GetMatching(obj)
+		if existing != nil {
+			// Copy owner annotation from existing object
+			ownerReferences := s.ownerManager.GetOwnerAnnotations(existing)
+			s.ownerManager.SetOwnerAnnotations(obj, ownerReferences)
+			// Copy finalizers from existing object
+			finalizers := existing.GetFinalizers()
+			obj.SetFinalizers(finalizers)
+		}
+		s.ownerManager.AddOwnerAnnotation(obj, a.GetOwner())
+	}
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
@@ -319,12 +347,6 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
 				if obj.GetName() == existing.GetName() && obj.GetNamespace() == existing.GetNamespace() {
-					// Copy owner annotation from existing object
-					ownerReferences := s.ownerManager.GetOwnerAnnotations(existing)
-					s.ownerManager.SetOwnerAnnotations(obj, ownerReferences)
-					// Copy finalizers from existing object
-					finalizers := existing.GetFinalizers()
-					obj.SetFinalizers(finalizers)
 					return true
 				}
 			}
@@ -338,19 +360,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		}
 	}
 
-	// Add owner annotation to referenced objects
-	for _, a := range actions {
-		s.ownerManager.AddOwnerAnnotation(a.GetObject(), a.GetOwner())
-	}
-
 	// Remove owner annotation on shared resources, delete if last owner
 	for _, existing := range unreferenced {
-		s.ownerManager.RemoveOwnerAnnotation(existing, owner)
-		if len(s.ownerManager.GetOwnerAnnotations(existing)) > 0 {
-			actions = append(actions, action.Update(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
-		} else {
-			actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
-		}
+		actions = append(actions, action.Unclaim(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
 	}
 
 	return actions, nil

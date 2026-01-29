@@ -6,6 +6,7 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,7 +19,7 @@ type createOrUpdate struct {
 	action
 }
 
-func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("CreateOrUpdate %s", typeName(a.obj)))
 

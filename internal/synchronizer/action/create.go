@@ -6,6 +6,7 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,7 +17,7 @@ type create struct {
 	action
 }
 
-func (a *create) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme) error {
+func (a *create) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("Create %s", typeName(a.obj)))
 
