@@ -370,7 +370,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 			//  https://github.com/nais/naiserator/blob/24be6dea44da7c29e9bf729334eec5afe8c2d593/pkg/synchronizer/synchronizer.go#L425-L427
 			obj := a.GetObject()
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
-				if obj.GetName() == existing.GetName() {
+				if obj.GetName() == existing.GetName() && obj.GetNamespace() == existing.GetNamespace() {
 					// Copy owner annotation from existing object
 					ownerReferences := s.GetOwnerAnnotations(existing)
 					s.setOwnerAnnotations(obj, ownerReferences)
