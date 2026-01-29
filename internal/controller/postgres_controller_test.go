@@ -5,6 +5,7 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
@@ -58,13 +59,15 @@ var _ = Describe("Postgres Controller", func() {
 		}
 		var postgresController *PostgresReconciler
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
+		var ownerManager ownership.OwnerManager
 
 		ctx := context.Background()
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			postgresController = &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}
+			postgresController = &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}
 			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), postgresController, recorder)
+			ownerManager = controllerReconciler.GetOwnerManager()
 
 			By("creating the resource namespace")
 			ensureNamespaceExists(resourceNamespace, "test-project")
@@ -119,8 +122,8 @@ var _ = Describe("Postgres Controller", func() {
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: postgresNamespace}, sa)
 				Expect(sa.Annotations["iam.gke.io/gcp-service-account"]).To(Equal("postgres-pod@test-project.iam.gserviceaccount.com"))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(controllerReconciler.GetOwnerAnnotations(sa)).To(ContainElement(deletableResourceKey.String()))
-				Expect(controllerReconciler.GetOwnerAnnotations(sa)).To(ContainElement(undeletableResourceKey.String()))
+				Expect(ownerManager.GetOwnerAnnotations(sa)).To(ContainElement(deletableResourceKey.String()))
+				Expect(ownerManager.GetOwnerAnnotations(sa)).To(ContainElement(undeletableResourceKey.String()))
 
 				iamsa := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: resourceNamespace}, iamsa)
@@ -174,8 +177,8 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).To(HaveLen(1))
 				iamPolicyMember := iamList.Items[0]
-				Expect(controllerReconciler.GetOwnerAnnotations(&iamPolicyMember)).NotTo(ContainElement(deletableResourceKey.String()))
-				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
+				Expect(ownerManager.GetOwnerAnnotations(&iamPolicyMember)).NotTo(ContainElement(deletableResourceKey.String()))
+				Expect(ownerManager.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
 			})
 
 			It("should orphan dependent resources when deletion is not allowed", func() {
@@ -207,7 +210,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).To(HaveLen(1))
 				iamPolicyMember := iamList.Items[0]
-				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeTrue())
+				Expect(ownerManager.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeTrue())
 			})
 		})
 	})
@@ -224,7 +227,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres with WalGsBucket")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
 
 			By("ensuring the resource namespace has required labels")
 			ensureNamespaceExists(resourceNamespace, "test-project")
@@ -261,7 +264,7 @@ var _ = Describe("Postgres Controller", func() {
 				GoogleProjectID:         "cluster-project",
 				ResyncIAMPermissions:    true,
 			}
-			reconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
+			reconciler := synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
 
 			ensureNamespaceExists(resourceNamespace, "test-project")
 			ensureNamespaceExists(serviceAccountsNamespace, "cluster-project")
@@ -308,7 +311,7 @@ var _ = Describe("Postgres Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder}, recorder)
 
 			By("creating the resource namespace with annotation instead of label")
 			ensureNamespaceWithAnnotationExists(annotationNamespace, "annotation-project")

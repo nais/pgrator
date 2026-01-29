@@ -39,7 +39,6 @@ const (
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
-	Scheme   *runtime.Scheme
 }
 
 func IAMPolicyMemberNames(teamNamespace string) (string, string) {

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	core_v1 "k8s.io/api/core/v1"
@@ -39,8 +39,8 @@ type Synchronizer[T object.NaisObject, P any] struct {
 	reconciler reconciler.Reconciler[T, P]
 	recorder   events.Recorder
 
-	ownerAnnotationKey string
-	relevantListTypes  map[schema.GroupVersionKind]reflect.Type
+	ownerManager      ownership.OwnerManager
+	relevantListTypes map[schema.GroupVersionKind]reflect.Type
 }
 
 func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder) *Synchronizer[T, P] {
@@ -50,8 +50,8 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 		reconciler: r,
 		recorder:   recorder,
 
-		ownerAnnotationKey: fmt.Sprintf("%s/owner", r.Name()),
-		relevantListTypes:  findRelevantListTypes(r, scheme),
+		ownerManager:      ownership.NewOwnerManager(fmt.Sprintf("%s/owner", r.Name())),
+		relevantListTypes: findRelevantListTypes(r, scheme),
 	}
 }
 
@@ -79,6 +79,11 @@ func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T
 		}
 	}
 	return listTypes
+}
+
+// GetOwnerManager is intended for use in tests
+func (s *Synchronizer[T, P]) GetOwnerManager() ownership.OwnerManager {
+	return s.ownerManager
 }
 
 func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -271,7 +276,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 
 	for _, t := range s.reconciler.AdditionalTypes() {
 		bldr = bldr.Watches(t,
-			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerAnnotationKey)),
+			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerManager)),
 			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
 		)
 	}
@@ -294,7 +299,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
-				if s.HasOwnerAnnotation(cObj, owner) {
+				if s.ownerManager.HasOwnerAnnotation(cObj, owner) {
 					allResources = append(allResources, cObj)
 				}
 			}
@@ -315,8 +320,8 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 			if reflect.TypeOf(obj) == reflect.TypeOf(existing) {
 				if obj.GetName() == existing.GetName() && obj.GetNamespace() == existing.GetNamespace() {
 					// Copy owner annotation from existing object
-					ownerReferences := s.GetOwnerAnnotations(existing)
-					s.setOwnerAnnotations(obj, ownerReferences)
+					ownerReferences := s.ownerManager.GetOwnerAnnotations(existing)
+					s.ownerManager.SetOwnerAnnotations(obj, ownerReferences)
 					// Copy finalizers from existing object
 					finalizers := existing.GetFinalizers()
 					obj.SetFinalizers(finalizers)
@@ -335,13 +340,13 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 
 	// Add owner annotation to referenced objects
 	for _, a := range actions {
-		s.addOwnerAnnotation(a.GetObject(), a.GetOwner())
+		s.ownerManager.AddOwnerAnnotation(a.GetObject(), a.GetOwner())
 	}
 
 	// Remove owner annotation on shared resources, delete if last owner
 	for _, existing := range unreferenced {
-		s.removeOwnerAnnotation(existing, owner)
-		if len(s.GetOwnerAnnotations(existing)) > 0 {
+		s.ownerManager.RemoveOwnerAnnotation(existing, owner)
+		if len(s.ownerManager.GetOwnerAnnotations(existing)) > 0 {
 			actions = append(actions, action.Update(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
 		} else {
 			actions = append(actions, action.DeleteIfExists(existing, owner, func(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition { return nil }, s.recorder))
@@ -421,32 +426,30 @@ func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Pre
 	)
 }
 
-func additionalTypesEnqueueFilter(mgr ctrl.Manager, annotationKey string) handler.MapFunc {
+func additionalTypesEnqueueFilter(mgr ctrl.Manager, ownerManager ownership.OwnerManager) handler.MapFunc {
 	return func(ctx context.Context, object client.Object) []reconcile.Request {
 		requests := make([]reconcile.Request, 0)
-		if ownerReferences, ok := object.GetAnnotations()[annotationKey]; ok && ownerReferences != "" {
-			for _, ownerReference := range strings.Split(ownerReferences, ",") {
-				name, err := parseOwnerAnnotation(ownerReference)
-				if err != nil {
-					mgr.GetLogger().Error(err, "unable to parse owner")
-					continue
-				}
-				gvkForObject, err := apiutil.GVKForObject(object, mgr.GetScheme())
-				if err != nil {
-					mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
-				}
-				causeDescriptor := struct {
-					schema.GroupVersionKind
-					types.NamespacedName
-				}{
-					gvkForObject,
-					client.ObjectKeyFromObject(object),
-				}
-				mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
-				requests = append(requests, reconcile.Request{
-					NamespacedName: name,
-				})
+		for _, ownerReference := range ownerManager.GetOwnerAnnotations(object) {
+			name, err := ownership.ParseOwnerAnnotation(ownerReference)
+			if err != nil {
+				mgr.GetLogger().Error(err, "unable to parse owner")
+				continue
 			}
+			gvkForObject, err := apiutil.GVKForObject(object, mgr.GetScheme())
+			if err != nil {
+				mgr.GetLogger().Error(err, "unable to look up GVK for triggering object")
+			}
+			causeDescriptor := struct {
+				schema.GroupVersionKind
+				types.NamespacedName
+			}{
+				gvkForObject,
+				client.ObjectKeyFromObject(object),
+			}
+			mgr.GetLogger().Info("Reconcile triggered", "cause", causeDescriptor, "target", name)
+			requests = append(requests, reconcile.Request{
+				NamespacedName: name,
+			})
 		}
 		return requests
 	}
