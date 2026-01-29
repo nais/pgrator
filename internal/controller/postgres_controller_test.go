@@ -56,13 +56,15 @@ var _ = Describe("Postgres Controller", func() {
 			PrometheusRulesDisabled: true,
 			GoogleProjectID:         "cluster-project",
 		}
+		var postgresController *PostgresReconciler
 		var controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]
 
 		ctx := context.Background()
 
 		BeforeEach(func() {
 			By("creating the synchronizer for postgres")
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}, recorder)
+			postgresController = &PostgresReconciler{Config: &reconcilerConfig, Recorder: recorder, Scheme: k8sClient.Scheme()}
+			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), postgresController, recorder)
 
 			By("creating the resource namespace")
 			ensureNamespaceExists(resourceNamespace, "test-project")
@@ -169,6 +171,7 @@ var _ = Describe("Postgres Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(iamList.Items).To(HaveLen(1))
 				iamPolicyMember := iamList.Items[0]
+				Expect(controllerReconciler.GetOwnerAnnotations(&iamPolicyMember)).NotTo(ContainElement(deletableResourceKey.String()))
 				Expect(controllerReconciler.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
 			})
 

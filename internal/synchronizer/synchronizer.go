@@ -11,6 +11,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	core_v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -131,7 +132,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return result, err
 	}
 
-	relatedObjects, err := s.findRelatedObjects(ctx, obj)
+	relatedObjects, err := s.findRelatedObjects(ctx)
 	if err != nil {
 		logger.Error(err, "failed to find related objects")
 		s.recorder.RecordErrorEvent(obj, "FindRelated", err)
@@ -235,12 +236,12 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 	return ctrl.Result{}, nil
 }
 
-func (s *Synchronizer[T, P]) makeOwnerAnnotation(obj client.Object) string {
+func makeOwnerAnnotation(obj client.Object) string {
 	return client.ObjectKeyFromObject(obj).String()
 }
 
 func (s *Synchronizer[T, P]) HasOwnerAnnotation(obj, owner client.Object) bool {
-	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerAnnotation := makeOwnerAnnotation(owner)
 	for _, ownerReference := range s.GetOwnerAnnotations(obj) {
 		if ownerReference == ownerAnnotation {
 			return true
@@ -253,14 +254,14 @@ func (s *Synchronizer[T, P]) addOwnerAnnotation(obj client.Object, owner client.
 	if s.HasOwnerAnnotation(obj, owner) {
 		return
 	}
-	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerAnnotation := makeOwnerAnnotation(owner)
 	ownerReferences := s.GetOwnerAnnotations(obj)
 	ownerReferences = append(ownerReferences, ownerAnnotation)
 	s.setOwnerAnnotations(obj, ownerReferences)
 }
 
 func (s *Synchronizer[T, P]) removeOwnerAnnotation(obj client.Object, owner client.Object) {
-	ownerAnnotation := s.makeOwnerAnnotation(owner)
+	ownerAnnotation := makeOwnerAnnotation(owner)
 	ownerReferences := s.GetOwnerAnnotations(obj)
 	newOwnerReferences := make([]string, 0, len(ownerReferences))
 	found := false
@@ -327,7 +328,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 			requests := make([]reconcile.Request, 0)
 			if ownerReferences, ok := object.GetAnnotations()[s.ownerAnnotationKey]; ok && ownerReferences != "" {
 				for _, ownerReference := range strings.Split(ownerReferences, ",") {
-					name, err := parseNamespacedName(ownerReference)
+					name, err := parseOwnerAnnotation(ownerReference)
 					if err != nil {
 						mgr.GetLogger().Error(err, "unable to parse owner")
 						continue
@@ -422,11 +423,11 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	return actions, nil
 }
 
-func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, owner T) (reconciler.RelatedObjectsMap, error) {
+func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler.RelatedObjects, error) {
 	// List all resources of owned or additional types
 	// Possible future improvement: Add app.kubernetes.io/managed-by label to all managed resources and filter to only care about those
 	// Possible future improvement: Extend Reconciler interface to return relevant namespaces for given object and filter to only those namespaces
-	allResources := make([]client.Object, 0)
+	related := relatedobjectsmap.NewRelatedObjectsMap(s.scheme)
 	for _, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
@@ -435,7 +436,7 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, owner T) (r
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
-				allResources = append(allResources, cObj)
+				related.Insert(cObj)
 			}
 			return nil
 		})
@@ -443,22 +444,7 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, owner T) (r
 			return nil, fmt.Errorf("failed to extract items from list: %w", err)
 		}
 	}
-
-	result := make(reconciler.RelatedObjectsMap)
-	for _, resource := range allResources {
-		gvk, err := apiutil.GVKForObject(resource, s.scheme)
-		if err != nil {
-			return nil, fmt.Errorf("unable to look up gvk for %s", resource)
-		}
-		objectsMap, ok := result[gvk]
-		if !ok {
-			objectsMap = make(map[types.NamespacedName]client.Object)
-			result[gvk] = objectsMap
-		}
-		objectKey := client.ObjectKeyFromObject(resource)
-		objectsMap[objectKey] = resource
-	}
-	return result, nil
+	return related, nil
 }
 
 type GenerationChangedPredicate struct {
@@ -511,7 +497,7 @@ func isNil(arg any) bool {
 	return false
 }
 
-func parseNamespacedName(input string) (types.NamespacedName, error) {
+func parseOwnerAnnotation(input string) (types.NamespacedName, error) {
 	parts := strings.Split(input, string(types.Separator))
 	if len(parts) != 2 {
 		return types.NamespacedName{}, fmt.Errorf("can not parse invalid NamespacedName, incorrect number of parts: %d", len(parts))

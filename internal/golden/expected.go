@@ -61,6 +61,23 @@ func (e *Expected) makeMatcher() {
 func ParseExpected(scheme *runtime.Scheme, datum map[string]any, testCaseName string) (*Expected, error) {
 	objectData := datum["object"].(map[string]any)
 
+	obj, err := ParseObject(scheme, objectData)
+	if err != nil {
+		return nil, err
+	}
+
+	e := &Expected{
+		Matcher:      datum["matcher"].(string),
+		Action:       datum["action"].(string),
+		Object:       obj.(client.Object),
+		testCaseName: testCaseName,
+	}
+	e.makeMatcher()
+
+	return e, nil
+}
+
+func ParseObject(scheme *runtime.Scheme, objectData map[string]any) (runtime.Object, error) {
 	apiVersion := objectData["apiVersion"]
 	groupVersion, err := schema.ParseGroupVersion(apiVersion.(string))
 	if err != nil {
@@ -78,16 +95,7 @@ func ParseExpected(scheme *runtime.Scheme, datum map[string]any, testCaseName st
 	if err != nil {
 		return nil, err
 	}
-
-	e := &Expected{
-		Matcher:      datum["matcher"].(string),
-		Action:       datum["action"].(string),
-		Object:       obj.(client.Object),
-		testCaseName: testCaseName,
-	}
-	e.makeMatcher()
-
-	return e, nil
+	return obj, nil
 }
 
 func getTypeName(actual any) string {
