@@ -96,6 +96,7 @@ type PostgresStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:categories={nais}
 // +kubebuilder:printcolumn:name="Major Version",type="string",JSONPath=".spec.cluster.majorVersion"
 // +kubebuilder:printcolumn:name="Disk Size",type="string",JSONPath=".spec.cluster.resources.diskSize"
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.cluster.resources.cpu"

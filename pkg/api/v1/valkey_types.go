@@ -102,6 +102,9 @@ type ValkeyStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=vk,categories={nais}
+// +kubebuilder:printcolumn:name="Tier",type="string",JSONPath=".spec.tier"
+// +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.memory"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 // +kubebuilder:printcolumn:name="Last rollout",type="string",JSONPath=".status.rolloutCompleteTime"
 // Valkey is the Schema for the valkeys API

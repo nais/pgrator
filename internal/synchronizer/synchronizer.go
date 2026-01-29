@@ -70,8 +70,8 @@ func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T
 			}
 			for _, relevantGvk := range relevantGvks {
 				if relevantGvk.Group == groupVersionKind.Group &&
-						relevantGvk.Version == groupVersionKind.Version &&
-						fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
+					relevantGvk.Version == groupVersionKind.Version &&
+					fmt.Sprintf("%sList", relevantGvk.Kind) == groupVersionKind.Kind {
 					listTypes[groupVersionKind] = r
 				}
 			}
@@ -502,11 +502,11 @@ func findKind(obj client.Object, scheme *runtime.Scheme) string {
 
 func isNil(arg any) bool {
 	if v := reflect.ValueOf(arg); !v.IsValid() || ((v.Kind() == reflect.Ptr ||
-			v.Kind() == reflect.Interface ||
-			v.Kind() == reflect.Slice ||
-			v.Kind() == reflect.Map ||
-			v.Kind() == reflect.Chan ||
-			v.Kind() == reflect.Func) && v.IsNil()) {
+		v.Kind() == reflect.Interface ||
+		v.Kind() == reflect.Slice ||
+		v.Kind() == reflect.Map ||
+		v.Kind() == reflect.Chan ||
+		v.Kind() == reflect.Func) && v.IsNil()) {
 		return true
 	}
 	return false

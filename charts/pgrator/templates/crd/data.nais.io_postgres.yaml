@@ -9,6 +9,8 @@ metadata:
 spec:
   group: data.nais.io
   names:
+    categories:
+      - nais
     kind: Postgres
     listKind: PostgresList
     plural: postgres

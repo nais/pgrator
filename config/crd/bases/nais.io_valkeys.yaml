@@ -8,13 +8,26 @@ metadata:
 spec:
   group: nais.io
   names:
+    categories:
+    - nais
     kind: Valkey
     listKind: ValkeyList
     plural: valkeys
+    shortNames:
+    - vk
     singular: valkey
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.tier
+      name: Tier
+      type: string
+    - jsonPath: .spec.memory
+      name: Memory
+      type: string
+    - jsonPath: .spec.maxMemoryPolicy
+      name: Max Memory Policy
+      type: string
     - jsonPath: .status.reconcileTime
       name: Last reconcile
       type: string
