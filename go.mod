@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
 	github.com/imdario/mergo v0.3.16
-	github.com/onsi/ginkgo/v2 v2.27.5
+	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.0
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.88.1
 	github.com/sethvargo/go-envconfig v1.3.0
@@ -53,7 +53,7 @@ require (
 	github.com/gobuffalo/flect v1.0.3 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
-	github.com/google/pprof v0.0.0-20250602020802-c6617b811d0e // indirect
+	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/text v0.2.0 // indirect
