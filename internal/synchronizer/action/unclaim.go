@@ -53,7 +53,7 @@ func (a *unclaim) Do(ctx context.Context, c client.Client, scheme *runtime.Schem
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Unclaimed", "Unclaimed ownership of %s", describeObj(a.obj))
 	}
 
-	for _, condition := range a.conditionGetter(a.obj, scheme) {
+	for _, condition := range a.conditionGetter(modified, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 

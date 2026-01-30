@@ -138,6 +138,40 @@ var _ = Describe("Postgres Controller", func() {
 			})
 		})
 
+		When("a child resources is updated", func() {
+			BeforeEach(func() {
+				iamsa := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "postgres-pod", Namespace: resourceNamespace}, iamsa)
+				Expect(err).NotTo(HaveOccurred())
+
+				iamsa.Status.Conditions = append(iamsa.Status.Conditions, metav1.Condition{
+					Type:    "TestCondition",
+					Status:  metav1.ConditionTrue,
+					Reason:  "UpToDate",
+					Message: "A status condition was applied to the IAMServiceAccount",
+				})
+				err = k8sClient.Status().Update(ctx, iamsa)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should reconcile status", func() {
+				By("Ensure the resource is reconciled")
+				ensureReconciled(deletableResourceKey, controllerReconciler)
+
+				By("Checking that the resource status has been updated")
+				resource := &data_nais_io_v1.Postgres{}
+				err := k8sClient.Get(ctx, deletableResourceKey, resource)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(resource.Status.Conditions).To(ContainElement(And(
+					HaveField("Type", "iamserviceaccount.iam.cnrm.cloud.google.com.postgres-pod/Available"),
+					HaveField("Status", metav1.ConditionTrue),
+					HaveField("Reason", "UpToDate"),
+					HaveField("Message", "A status condition was applied to the IAMServiceAccount"),
+				)))
+			})
+		})
+
 		When("the resource is deleted", func() {
 			It("should successfully clean up dependent resources when deletion is allowed", func() {
 				By("Ensure the resource is reconciled before deletion")

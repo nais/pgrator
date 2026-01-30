@@ -47,7 +47,7 @@ func (a *claim) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme,
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Claimed", "Claimed ownership of %s", describeObj(a.obj))
 
-	for _, condition := range a.conditionGetter(a.obj, scheme) {
+	for _, condition := range a.conditionGetter(modified, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 
