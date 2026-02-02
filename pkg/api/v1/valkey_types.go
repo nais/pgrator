@@ -106,7 +106,6 @@ type ValkeyStatus struct {
 // +kubebuilder:printcolumn:name="Tier",type="string",JSONPath=".spec.tier"
 // +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.memory"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
-// +kubebuilder:printcolumn:name="Last rollout",type="string",JSONPath=".status.rolloutCompleteTime"
 // Valkey is the Schema for the valkeys API
 type Valkey struct {
 	metav1.TypeMeta `json:",inline"`

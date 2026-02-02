@@ -29,9 +29,6 @@ spec:
         - jsonPath: .status.reconcileTime
           name: Last reconcile
           type: string
-        - jsonPath: .status.rolloutCompleteTime
-          name: Last rollout
-          type: string
       name: v1
       schema:
         openAPIV3Schema:
@@ -175,11 +172,6 @@ spec:
                   type: string
                 reconcileTime:
                   format: date-time
-                  type: string
-                rolloutCompleteTime:
-                  format: date-time
-                  type: string
-                rolloutStatus:
                   type: string
               type: object
           required:

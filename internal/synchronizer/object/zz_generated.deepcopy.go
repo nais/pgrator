@@ -15,10 +15,6 @@ func (in *BaseStatus) DeepCopyInto(out *BaseStatus) {
 		in, out := &in.ReconcileTime, &out.ReconcileTime
 		*out = (*in).DeepCopy()
 	}
-	if in.RolloutCompleteTime != nil {
-		in, out := &in.RolloutCompleteTime, &out.RolloutCompleteTime
-		*out = (*in).DeepCopy()
-	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

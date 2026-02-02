@@ -21,10 +21,6 @@ type Status interface {
 	SetReconcilePhase(string)
 	GetReconcileTime() *metav1.Time
 	SetReconcileTime(*metav1.Time)
-	GetRolloutCompleteTime() *metav1.Time
-	SetRolloutCompleteTime(*metav1.Time)
-	GetRolloutStatus() string
-	SetRolloutStatus(string)
 	GetConditions() []metav1.Condition
 	SetCondition(metav1.Condition)
 }
@@ -32,12 +28,10 @@ type Status interface {
 // BaseStatus defines the observed state of a controlled resource.
 // +kubebuilder:object:generate=true
 type BaseStatus struct {
-	CorrelationID       string       `json:"correlationID,omitempty"`
-	ObservedGeneration  int64        `json:"observedGeneration,omitempty"`
-	ReconcilePhase      string       `json:"reconcilePhase,omitempty"`
-	ReconcileTime       *metav1.Time `json:"reconcileTime,omitempty"`
-	RolloutCompleteTime *metav1.Time `json:"rolloutCompleteTime,omitempty"`
-	RolloutStatus       string       `json:"rolloutStatus,omitempty"`
+	CorrelationID      string       `json:"correlationID,omitempty"`
+	ObservedGeneration int64        `json:"observedGeneration,omitempty"`
+	ReconcilePhase     string       `json:"reconcilePhase,omitempty"`
+	ReconcileTime      *metav1.Time `json:"reconcileTime,omitempty"`
 
 	// conditions represent the current state of the controlled resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
@@ -84,22 +78,6 @@ func (s *BaseStatus) GetReconcileTime() *metav1.Time {
 
 func (s *BaseStatus) SetReconcileTime(v *metav1.Time) {
 	s.ReconcileTime = v
-}
-
-func (s *BaseStatus) GetRolloutCompleteTime() *metav1.Time {
-	return s.RolloutCompleteTime
-}
-
-func (s *BaseStatus) SetRolloutCompleteTime(v *metav1.Time) {
-	s.RolloutCompleteTime = v
-}
-
-func (s *BaseStatus) GetRolloutStatus() string {
-	return s.RolloutStatus
-}
-
-func (s *BaseStatus) SetRolloutStatus(v string) {
-	s.RolloutStatus = v
 }
 
 func (s *BaseStatus) GetConditions() []metav1.Condition {
