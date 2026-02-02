@@ -380,17 +380,24 @@ func iamPolicyHasChanges(a, b *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember
 		a.Spec.Role != b.Spec.Role {
 		return true
 	}
-	if a.Spec.ResourceRef.APIVersion != b.Spec.ResourceRef.APIVersion ||
-		a.Spec.ResourceRef.Kind != b.Spec.ResourceRef.Kind ||
+	if a.Spec.ResourceRef.Kind != b.Spec.ResourceRef.Kind ||
 		a.Spec.ResourceRef.Name != b.Spec.ResourceRef.Name ||
 		a.Spec.ResourceRef.Namespace != b.Spec.ResourceRef.Namespace {
 		return true
 	}
-	if a.Spec.ResourceRef.External == b.Spec.ResourceRef.External {
-		return false
-	}
-	if a.Spec.ResourceRef.External == nil || b.Spec.ResourceRef.External == nil {
+	if strPtrDiffers(a.Spec.ResourceRef.APIVersion, b.Spec.ResourceRef.APIVersion) {
 		return true
 	}
-	return *a.Spec.ResourceRef.External != *b.Spec.ResourceRef.External
+
+	return strPtrDiffers(a.Spec.ResourceRef.External, b.Spec.ResourceRef.External)
+}
+
+func strPtrDiffers(a *string, b *string) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
 }

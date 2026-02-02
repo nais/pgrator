@@ -51,7 +51,7 @@ func CreateWorkloadIdentityIAMPolicyMember(name, teamNamespace, pgNamespace, clu
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
 		Role:   WorkloadIdentityRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
+			APIVersion: ptr.To("iam.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "IAMServiceAccount",
 			Name:       GSAName,
 		},
@@ -65,7 +65,7 @@ func CreateStorageBucketIAMPolicyMember(name, namespace, teamGoogleProjectID, GS
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   StorageBucketRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: "storage.cnrm.cloud.google.com/v1beta1",
+			APIVersion: ptr.To("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",
 			External:   &bucketName,
 		},
