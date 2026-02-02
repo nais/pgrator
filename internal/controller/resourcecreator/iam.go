@@ -80,8 +80,9 @@ func CreateLogsWriterIAMPolicyMember(name, namespace, teamGoogleProjectID, GSANa
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   LogWriterRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			Kind:     "Project",
-			External: ptr.To(fmt.Sprintf("projects/%s", teamGoogleProjectID)),
+			APIVersion: ptr.To("resourcemanager.cnrm.cloud.google.com/v1beta1"),
+			Kind:       "Project",
+			External:   ptr.To(fmt.Sprintf("projects/%s", teamGoogleProjectID)),
 		},
 	}
 
