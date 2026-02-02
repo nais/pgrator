@@ -336,7 +336,7 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), r.Config.GoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy != nil {
 		actions = append(actions, sharedActionFunc(existingLogsWriterPolicy, obj, iamConditionGetter, r.Recorder))
