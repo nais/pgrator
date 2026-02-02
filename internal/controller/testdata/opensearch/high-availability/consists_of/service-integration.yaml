@@ -1,0 +1,24 @@
+---
+action: createOrUpdate
+matcher: Equal
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: ServiceIntegration
+  metadata:
+    labels:
+      team: production-team
+      opensearch.nais.io/name: ha-opensearch
+    name: opensearch-production-team-ha-opensearch
+    namespace: production-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: OpenSearch
+        name: ha-opensearch
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    project: test-project
+    integrationType: prometheus
+    sourceServiceName: opensearch-production-team-ha-opensearch
+    destinationEndpointId: test-metrics-service

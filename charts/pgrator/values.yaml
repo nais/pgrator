@@ -59,6 +59,10 @@ prometheus:
 certmanager:
   enable: true
 
+# [WEBHOOK]: To enable validating webhooks set true
+webhook:
+  enable: true
+
 # [IAM]: To enable resyncing of IAM permissions by recreating IAMPolicyMember resources set true
 resyncIAMPermissions: false
 

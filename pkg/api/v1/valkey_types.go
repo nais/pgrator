@@ -52,7 +52,7 @@ const (
 	ValkeyMaxMemoryPolicyVolatileTTL ValkeyMaxMemoryPolicy = "volatile-ttl"
 )
 
-var aivenPlans = map[ValkeyTier]map[ValkeyMemory]string{
+var valkeyAivenPlans = map[ValkeyTier]map[ValkeyMemory]string{
 	ValkeyTierSingleNode: {
 		ValkeyMemory1GB:   "hobbyist",
 		ValkeyMemory4GB:   "startup-4",
@@ -135,7 +135,7 @@ func (v *Valkey) GetStatus() object.Status {
 }
 
 func (v *Valkey) AivenPlan() (string, error) {
-	memories, ok := aivenPlans[v.Spec.Tier]
+	memories, ok := valkeyAivenPlans[v.Spec.Tier]
 	if !ok {
 		return "", fmt.Errorf("no Aiven plans for tier %s", v.Spec.Tier)
 	}

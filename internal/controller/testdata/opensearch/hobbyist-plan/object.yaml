@@ -1,0 +1,13 @@
+---
+apiVersion: nais.io/v1
+kind: OpenSearch
+metadata:
+  name: hobbyist-opensearch
+  namespace: dev-team
+  labels:
+    team: dev-team
+spec:
+  tier: SingleNode
+  memory: 2GB
+  majorVersion: "1"
+  storageGB: 16

@@ -1,0 +1,31 @@
+---
+action: createOrUpdate
+matcher: Equal
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: OpenSearch
+  metadata:
+    labels:
+      team: my-team
+      opensearch.nais.io/name: my-opensearch
+    name: opensearch-my-team-my-opensearch
+    namespace: my-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: OpenSearch
+        name: my-opensearch
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    project: test-project
+    plan: startup-4
+    projectVpcId: test-vpc-id
+    disk_space: 80GiB
+    terminationProtection: false
+    tags:
+      team: my-team
+      app: my-opensearch
+      tenant: test-tenant
+    userConfig:
+      opensearch_version: "2"

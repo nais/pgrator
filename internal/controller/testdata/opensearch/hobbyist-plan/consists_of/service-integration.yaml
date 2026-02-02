@@ -1,0 +1,24 @@
+---
+action: createOrUpdate
+matcher: Equal
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: ServiceIntegration
+  metadata:
+    labels:
+      team: dev-team
+      opensearch.nais.io/name: hobbyist-opensearch
+    name: opensearch-dev-team-hobbyist-opensearch
+    namespace: dev-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: OpenSearch
+        name: hobbyist-opensearch
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    project: test-project
+    integrationType: prometheus
+    sourceServiceName: opensearch-dev-team-hobbyist-opensearch
+    destinationEndpointId: test-metrics-service

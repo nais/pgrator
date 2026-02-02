@@ -1,0 +1,13 @@
+---
+apiVersion: nais.io/v1
+kind: OpenSearch
+metadata:
+  name: ha-opensearch
+  namespace: production-team
+  labels:
+    team: production-team
+spec:
+  tier: HighAvailability
+  memory: 8GB
+  majorVersion: "2.19"
+  storageGB: 525
