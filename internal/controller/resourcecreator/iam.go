@@ -5,11 +5,13 @@ import (
 
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
 	WorkloadIdentityRole = "roles/iam.workloadIdentityUser"
 	StorageBucketRole    = "roles/storage.objectUser"
+	LogWriterRole        = "roles/logging.logWriter"
 )
 
 func CreateMinimalIAMPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
@@ -66,6 +68,20 @@ func CreateStorageBucketIAMPolicyMember(name, namespace, teamGoogleProjectID, GS
 			APIVersion: "storage.cnrm.cloud.google.com/v1beta1",
 			Kind:       "StorageBucket",
 			External:   &bucketName,
+		},
+	}
+
+	return iamPolicyMember
+}
+
+func CreateLogsWriterIAMPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := CreateMinimalIAMPolicyMember(name, namespace)
+	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
+		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
+		Role:   LogWriterRole,
+		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
+			Kind:     "Project",
+			External: ptr.To(fmt.Sprintf("projects/%s", teamGoogleProjectID)),
 		},
 	}
 

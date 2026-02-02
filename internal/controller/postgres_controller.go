@@ -40,14 +40,15 @@ type PostgresReconciler struct {
 	Recorder events.Recorder
 }
 
-func IAMPolicyMemberNames(teamNamespace string) (string, string) {
+func IAMPolicyMemberNames(teamNamespace string) (string, string, string) {
 	workloadIdentityPolicyName := GSAName + "-wi-user"
+	logsWriterPolicyName := GSAName + "-logs-writer"
 	storageBucketPolicyName, err := namegen.ShortName("pg-gcs-"+teamNamespace, 63)
 	if err != nil {
 		panic(err)
 	}
 
-	return workloadIdentityPolicyName, storageBucketPolicyName
+	return workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName
 }
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
@@ -132,7 +133,8 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy == nil {
@@ -161,6 +163,20 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 		} else {
 			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
+	}
+
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), r.Config.GoogleProjectID, GSAName)
+	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
+	if existingLogsWriterPolicy == nil {
+		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(logsWriterPolicy, existingLogsWriterPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, ctrl.Result{}, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(logsWriterPolicy))
+		}
+	} else {
+		actions = append(actions, action.Claim(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	gsa := resourcecreator.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
@@ -304,7 +320,8 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter, r.Recorder))
 
-	workloadIdentityPolicyName, storageBucketPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+
 	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy != nil {
@@ -317,6 +334,12 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 		if existingStorageBucketPolicy != nil {
 			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
+	}
+
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), r.Config.GoogleProjectID, GSAName)
+	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
+	if existingLogsWriterPolicy != nil {
+		actions = append(actions, sharedActionFunc(existingLogsWriterPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)

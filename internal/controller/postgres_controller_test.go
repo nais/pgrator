@@ -209,10 +209,11 @@ var _ = Describe("Postgres Controller", func() {
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).To(HaveLen(1))
-				iamPolicyMember := iamList.Items[0]
-				Expect(ownerManager.GetOwnerAnnotations(&iamPolicyMember)).NotTo(ContainElement(deletableResourceKey.String()))
-				Expect(ownerManager.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeFalse())
+				Expect(iamList.Items).To(HaveLen(2))
+				for _, item := range iamList.Items {
+					Expect(ownerManager.GetOwnerAnnotations(&item)).NotTo(ContainElement(deletableResourceKey.String()))
+					Expect(ownerManager.HasOwnerAnnotation(&item, resource)).To(BeFalse())
+				}
 			})
 
 			It("should orphan dependent resources when deletion is not allowed", func() {
@@ -242,9 +243,10 @@ var _ = Describe("Postgres Controller", func() {
 				iamList := &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberList{}
 				err = k8sClient.List(ctx, iamList, client.InNamespace(resourceNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				Expect(iamList.Items).To(HaveLen(1))
-				iamPolicyMember := iamList.Items[0]
-				Expect(ownerManager.HasOwnerAnnotation(&iamPolicyMember, resource)).To(BeTrue())
+				Expect(iamList.Items).To(HaveLen(2))
+				for _, item := range iamList.Items {
+					Expect(ownerManager.HasOwnerAnnotation(&item, resource)).To(BeTrue())
+				}
 			})
 		})
 	})
