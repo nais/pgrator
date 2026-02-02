@@ -165,7 +165,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), r.Config.GoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy == nil {
 		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
