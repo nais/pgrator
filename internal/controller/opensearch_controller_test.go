@@ -30,6 +30,8 @@ var (
 	_ reconciler.FinalizerNamer                                     = &OpenSearchReconciler{}
 )
 
+const stateRunning = "RUNNING"
+
 var _ = Describe("OpenSearch Controller", func() {
 	Describe("ValidatingAdmissionPolicy", func() {
 		It("should reject opensearch with name too long for generated service name", func() {
@@ -276,7 +278,7 @@ var _ = Describe("OpenSearch Controller", func() {
 		It("should return ObservedState=True when state is non-empty", func() {
 			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{
 				Status: aiven_v1alpha1.ServiceStatus{
-					State: "RUNNING",
+					State: stateRunning,
 				},
 			}
 			aivenOpenSearch.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("OpenSearch"))
@@ -316,7 +318,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				Status: aiven_v1alpha1.ServiceIntegrationStatus{
 					Conditions: []metav1.Condition{
 						{
-							Type:    "Running",
+							Type:    stateRunning,
 							Status:  metav1.ConditionTrue,
 							Reason:  "CheckRunning",
 							Message: "Integration is running",
@@ -405,7 +407,7 @@ var _ = Describe("OpenSearch Controller", func() {
 			Expect(initialCondition.LastTransitionTime.IsZero()).To(BeFalse())
 
 			By("simulating Aiven OpenSearch state change to RUNNING")
-			aivenOpenSearch.Status.State = "RUNNING"
+			aivenOpenSearch.Status.State = stateRunning
 			Expect(k8sClient.Status().Update(context.Background(), aivenOpenSearch)).To(Succeed())
 
 			By("reconciling the OpenSearch resource again")
@@ -471,7 +473,7 @@ var _ = Describe("OpenSearch Controller", func() {
 
 			By("simulating Aiven OpenSearch state change to RUNNING")
 			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch)).To(Succeed())
-			aivenOpenSearch.Status.State = "RUNNING"
+			aivenOpenSearch.Status.State = stateRunning
 			Expect(k8sClient.Status().Update(context.Background(), aivenOpenSearch)).To(Succeed())
 
 			By("reconciling the OpenSearch resource again")
@@ -558,7 +560,6 @@ var _ = Describe("OpenSearch Controller", func() {
 		}
 
 		for _, tc := range tiers {
-			tc := tc // capture range variable
 			It("should map "+string(tc.tier)+"/"+string(tc.memory)+" to "+tc.expectedPlan, func() {
 				// Use appropriate storage for the plan
 				storage := 80
