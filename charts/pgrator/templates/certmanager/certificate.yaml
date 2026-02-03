@@ -28,6 +28,8 @@ spec:
     kind: Issuer
     name: pgrator-selfsigned-issuer
   secretName: pgrator-metrics-server-cert
+  privateKey:
+    rotationPolicy: Always
 {{- end }}
 {{- if .Values.webhook.enable }}
 ---
@@ -47,5 +49,7 @@ spec:
     kind: Issuer
     name: pgrator-selfsigned-issuer
   secretName: pgrator-webhook-server-cert
+  privateKey:
+    rotationPolicy: Always
 {{- end }}
 {{- end }}
