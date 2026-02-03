@@ -49,6 +49,11 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
 		Version: v1.GroupVersion.Version,
 		Kind:    "Valkey",
 	}: v1.ExampleValkeyForDocumentation,
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
+		Kind:    "OpenSearch",
+	}: v1.ExampleOpenSearchForDocumentation,
 }
 
 type Renderer func(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps)
