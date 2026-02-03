@@ -66,8 +66,8 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 	}
 
 	// Validate version is known
-	if _, ok := upgradePaths[o.Spec.MajorVersion]; !ok {
-		errs = append(errs, fmt.Sprintf("unknown OpenSearch major version: %q", o.Spec.MajorVersion))
+	if _, ok := upgradePaths[o.Spec.Version]; !ok {
+		errs = append(errs, fmt.Sprintf("unknown OpenSearch version: %q", o.Spec.Version))
 	}
 
 	// Validate tier and memory combination
@@ -94,7 +94,7 @@ func (o *OpenSearch) validateUpdate(old *OpenSearch) (admission.Warnings, error)
 	}
 
 	// Validate version upgrade path
-	if err := o.Spec.MajorVersion.ValidateUpgradePath(old.Spec.MajorVersion); err != nil {
+	if err := o.Spec.Version.ValidateUpgradePath(old.Spec.Version); err != nil {
 		return nil, fmt.Errorf("validation failed: %s", err)
 	}
 

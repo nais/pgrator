@@ -70,7 +70,7 @@ func CreateAivenOpenSearchSpec(
 		return nil, err
 	}
 
-	version, err := opensearch.Spec.MajorVersion.ToAivenString()
+	version, err := opensearch.Spec.Version.ToAivenString()
 	if err != nil {
 		return nil, err
 	}

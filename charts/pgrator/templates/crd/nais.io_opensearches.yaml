@@ -26,7 +26,7 @@ spec:
         - jsonPath: .spec.memory
           name: Memory
           type: string
-        - jsonPath: .spec.majorVersion
+        - jsonPath: .spec.version
           name: Version
           type: string
         - jsonPath: .spec.storageGB
@@ -60,14 +60,6 @@ spec:
             spec:
               description: spec defines the desired state of OpenSearch
               properties:
-                majorVersion:
-                  description: MajorVersion defines the OpenSearch major version
-                  enum:
-                    - "1"
-                    - "2"
-                    - "2.19"
-                    - "3.3"
-                  type: string
                 memory:
                   description: Memory defines the available memory for the OpenSearch instance
                   enum:
@@ -88,11 +80,19 @@ spec:
                     - SingleNode
                     - HighAvailability
                   type: string
+                version:
+                  description: Version defines the OpenSearch version
+                  enum:
+                    - "1"
+                    - "2"
+                    - "2.19"
+                    - "3.3"
+                  type: string
               required:
-                - majorVersion
                 - memory
                 - storageGB
                 - tier
+                - version
               type: object
             status:
               description: status defines the observed state of OpenSearch

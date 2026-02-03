@@ -30,16 +30,16 @@ const (
 )
 
 // +kubebuilder:validation:Enum="1";"2";"2.19";"3.3"
-type OpenSearchMajorVersion string
+type OpenSearchVersion string
 
 const (
-	OpenSearchMajorVersionV1    OpenSearchMajorVersion = "1"
-	OpenSearchMajorVersionV2    OpenSearchMajorVersion = "2"
-	OpenSearchMajorVersionV2_19 OpenSearchMajorVersion = "2.19"
-	OpenSearchMajorVersionV3_3  OpenSearchMajorVersion = "3.3"
+	OpenSearchVersionV1    OpenSearchVersion = "1"
+	OpenSearchVersionV2    OpenSearchVersion = "2"
+	OpenSearchVersionV2_19 OpenSearchVersion = "2.19"
+	OpenSearchVersionV3_3  OpenSearchVersion = "3.3"
 )
 
-type upgradePath []OpenSearchMajorVersion
+type upgradePath []OpenSearchVersion
 
 func (u upgradePath) String() string {
 	versions := make([]string, len(u))
@@ -49,22 +49,22 @@ func (u upgradePath) String() string {
 	return strings.Join(versions, ", ")
 }
 
-var upgradePaths = map[OpenSearchMajorVersion]upgradePath{
-	OpenSearchMajorVersionV1:    {OpenSearchMajorVersionV2, OpenSearchMajorVersionV2_19},
-	OpenSearchMajorVersionV2:    {OpenSearchMajorVersionV2_19},
-	OpenSearchMajorVersionV2_19: {OpenSearchMajorVersionV3_3},
-	OpenSearchMajorVersionV3_3:  {},
+var upgradePaths = map[OpenSearchVersion]upgradePath{
+	OpenSearchVersionV1:    {OpenSearchVersionV2, OpenSearchVersionV2_19},
+	OpenSearchVersionV2:    {OpenSearchVersionV2_19},
+	OpenSearchVersionV2_19: {OpenSearchVersionV3_3},
+	OpenSearchVersionV3_3:  {},
 }
 
 // ValidateUpgradePath validates that upgrading from oldVersion to this version is allowed
-func (v OpenSearchMajorVersion) ValidateUpgradePath(oldVersion OpenSearchMajorVersion) error {
+func (v OpenSearchVersion) ValidateUpgradePath(oldVersion OpenSearchVersion) error {
 	if v == oldVersion {
 		return nil
 	}
 
 	path, ok := upgradePaths[oldVersion]
 	if !ok {
-		return fmt.Errorf("unknown OpenSearch major version: %q", oldVersion)
+		return fmt.Errorf("unknown OpenSearch version: %q", oldVersion)
 	}
 
 	if len(path) == 0 {
@@ -81,18 +81,18 @@ func (v OpenSearchMajorVersion) ValidateUpgradePath(oldVersion OpenSearchMajorVe
 }
 
 // ToAivenString returns the version string for Aiven API
-func (v OpenSearchMajorVersion) ToAivenString() (string, error) {
+func (v OpenSearchVersion) ToAivenString() (string, error) {
 	switch v {
-	case OpenSearchMajorVersionV1:
+	case OpenSearchVersionV1:
 		return "1", nil
-	case OpenSearchMajorVersionV2:
+	case OpenSearchVersionV2:
 		return "2", nil
-	case OpenSearchMajorVersionV2_19:
+	case OpenSearchVersionV2_19:
 		return "2.19", nil
-	case OpenSearchMajorVersionV3_3:
+	case OpenSearchVersionV3_3:
 		return "3.3", nil
 	default:
-		return "", fmt.Errorf("unexpected OpenSearch major version: %q", v)
+		return "", fmt.Errorf("unexpected OpenSearch version: %q", v)
 	}
 }
 
@@ -137,9 +137,9 @@ type OpenSearchSpec struct {
 	// +kubebuilder:validation:Required
 	Memory OpenSearchMemory `json:"memory"`
 
-	// MajorVersion defines the OpenSearch major version
+	// Version defines the OpenSearch version
 	// +kubebuilder:validation:Required
-	MajorVersion OpenSearchMajorVersion `json:"majorVersion"`
+	Version OpenSearchVersion `json:"version"`
 
 	// StorageGB defines the storage capacity in gigabytes
 	// +kubebuilder:validation:Required
@@ -157,7 +157,7 @@ type OpenSearchStatus struct {
 // +kubebuilder:resource:shortName=os,categories={nais}
 // +kubebuilder:printcolumn:name="Tier",type="string",JSONPath=".spec.tier"
 // +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.memory"
-// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.majorVersion"
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version"
 // +kubebuilder:printcolumn:name="Storage",type="integer",JSONPath=".spec.storageGB"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 // OpenSearch is the Schema for the opensearches API

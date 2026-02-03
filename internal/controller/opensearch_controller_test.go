@@ -55,10 +55,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					},
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 
@@ -88,10 +88,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					Namespace: "version-team",
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2_19,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2_19,
+					StorageGB: 80,
 				},
 			}
 
@@ -110,10 +110,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					Namespace: "v3-team",
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierHighAvailability,
-					Memory:       v1.OpenSearchMemory8GB,
-					MajorVersion: v1.OpenSearchMajorVersionV3_3,
-					StorageGB:    525,
+					Tier:      v1.OpenSearchTierHighAvailability,
+					Memory:    v1.OpenSearchMemory8GB,
+					Version:   v1.OpenSearchVersionV3_3,
+					StorageGB: 525,
 				},
 			}
 
@@ -134,10 +134,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					Namespace: "dev-team",
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory2GB,
-					MajorVersion: v1.OpenSearchMajorVersionV1,
-					StorageGB:    16,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory2GB,
+					Version:   v1.OpenSearchVersionV1,
+					StorageGB: 16,
 				},
 			}
 
@@ -160,10 +160,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					},
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 
@@ -189,10 +189,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					},
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 			cfg := config.Aiven{
@@ -320,10 +320,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					Namespace: opensearchStateTestNamespace,
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 			Expect(k8sClient.Create(context.Background(), opensearch)).To(Succeed())
@@ -377,10 +377,10 @@ var _ = Describe("OpenSearch Controller", func() {
 					Namespace: opensearchStateTestNamespace,
 				},
 				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 			Expect(k8sClient.Create(context.Background(), opensearch)).To(Succeed())
@@ -535,10 +535,10 @@ var _ = Describe("OpenSearch Controller", func() {
 						Namespace: "test-ns",
 					},
 					Spec: v1.OpenSearchSpec{
-						Tier:         tc.tier,
-						Memory:       tc.memory,
-						MajorVersion: v1.OpenSearchMajorVersionV2,
-						StorageGB:    storage,
+						Tier:      tc.tier,
+						Memory:    tc.memory,
+						Version:   v1.OpenSearchVersionV2,
+						StorageGB: storage,
 					},
 				}
 
@@ -594,10 +594,10 @@ var _ = Describe("OpenSearch Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: v1.OpenSearchSpec{
-						Tier:         v1.OpenSearchTierSingleNode,
-						Memory:       v1.OpenSearchMemory4GB,
-						MajorVersion: v1.OpenSearchMajorVersionV2,
-						StorageGB:    80,
+						Tier:      v1.OpenSearchTierSingleNode,
+						Memory:    v1.OpenSearchMemory4GB,
+						Version:   v1.OpenSearchVersionV2,
+						StorageGB: 80,
 					},
 				}
 				Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
@@ -636,10 +636,10 @@ var _ = Describe("OpenSearch Controller", func() {
 						Namespace: testNamespace,
 					},
 					Spec: v1.OpenSearchSpec{
-						Tier:         v1.OpenSearchTierSingleNode,
-						Memory:       v1.OpenSearchMemory4GB,
-						MajorVersion: v1.OpenSearchMajorVersionV2,
-						StorageGB:    80,
+						Tier:      v1.OpenSearchTierSingleNode,
+						Memory:    v1.OpenSearchMemory4GB,
+						Version:   v1.OpenSearchVersionV2,
+						StorageGB: 80,
 					},
 				}
 				Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())

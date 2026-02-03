@@ -17,17 +17,17 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 
 	Describe("ValidateCreate", func() {
 		DescribeTable("valid configurations",
-			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchMajorVersion, storageGB int) {
+			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchVersion, storageGB int) {
 				opensearch := &OpenSearch{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: namespace,
 					},
 					Spec: OpenSearchSpec{
-						Tier:         tier,
-						Memory:       memory,
-						MajorVersion: version,
-						StorageGB:    storageGB,
+						Tier:      tier,
+						Memory:    memory,
+						Version:   version,
+						StorageGB: storageGB,
 					},
 				}
 
@@ -36,39 +36,39 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			},
 			Entry("SingleNode 4GB with valid storage",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 80),
+				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80),
 			Entry("HighAvailability 8GB with valid storage",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory8GB, OpenSearchMajorVersionV2_19, 525),
+				OpenSearchTierHighAvailability, OpenSearchMemory8GB, OpenSearchVersionV2_19, 525),
 			Entry("hobbyist plan with exact storage",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchMajorVersionV1, 16),
+				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchVersionV1, 16),
 			Entry("storage at boundary (min) for HA 16GB",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchMajorVersionV3_3, 1050),
+				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchVersionV3_3, 1050),
 			Entry("storage at boundary (max) for HA 16GB",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchMajorVersionV3_3, 5250),
+				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchVersionV3_3, 5250),
 			Entry("SingleNode 8GB storage with increment",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory8GB, OpenSearchMajorVersionV2, 185),
+				OpenSearchTierSingleNode, OpenSearchMemory8GB, OpenSearchVersionV2, 185),
 			Entry("HighAvailability storage with 30GB increment",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 270),
+				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 270),
 		)
 
 		DescribeTable("invalid configurations",
-			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchMajorVersion, storageGB int, expectedError string) {
+			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchVersion, storageGB int, expectedError string) {
 				opensearch := &OpenSearch{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      name,
 						Namespace: namespace,
 					},
 					Spec: OpenSearchSpec{
-						Tier:         tier,
-						Memory:       memory,
-						MajorVersion: version,
-						StorageGB:    storageGB,
+						Tier:      tier,
+						Memory:    memory,
+						Version:   version,
+						StorageGB: storageGB,
 					},
 				}
 
@@ -78,31 +78,31 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			},
 			Entry("HighAvailability with 2GB memory (not supported)",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory2GB, OpenSearchMajorVersionV2, 100,
+				OpenSearchTierHighAvailability, OpenSearchMemory2GB, OpenSearchVersionV2, 100,
 				"invalid tier/memory combination"),
 			Entry("storage below minimum for SingleNode 4GB",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 50,
+				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 50,
 				"storage must be at least 80GB"),
 			Entry("storage above maximum for SingleNode 4GB",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 500,
+				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 500,
 				"storage must be at most 400GB"),
 			Entry("storage not in valid increments for SingleNode 4GB",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 85,
+				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 85,
 				"storage must be in increments of 10GB"),
 			Entry("hobbyist plan with wrong storage",
 				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchMajorVersionV1, 32,
+				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchVersionV1, 32,
 				"storage must be at most 16GB"),
 			Entry("name too long for generated service name",
 				"this-is-a-very-long-opensearch-instance-name-that-exceeds-limit", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 80,
+				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
 				"metadata.name is too long"),
 			Entry("HighAvailability storage not in 30GB increments",
 				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 250,
+				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 250,
 				"storage must be in increments of 30GB"),
 		)
 	})
@@ -115,10 +115,10 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 					Namespace: "my-team",
 				},
 				Spec: OpenSearchSpec{
-					Tier:         OpenSearchTierSingleNode,
-					Memory:       OpenSearchMemory4GB,
-					MajorVersion: OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      OpenSearchTierSingleNode,
+					Memory:    OpenSearchMemory4GB,
+					Version:   OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 
@@ -128,10 +128,10 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 					Namespace: "my-team",
 				},
 				Spec: OpenSearchSpec{
-					Tier:         OpenSearchTierSingleNode,
-					Memory:       OpenSearchMemory4GB,
-					MajorVersion: OpenSearchMajorVersionV2,
-					StorageGB:    90,
+					Tier:      OpenSearchTierSingleNode,
+					Memory:    OpenSearchMemory4GB,
+					Version:   OpenSearchVersionV2,
+					StorageGB: 90,
 				},
 			}
 
@@ -140,17 +140,17 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 		})
 
 		DescribeTable("valid version upgrades",
-			func(oldVersion, newVersion OpenSearchMajorVersion) {
+			func(oldVersion, newVersion OpenSearchVersion) {
 				oldObj := &OpenSearch{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-opensearch",
 						Namespace: "my-team",
 					},
 					Spec: OpenSearchSpec{
-						Tier:         OpenSearchTierSingleNode,
-						Memory:       OpenSearchMemory4GB,
-						MajorVersion: oldVersion,
-						StorageGB:    80,
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   oldVersion,
+						StorageGB: 80,
 					},
 				}
 
@@ -160,38 +160,38 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 						Namespace: "my-team",
 					},
 					Spec: OpenSearchSpec{
-						Tier:         OpenSearchTierSingleNode,
-						Memory:       OpenSearchMemory4GB,
-						MajorVersion: newVersion,
-						StorageGB:    80,
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   newVersion,
+						StorageGB: 80,
 					},
 				}
 
 				_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
 				Expect(err).NotTo(HaveOccurred())
 			},
-			Entry("V1 to V2", OpenSearchMajorVersionV1, OpenSearchMajorVersionV2),
-			Entry("V1 to V2.19", OpenSearchMajorVersionV1, OpenSearchMajorVersionV2_19),
-			Entry("V2 to V2.19", OpenSearchMajorVersionV2, OpenSearchMajorVersionV2_19),
-			Entry("V2.19 to V3.3", OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV3_3),
-			Entry("same version V1", OpenSearchMajorVersionV1, OpenSearchMajorVersionV1),
-			Entry("same version V2", OpenSearchMajorVersionV2, OpenSearchMajorVersionV2),
-			Entry("same version V2.19", OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV2_19),
-			Entry("same version V3.3", OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV3_3),
+			Entry("V1 to V2", OpenSearchVersionV1, OpenSearchVersionV2),
+			Entry("V1 to V2.19", OpenSearchVersionV1, OpenSearchVersionV2_19),
+			Entry("V2 to V2.19", OpenSearchVersionV2, OpenSearchVersionV2_19),
+			Entry("V2.19 to V3.3", OpenSearchVersionV2_19, OpenSearchVersionV3_3),
+			Entry("same version V1", OpenSearchVersionV1, OpenSearchVersionV1),
+			Entry("same version V2", OpenSearchVersionV2, OpenSearchVersionV2),
+			Entry("same version V2.19", OpenSearchVersionV2_19, OpenSearchVersionV2_19),
+			Entry("same version V3.3", OpenSearchVersionV3_3, OpenSearchVersionV3_3),
 		)
 
 		DescribeTable("invalid version upgrades",
-			func(oldVersion, newVersion OpenSearchMajorVersion, expectedError string) {
+			func(oldVersion, newVersion OpenSearchVersion, expectedError string) {
 				oldObj := &OpenSearch{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-opensearch",
 						Namespace: "my-team",
 					},
 					Spec: OpenSearchSpec{
-						Tier:         OpenSearchTierSingleNode,
-						Memory:       OpenSearchMemory4GB,
-						MajorVersion: oldVersion,
-						StorageGB:    80,
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   oldVersion,
+						StorageGB: 80,
 					},
 				}
 
@@ -201,10 +201,10 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 						Namespace: "my-team",
 					},
 					Spec: OpenSearchSpec{
-						Tier:         OpenSearchTierSingleNode,
-						Memory:       OpenSearchMemory4GB,
-						MajorVersion: newVersion,
-						StorageGB:    80,
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   newVersion,
+						StorageGB: 80,
 					},
 				}
 
@@ -213,22 +213,22 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 				Expect(err.Error()).To(Equal(expectedError))
 			},
 			Entry("V1 to V3.3 (skipping versions)",
-				OpenSearchMajorVersionV1, OpenSearchMajorVersionV3_3,
+				OpenSearchVersionV1, OpenSearchVersionV3_3,
 				"validation failed: cannot change OpenSearch version from 1 to 3.3: new version must be one of [2, 2.19]"),
 			Entry("V2 to V3.3 (skipping V2.19)",
-				OpenSearchMajorVersionV2, OpenSearchMajorVersionV3_3,
+				OpenSearchVersionV2, OpenSearchVersionV3_3,
 				"validation failed: cannot change OpenSearch version from 2 to 3.3: new version must be one of [2.19]"),
 			Entry("V3.3 to V2 (downgrade)",
-				OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV2,
+				OpenSearchVersionV3_3, OpenSearchVersionV2,
 				"validation failed: cannot change OpenSearch version from 3.3 to 2: no further upgrades available"),
 			Entry("V3.3 to V1 (downgrade)",
-				OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV1,
+				OpenSearchVersionV3_3, OpenSearchVersionV1,
 				"validation failed: cannot change OpenSearch version from 3.3 to 1: no further upgrades available"),
 			Entry("V2.19 to V1 (downgrade)",
-				OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV1,
+				OpenSearchVersionV2_19, OpenSearchVersionV1,
 				"validation failed: cannot change OpenSearch version from 2.19 to 1: new version must be one of [3.3]"),
 			Entry("V2 to V1 (downgrade)",
-				OpenSearchMajorVersionV2, OpenSearchMajorVersionV1,
+				OpenSearchVersionV2, OpenSearchVersionV1,
 				"validation failed: cannot change OpenSearch version from 2 to 1: new version must be one of [2.19]"),
 		)
 	})
@@ -241,10 +241,10 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 					Namespace: "my-team",
 				},
 				Spec: OpenSearchSpec{
-					Tier:         OpenSearchTierSingleNode,
-					Memory:       OpenSearchMemory4GB,
-					MajorVersion: OpenSearchMajorVersionV2,
-					StorageGB:    80,
+					Tier:      OpenSearchTierSingleNode,
+					Memory:    OpenSearchMemory4GB,
+					Version:   OpenSearchVersionV2,
+					StorageGB: 80,
 				},
 			}
 

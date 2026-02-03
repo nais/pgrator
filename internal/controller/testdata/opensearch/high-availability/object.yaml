@@ -9,5 +9,5 @@ metadata:
 spec:
   tier: HighAvailability
   memory: 8GB
-  majorVersion: "2.19"
+  version: "2.19"
   storageGB: 525

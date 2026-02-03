@@ -9,5 +9,5 @@ metadata:
 spec:
   tier: SingleNode
   memory: 2GB
-  majorVersion: "1"
+  version: "1"
   storageGB: 16
