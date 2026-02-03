@@ -158,7 +158,7 @@ type OpenSearchStatus struct {
 // +kubebuilder:printcolumn:name="Tier",type="string",JSONPath=".spec.tier"
 // +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.memory"
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version"
-// +kubebuilder:printcolumn:name="Storage",type="integer",JSONPath=".spec.storageGB"
+// +kubebuilder:printcolumn:name="Storage (GB)",type="integer",JSONPath=".spec.storageGB"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 // OpenSearch is the Schema for the opensearches API
 type OpenSearch struct {
