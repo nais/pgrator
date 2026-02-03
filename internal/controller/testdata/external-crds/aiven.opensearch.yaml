@@ -1,0 +1,245 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: opensearches.aiven.io
+spec:
+  group: aiven.io
+  names:
+    kind: OpenSearch
+    listKind: OpenSearchList
+    plural: opensearches
+    singular: opensearch
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                project:
+                  type: string
+                plan:
+                  type: string
+                cloudName:
+                  type: string
+                projectVpcId:
+                  type: string
+                maintenanceWindowDow:
+                  type: string
+                maintenanceWindowTime:
+                  type: string
+                terminationProtection:
+                  type: boolean
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                connInfoSecretTargetDisabled:
+                  type: boolean
+                connInfoSecretTarget:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    prefix:
+                      type: string
+                authSecretRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                disk_space:
+                  type: string
+                userConfig:
+                  type: object
+                  properties:
+                    opensearch_version:
+                      type: string
+                    max_index_count:
+                      type: integer
+                    keep_index_refresh_interval:
+                      type: boolean
+                    opensearch_dashboards:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        opensearch_request_timeout:
+                          type: integer
+                    index_patterns:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          max_index_count:
+                            type: integer
+                          pattern:
+                            type: string
+                          sorting_algorithm:
+                            type: string
+                    index_template:
+                      type: object
+                      properties:
+                        mapping_nested_objects_limit:
+                          type: integer
+                        number_of_replicas:
+                          type: integer
+                        number_of_shards:
+                          type: integer
+                    backup_hour:
+                      type: integer
+                    backup_minute:
+                      type: integer
+                    additional_backup_regions:
+                      type: array
+                      items:
+                        type: string
+                    service_log:
+                      type: boolean
+                    static_ips:
+                      type: boolean
+                    enable_ipv6:
+                      type: boolean
+                    project_to_fork_from:
+                      type: string
+                    service_to_fork_from:
+                      type: string
+                    recovery_basebackup_name:
+                      type: string
+                    ip_filter:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          network:
+                            type: string
+                          description:
+                            type: string
+                    private_access:
+                      type: object
+                      properties:
+                        opensearch:
+                          type: boolean
+                        opensearch_dashboards:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    privatelink_access:
+                      type: object
+                      properties:
+                        opensearch:
+                          type: boolean
+                        opensearch_dashboards:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    public_access:
+                      type: object
+                      properties:
+                        opensearch:
+                          type: boolean
+                        opensearch_dashboards:
+                          type: boolean
+                        prometheus:
+                          type: boolean
+                    opensearch:
+                      type: object
+                      properties:
+                        action_auto_create_index_enabled:
+                          type: boolean
+                        action_destructive_requires_name:
+                          type: boolean
+                        cluster_max_shards_per_node:
+                          type: integer
+                        cluster_routing_allocation_node_concurrent_recoveries:
+                          type: integer
+                        http_max_content_length:
+                          type: integer
+                        http_max_header_size:
+                          type: integer
+                        http_max_initial_line_length:
+                          type: integer
+                        indices_fielddata_cache_size:
+                          type: integer
+                        indices_memory_index_buffer_size:
+                          type: integer
+                        indices_queries_cache_size:
+                          type: integer
+                        indices_query_bool_max_clause_count:
+                          type: integer
+                        indices_recovery_max_bytes_per_sec:
+                          type: integer
+                        indices_recovery_max_concurrent_file_chunks:
+                          type: integer
+                        search_max_buckets:
+                          type: integer
+                        thread_pool_analyze_queue_size:
+                          type: integer
+                        thread_pool_analyze_size:
+                          type: integer
+                        thread_pool_force_merge_size:
+                          type: integer
+                        thread_pool_get_queue_size:
+                          type: integer
+                        thread_pool_get_size:
+                          type: integer
+                        thread_pool_search_queue_size:
+                          type: integer
+                        thread_pool_search_size:
+                          type: integer
+                        thread_pool_search_throttled_queue_size:
+                          type: integer
+                        thread_pool_search_throttled_size:
+                          type: integer
+                        thread_pool_write_queue_size:
+                          type: integer
+                        thread_pool_write_size:
+                          type: integer
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                state:
+                  type: string
+      subresources:
+        status: {}

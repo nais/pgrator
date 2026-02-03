@@ -36,7 +36,8 @@ rules:
 - apiGroups:
     - nais.io
   resources:
-    - valkey
+    - valkeys
+    - opensearches
   verbs:
     - create
     - delete
@@ -45,24 +46,11 @@ rules:
     - patch
     - update
     - watch
-- apiGroups:
-    - nais.io
-  resources:
-    - valkeys/finalizers
-  verbs:
-    - update
-- apiGroups:
-    - nais.io
-  resources:
-    - valkeys/status
-  verbs:
-    - get
-    - patch
-    - update
 - apiGroups:
     - nais.io
   resources:
     - valkeys
+    - opensearches
   verbs:
     - create
     - delete
@@ -75,12 +63,14 @@ rules:
     - nais.io
   resources:
     - valkeys/finalizers
+    - opensearches/finalizers
   verbs:
     - update
 - apiGroups:
     - nais.io
   resources:
     - valkeys/status
+    - opensearches/status
   verbs:
     - get
     - patch
@@ -89,6 +79,7 @@ rules:
     - aiven.io
   resources:
     - valkeys
+    - opensearches
     - serviceintegrations
   verbs:
     - create

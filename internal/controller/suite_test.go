@@ -47,8 +47,9 @@ var (
 	recorder  events.Recorder
 
 	// Golden test instances
-	postgresGolden *golden.Golden[*datav1.Postgres, PreparedData]
-	valkeyGolden   *golden.Golden[*v1.Valkey, ValkeyPreparedData]
+	postgresGolden   *golden.Golden[*datav1.Postgres, PreparedData]
+	valkeyGolden     *golden.Golden[*v1.Valkey, ValkeyPreparedData]
+	opensearchGolden *golden.Golden[*v1.OpenSearch, OpenSearchPreparedData]
 )
 
 func TestControllers(t *testing.T) {
@@ -71,16 +72,31 @@ func TestControllers(t *testing.T) {
 		Scheme: scheme.Scheme,
 	}
 
+	opensearchReconciler := &OpenSearchReconciler{
+		Aiven: config.Aiven{
+			Project:                      "test-project",
+			ProjectVPCID:                 "test-vpc-id",
+			MetricsDestinationEndpointID: "test-metrics-service",
+		},
+		Tenant:   config.Tenant{Name: "test-tenant"},
+		Recorder: recorder,
+		Scheme:   scheme.Scheme,
+	}
+
 	_, filename, _, _ := runtime.Caller(0)
 	testDataDir := filepath.Clean(filepath.Join(filepath.Dir(filename), "testdata/"))
 	postgresTestDataDir := filepath.Join(testDataDir, "postgres")
 	valkeyTestDataDir := filepath.Join(testDataDir, "valkey")
+	opensearchTestDataDir := filepath.Join(testDataDir, "opensearch")
 
 	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir)
 	postgresGolden.DefineTests()
 
 	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir)
 	valkeyGolden.DefineTests()
+
+	opensearchGolden = golden.NewGolden(t, opensearchReconciler, opensearchTestDataDir)
+	opensearchGolden.DefineTests()
 
 	RunSpecs(t, "Controller Suite")
 }
@@ -148,6 +164,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = valkeyGolden.ParseData(k8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
+
+	err = opensearchGolden.ParseData(k8sClient.Scheme())
 	Expect(err).NotTo(HaveOccurred())
 })
 

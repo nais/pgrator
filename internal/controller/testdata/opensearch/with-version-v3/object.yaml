@@ -1,0 +1,13 @@
+---
+apiVersion: nais.io/v1
+kind: OpenSearch
+metadata:
+  name: v3-opensearch
+  namespace: v3-team
+  labels:
+    team: v3-team
+spec:
+  tier: HighAvailability
+  memory: 16GB
+  version: "3.3"
+  storageGB: 1050

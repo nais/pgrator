@@ -1,0 +1,13 @@
+---
+apiVersion: nais.io/v1
+kind: OpenSearch
+metadata:
+  name: my-opensearch
+  namespace: my-team
+  labels:
+    team: my-team
+spec:
+  tier: SingleNode
+  memory: 4GB
+  version: "2"
+  storageGB: 80

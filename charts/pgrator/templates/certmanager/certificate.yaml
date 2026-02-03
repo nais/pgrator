@@ -28,5 +28,28 @@ spec:
     kind: Issuer
     name: pgrator-selfsigned-issuer
   secretName: pgrator-metrics-server-cert
+  privateKey:
+    rotationPolicy: Always
+{{- end }}
+{{- if .Values.webhook.enable }}
+---
+# Certificate for the webhook
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: pgrator-webhook-cert
+  namespace: {{ .Release.Namespace }}
+spec:
+  dnsNames:
+    - pgrator-webhook-service.{{ .Release.Namespace }}.svc
+    - pgrator-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: pgrator-selfsigned-issuer
+  secretName: pgrator-webhook-server-cert
+  privateKey:
+    rotationPolicy: Always
 {{- end }}
 {{- end }}

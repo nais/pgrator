@@ -120,6 +120,23 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "valkey")
 		os.Exit(1)
 	}
+
+	opensearchReconciler := &controller.OpenSearchReconciler{
+		Aiven:    cfg.Aiven,
+		Tenant:   cfg.Tenant,
+		Recorder: recorder,
+		Scheme:   scheme,
+	}
+	opensearchController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), opensearchReconciler, recorder)
+	if err := opensearchController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "opensearch")
+		os.Exit(1)
+	}
+
+	if err := (&v1.OpenSearch{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenSearch")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
