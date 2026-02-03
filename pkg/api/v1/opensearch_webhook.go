@@ -119,12 +119,7 @@ func (o *OpenSearch) validateStorage(planConfig *openSearchPlanConfig) []string 
 	if planConfig.Storage.Increments > 1 {
 		offset := storage - planConfig.Storage.Min
 		if offset%planConfig.Storage.Increments != 0 {
-			// Generate example valid values
-			var examples []string
-			for i := planConfig.Storage.Min; i <= planConfig.Storage.Max && len(examples) < 5; i += planConfig.Storage.Increments {
-				examples = append(examples, fmt.Sprintf("%d", i))
-			}
-			errs = append(errs, fmt.Sprintf("storage must be in increments of %dGB starting from %dGB (valid examples: %s, ...)", planConfig.Storage.Increments, planConfig.Storage.Min, strings.Join(examples, ", ")))
+			errs = append(errs, fmt.Sprintf("storage must be in increments of %dGB starting from %dGB", planConfig.Storage.Increments, planConfig.Storage.Min))
 		}
 	}
 

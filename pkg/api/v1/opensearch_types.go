@@ -111,7 +111,7 @@ type openSearchPlanConfig struct {
 
 var openSearchPlans = map[OpenSearchTier]map[OpenSearchMemory]openSearchPlanConfig{
 	OpenSearchTierSingleNode: {
-		OpenSearchMemory2GB:  {AivenPlan: "hobbyist", Storage: openSearchStorageConfig{Min: 16, Max: 16, Increments: 10}},
+		OpenSearchMemory2GB:  {AivenPlan: "hobbyist", Storage: openSearchStorageConfig{Min: 16, Max: 16, Increments: 0}},
 		OpenSearchMemory4GB:  {AivenPlan: "startup-4", Storage: openSearchStorageConfig{Min: 80, Max: 400, Increments: 10}},
 		OpenSearchMemory8GB:  {AivenPlan: "startup-8", Storage: openSearchStorageConfig{Min: 175, Max: 875, Increments: 10}},
 		OpenSearchMemory16GB: {AivenPlan: "startup-16", Storage: openSearchStorageConfig{Min: 350, Max: 1750, Increments: 10}},

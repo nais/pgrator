@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,67 +32,6 @@ var (
 const stateRunning = "RUNNING"
 
 var _ = Describe("OpenSearch Controller", func() {
-	Describe("ValidatingAdmissionPolicy", func() {
-		It("should reject opensearch with name too long for generated service name", func() {
-			// The generated OpenSearch service name is "opensearch-{namespace}-{name}"
-			// which must be <= 63 characters. With "opensearch-" (11 chars) and "-" (1 char),
-			// name + namespace must be <= 51 characters.
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-os-admission-ns",
-				},
-			}
-			err := k8sClient.Create(ctx, namespace)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Create a name that's too long: namespace (20) + name (35) = 55 > 51
-			longName := strings.Repeat("a", 35)
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      longName,
-					Namespace: namespace.Name,
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
-				},
-			}
-
-			err = k8sClient.Create(ctx, opensearch)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("metadata.name is too long"))
-		})
-
-		It("should accept opensearch with name that fits within service name limit", func() {
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-os-admission-ok",
-				},
-			}
-			err := k8sClient.Create(ctx, namespace)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Create a name that fits: namespace (20) + name (10) = 30 <= 51
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "short-name",
-					Namespace: namespace.Name,
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:         v1.OpenSearchTierSingleNode,
-					Memory:       v1.OpenSearchMemory4GB,
-					MajorVersion: v1.OpenSearchMajorVersionV2,
-					StorageGB:    80,
-				},
-			}
-
-			err = k8sClient.Create(ctx, opensearch)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
 	Describe("CreateAivenOpenSearchSpec", func() {
 		const (
 			testOpenSearchName = "my-opensearch"

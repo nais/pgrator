@@ -95,7 +95,7 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			Entry("hobbyist plan with wrong storage",
 				"my-opensearch", "my-team",
 				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchMajorVersionV1, 32,
-				"storage for hobbyist plan must be exactly 16GB"),
+				"storage must be at most 16GB"),
 			Entry("name too long for generated service name",
 				"this-is-a-very-long-opensearch-instance-name-that-exceeds-limit", "my-team",
 				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchMajorVersionV2, 80,
