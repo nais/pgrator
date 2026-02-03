@@ -13,7 +13,7 @@ controllerManager:
     imagePullPolicy: IfNotPresent
     resources:
       requests:
-        cpu: 10m
+        cpu: 200m
         memory: 192Mi
     livenessProbe:
       initialDelaySeconds: 15
