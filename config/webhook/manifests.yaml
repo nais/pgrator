@@ -12,7 +12,7 @@ webhooks:
       namespace: system
       path: /validate-nais-io-v1-opensearch
   failurePolicy: Fail
-  name: vopensearch.kb.io
+  name: vopensearch.nais.io
   rules:
   - apiGroups:
     - nais.io

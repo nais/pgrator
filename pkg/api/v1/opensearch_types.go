@@ -96,45 +96,35 @@ func (v OpenSearchMajorVersion) ToAivenString() (string, error) {
 	}
 }
 
-// MachineType represents the machine configuration for an OpenSearch instance
-type MachineType struct {
-	AivenPlan         string
-	Tier              OpenSearchTier
-	Memory            OpenSearchMemory
-	StorageMin        int
-	StorageMax        int
-	StorageIncrements int
+// openSearchStorageConfig defines storage constraints for an OpenSearch plan
+type openSearchStorageConfig struct {
+	Min        int
+	Max        int
+	Increments int
 }
 
-var openSearchMachineTypes = []MachineType{
-	// SingleNode (hobbyist/startup) plans
-	{AivenPlan: "hobbyist", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory2GB, StorageMin: 16, StorageMax: 16, StorageIncrements: 10},
-	{AivenPlan: "startup-4", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory4GB, StorageMin: 80, StorageMax: 400, StorageIncrements: 10},
-	{AivenPlan: "startup-8", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory8GB, StorageMin: 175, StorageMax: 875, StorageIncrements: 10},
-	{AivenPlan: "startup-16", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory16GB, StorageMin: 350, StorageMax: 1750, StorageIncrements: 10},
-	{AivenPlan: "startup-32", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory32GB, StorageMin: 700, StorageMax: 3500, StorageIncrements: 10},
-	{AivenPlan: "startup-64", Tier: OpenSearchTierSingleNode, Memory: OpenSearchMemory64GB, StorageMin: 1400, StorageMax: 5120, StorageIncrements: 10},
-	// HighAvailability (business) plans
-	{AivenPlan: "business-4", Tier: OpenSearchTierHighAvailability, Memory: OpenSearchMemory4GB, StorageMin: 240, StorageMax: 1200, StorageIncrements: 30},
-	{AivenPlan: "business-8", Tier: OpenSearchTierHighAvailability, Memory: OpenSearchMemory8GB, StorageMin: 525, StorageMax: 2625, StorageIncrements: 30},
-	{AivenPlan: "business-16", Tier: OpenSearchTierHighAvailability, Memory: OpenSearchMemory16GB, StorageMin: 1050, StorageMax: 5250, StorageIncrements: 30},
-	{AivenPlan: "business-32", Tier: OpenSearchTierHighAvailability, Memory: OpenSearchMemory32GB, StorageMin: 2100, StorageMax: 10500, StorageIncrements: 30},
-	{AivenPlan: "business-64", Tier: OpenSearchTierHighAvailability, Memory: OpenSearchMemory64GB, StorageMin: 4200, StorageMax: 15360, StorageIncrements: 30},
+// openSearchPlanConfig defines the Aiven plan configuration for a tier/memory combination
+type openSearchPlanConfig struct {
+	AivenPlan string
+	Storage   openSearchStorageConfig
 }
 
-var aivenOpenSearchPlans map[OpenSearchTier]map[OpenSearchMemory]MachineType
-
-func init() {
-	aivenOpenSearchPlans = make(map[OpenSearchTier]map[OpenSearchMemory]MachineType)
-	for _, m := range openSearchMachineTypes {
-		if _, ok := aivenOpenSearchPlans[m.Tier]; !ok {
-			aivenOpenSearchPlans[m.Tier] = make(map[OpenSearchMemory]MachineType)
-		}
-		if _, ok := aivenOpenSearchPlans[m.Tier][m.Memory]; ok {
-			panic("duplicate tier and memory combination [" + string(m.Tier) + ", " + string(m.Memory) + "] in aivenOpenSearchPlans")
-		}
-		aivenOpenSearchPlans[m.Tier][m.Memory] = m
-	}
+var openSearchPlans = map[OpenSearchTier]map[OpenSearchMemory]openSearchPlanConfig{
+	OpenSearchTierSingleNode: {
+		OpenSearchMemory2GB:  {AivenPlan: "hobbyist", Storage: openSearchStorageConfig{Min: 16, Max: 16, Increments: 10}},
+		OpenSearchMemory4GB:  {AivenPlan: "startup-4", Storage: openSearchStorageConfig{Min: 80, Max: 400, Increments: 10}},
+		OpenSearchMemory8GB:  {AivenPlan: "startup-8", Storage: openSearchStorageConfig{Min: 175, Max: 875, Increments: 10}},
+		OpenSearchMemory16GB: {AivenPlan: "startup-16", Storage: openSearchStorageConfig{Min: 350, Max: 1750, Increments: 10}},
+		OpenSearchMemory32GB: {AivenPlan: "startup-32", Storage: openSearchStorageConfig{Min: 700, Max: 3500, Increments: 10}},
+		OpenSearchMemory64GB: {AivenPlan: "startup-64", Storage: openSearchStorageConfig{Min: 1400, Max: 5120, Increments: 10}},
+	},
+	OpenSearchTierHighAvailability: {
+		OpenSearchMemory4GB:  {AivenPlan: "business-4", Storage: openSearchStorageConfig{Min: 240, Max: 1200, Increments: 30}},
+		OpenSearchMemory8GB:  {AivenPlan: "business-8", Storage: openSearchStorageConfig{Min: 525, Max: 2625, Increments: 30}},
+		OpenSearchMemory16GB: {AivenPlan: "business-16", Storage: openSearchStorageConfig{Min: 1050, Max: 5250, Increments: 30}},
+		OpenSearchMemory32GB: {AivenPlan: "business-32", Storage: openSearchStorageConfig{Min: 2100, Max: 10500, Increments: 30}},
+		OpenSearchMemory64GB: {AivenPlan: "business-64", Storage: openSearchStorageConfig{Min: 4200, Max: 15360, Increments: 30}},
+	},
 }
 
 // OpenSearchSpec defines the desired state of OpenSearch
@@ -199,27 +189,24 @@ func (o *OpenSearch) GetStatus() object.Status {
 }
 
 func (o *OpenSearch) AivenPlan() (string, error) {
-	memories, ok := aivenOpenSearchPlans[o.Spec.Tier]
-	if !ok {
-		return "", fmt.Errorf("no Aiven plans for tier %s", o.Spec.Tier)
+	config, err := o.aivenPlanConfig()
+	if err != nil {
+		return "", err
 	}
-
-	plan, ok := memories[o.Spec.Memory]
-	if !ok {
-		return "", fmt.Errorf("no Aiven plan for memory %s in tier %s", o.Spec.Memory, o.Spec.Tier)
-	}
-
-	return plan.AivenPlan, nil
+	return config.AivenPlan, nil
 }
 
-// GetMachineType returns the machine type configuration for this OpenSearch instance
-func (o *OpenSearch) GetMachineType() (*MachineType, error) {
-	for _, mt := range openSearchMachineTypes {
-		if mt.Tier == o.Spec.Tier && mt.Memory == o.Spec.Memory {
-			return &mt, nil
-		}
+// aivenPlanConfig returns the plan configuration for this OpenSearch instance
+func (o *OpenSearch) aivenPlanConfig() (*openSearchPlanConfig, error) {
+	memories, ok := openSearchPlans[o.Spec.Tier]
+	if !ok {
+		return nil, fmt.Errorf("no plan found for tier %s", o.Spec.Tier)
 	}
-	return nil, fmt.Errorf("no machine type found for tier %s and memory %s", o.Spec.Tier, o.Spec.Memory)
+	config, ok := memories[o.Spec.Memory]
+	if !ok {
+		return nil, fmt.Errorf("no plan found for tier %s and memory %s", o.Spec.Tier, o.Spec.Memory)
+	}
+	return &config, nil
 }
 
 // +kubebuilder:object:root=true

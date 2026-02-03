@@ -24,7 +24,7 @@ func (o *OpenSearch) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-nais-io-v1-opensearch,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=opensearches,verbs=create;update,versions=v1,name=vopensearch.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nais-io-v1-opensearch,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=opensearches,verbs=create;update,versions=v1,name=vopensearch.nais.io,admissionReviewVersions=v1
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *OpenSearchValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
@@ -71,12 +71,12 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 	}
 
 	// Validate tier and memory combination
-	machineType, err := o.GetMachineType()
+	planConfig, err := o.aivenPlanConfig()
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("invalid tier/memory combination: %s", err))
 	} else {
 		// Validate storage
-		storageErrs := o.validateStorage(machineType)
+		storageErrs := o.validateStorage(planConfig)
 		errs = append(errs, storageErrs...)
 	}
 
@@ -101,38 +101,30 @@ func (o *OpenSearch) validateUpdate(old *OpenSearch) (admission.Warnings, error)
 	return warnings, nil
 }
 
-func (o *OpenSearch) validateStorage(machineType *MachineType) []string {
+func (o *OpenSearch) validateStorage(planConfig *openSearchPlanConfig) []string {
 	var errs []string
 
 	storage := o.Spec.StorageGB
 
-	// For hobbyist plan, storage is fixed
-	if machineType.AivenPlan == "hobbyist" {
-		if storage != machineType.StorageMin {
-			errs = append(errs, fmt.Sprintf("storage for hobbyist plan must be exactly %dGB", machineType.StorageMin))
-		}
-		return errs
-	}
-
 	// Check storage bounds
-	if storage < machineType.StorageMin {
-		errs = append(errs, fmt.Sprintf("storage must be at least %dGB for tier %s with memory %s", machineType.StorageMin, o.Spec.Tier, o.Spec.Memory))
+	if storage < planConfig.Storage.Min {
+		errs = append(errs, fmt.Sprintf("storage must be at least %dGB for tier %s with memory %s", planConfig.Storage.Min, o.Spec.Tier, o.Spec.Memory))
 	}
 
-	if storage > machineType.StorageMax {
-		errs = append(errs, fmt.Sprintf("storage must be at most %dGB for tier %s with memory %s", machineType.StorageMax, o.Spec.Tier, o.Spec.Memory))
+	if storage > planConfig.Storage.Max {
+		errs = append(errs, fmt.Sprintf("storage must be at most %dGB for tier %s with memory %s", planConfig.Storage.Max, o.Spec.Tier, o.Spec.Memory))
 	}
 
 	// Check storage increments
-	if machineType.StorageIncrements > 1 {
-		offset := storage - machineType.StorageMin
-		if offset%machineType.StorageIncrements != 0 {
+	if planConfig.Storage.Increments > 1 {
+		offset := storage - planConfig.Storage.Min
+		if offset%planConfig.Storage.Increments != 0 {
 			// Generate example valid values
 			var examples []string
-			for i := machineType.StorageMin; i <= machineType.StorageMax && len(examples) < 5; i += machineType.StorageIncrements {
+			for i := planConfig.Storage.Min; i <= planConfig.Storage.Max && len(examples) < 5; i += planConfig.Storage.Increments {
 				examples = append(examples, fmt.Sprintf("%d", i))
 			}
-			errs = append(errs, fmt.Sprintf("storage must be in increments of %dGB starting from %dGB (valid examples: %s, ...)", machineType.StorageIncrements, machineType.StorageMin, strings.Join(examples, ", ")))
+			errs = append(errs, fmt.Sprintf("storage must be in increments of %dGB starting from %dGB (valid examples: %s, ...)", planConfig.Storage.Increments, planConfig.Storage.Min, strings.Join(examples, ", ")))
 		}
 	}
 
