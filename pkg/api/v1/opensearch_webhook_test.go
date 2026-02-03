@@ -138,6 +138,99 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		DescribeTable("valid version upgrades",
+			func(oldVersion, newVersion OpenSearchMajorVersion) {
+				oldObj := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:         OpenSearchTierSingleNode,
+						Memory:       OpenSearchMemory4GB,
+						MajorVersion: oldVersion,
+						StorageGB:    80,
+					},
+				}
+
+				newObj := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:         OpenSearchTierSingleNode,
+						Memory:       OpenSearchMemory4GB,
+						MajorVersion: newVersion,
+						StorageGB:    80,
+					},
+				}
+
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
+				Expect(err).NotTo(HaveOccurred())
+			},
+			Entry("V1 to V2", OpenSearchMajorVersionV1, OpenSearchMajorVersionV2),
+			Entry("V1 to V2.19", OpenSearchMajorVersionV1, OpenSearchMajorVersionV2_19),
+			Entry("V2 to V2.19", OpenSearchMajorVersionV2, OpenSearchMajorVersionV2_19),
+			Entry("V2.19 to V3.3", OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV3_3),
+			Entry("same version V1", OpenSearchMajorVersionV1, OpenSearchMajorVersionV1),
+			Entry("same version V2", OpenSearchMajorVersionV2, OpenSearchMajorVersionV2),
+			Entry("same version V2.19", OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV2_19),
+			Entry("same version V3.3", OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV3_3),
+		)
+
+		DescribeTable("invalid version upgrades",
+			func(oldVersion, newVersion OpenSearchMajorVersion, expectedError string) {
+				oldObj := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:         OpenSearchTierSingleNode,
+						Memory:       OpenSearchMemory4GB,
+						MajorVersion: oldVersion,
+						StorageGB:    80,
+					},
+				}
+
+				newObj := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:         OpenSearchTierSingleNode,
+						Memory:       OpenSearchMemory4GB,
+						MajorVersion: newVersion,
+						StorageGB:    80,
+					},
+				}
+
+				_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal(expectedError))
+			},
+			Entry("V1 to V3.3 (skipping versions)",
+				OpenSearchMajorVersionV1, OpenSearchMajorVersionV3_3,
+				"validation failed: cannot change OpenSearch version from 1 to 3.3: new version must be one of [2, 2.19]"),
+			Entry("V2 to V3.3 (skipping V2.19)",
+				OpenSearchMajorVersionV2, OpenSearchMajorVersionV3_3,
+				"validation failed: cannot change OpenSearch version from 2 to 3.3: new version must be one of [2.19]"),
+			Entry("V3.3 to V2 (downgrade)",
+				OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV2,
+				"validation failed: cannot change OpenSearch version from 3.3 to 2: no further upgrades available"),
+			Entry("V3.3 to V1 (downgrade)",
+				OpenSearchMajorVersionV3_3, OpenSearchMajorVersionV1,
+				"validation failed: cannot change OpenSearch version from 3.3 to 1: no further upgrades available"),
+			Entry("V2.19 to V1 (downgrade)",
+				OpenSearchMajorVersionV2_19, OpenSearchMajorVersionV1,
+				"validation failed: cannot change OpenSearch version from 2.19 to 1: new version must be one of [3.3]"),
+			Entry("V2 to V1 (downgrade)",
+				OpenSearchMajorVersionV2, OpenSearchMajorVersionV1,
+				"validation failed: cannot change OpenSearch version from 2 to 1: new version must be one of [2.19]"),
+		)
 	})
 
 	Describe("ValidateDelete", func() {

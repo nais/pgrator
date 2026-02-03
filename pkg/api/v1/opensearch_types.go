@@ -2,6 +2,7 @@ package v1
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/pkg/annotation"
@@ -37,6 +38,47 @@ const (
 	OpenSearchMajorVersionV2_19 OpenSearchMajorVersion = "2.19"
 	OpenSearchMajorVersionV3_3  OpenSearchMajorVersion = "3.3"
 )
+
+type upgradePath []OpenSearchMajorVersion
+
+func (u upgradePath) String() string {
+	versions := make([]string, len(u))
+	for i, v := range u {
+		versions[i] = string(v)
+	}
+	return strings.Join(versions, ", ")
+}
+
+var upgradePaths = map[OpenSearchMajorVersion]upgradePath{
+	OpenSearchMajorVersionV1:    {OpenSearchMajorVersionV2, OpenSearchMajorVersionV2_19},
+	OpenSearchMajorVersionV2:    {OpenSearchMajorVersionV2_19},
+	OpenSearchMajorVersionV2_19: {OpenSearchMajorVersionV3_3},
+	OpenSearchMajorVersionV3_3:  {},
+}
+
+// ValidateUpgradePath validates that upgrading from oldVersion to this version is allowed
+func (v OpenSearchMajorVersion) ValidateUpgradePath(oldVersion OpenSearchMajorVersion) error {
+	if v == oldVersion {
+		return nil
+	}
+
+	path, ok := upgradePaths[oldVersion]
+	if !ok {
+		return fmt.Errorf("unknown OpenSearch major version: %q", oldVersion)
+	}
+
+	if len(path) == 0 {
+		return fmt.Errorf("cannot change OpenSearch version from %s to %s: no further upgrades available", oldVersion, v)
+	}
+
+	for _, allowed := range path {
+		if allowed == v {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cannot change OpenSearch version from %s to %s: new version must be one of [%s]", oldVersion, v, path)
+}
 
 // ToAivenString returns the version string for Aiven API
 func (v OpenSearchMajorVersion) ToAivenString() (string, error) {

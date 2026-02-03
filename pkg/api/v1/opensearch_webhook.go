@@ -36,12 +36,16 @@ func (v *OpenSearchValidator) ValidateCreate(_ context.Context, obj runtime.Obje
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *OpenSearchValidator) ValidateUpdate(_ context.Context, _ runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
+func (v *OpenSearchValidator) ValidateUpdate(_ context.Context, oldObj runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
 	o, ok := newObj.(*OpenSearch)
 	if !ok {
 		return nil, fmt.Errorf("expected OpenSearch but got %T", newObj)
 	}
-	return o.validate()
+	old, ok := oldObj.(*OpenSearch)
+	if !ok {
+		return nil, fmt.Errorf("expected OpenSearch but got %T", oldObj)
+	}
+	return o.validateUpdate(old)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type.
@@ -61,6 +65,11 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 		errs = append(errs, fmt.Sprintf("metadata.name is too long; max length is %d characters (generated service name would exceed 63 characters)", maxNameLength))
 	}
 
+	// Validate version is known
+	if _, ok := upgradePaths[o.Spec.MajorVersion]; !ok {
+		errs = append(errs, fmt.Sprintf("unknown OpenSearch major version: %q", o.Spec.MajorVersion))
+	}
+
 	// Validate tier and memory combination
 	machineType, err := o.GetMachineType()
 	if err != nil {
@@ -76,6 +85,20 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 	}
 
 	return nil, nil
+}
+
+func (o *OpenSearch) validateUpdate(old *OpenSearch) (admission.Warnings, error) {
+	warnings, err := o.validate()
+	if err != nil {
+		return warnings, err
+	}
+
+	// Validate version upgrade path
+	if err := o.Spec.MajorVersion.ValidateUpgradePath(old.Spec.MajorVersion); err != nil {
+		return nil, fmt.Errorf("validation failed: %s", err)
+	}
+
+	return warnings, nil
 }
 
 func (o *OpenSearch) validateStorage(machineType *MachineType) []string {
