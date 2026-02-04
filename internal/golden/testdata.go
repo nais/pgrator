@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
+	"github.com/nais/pgrator/pkg/api"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
-type TestData[T object.NaisObject, P any] struct {
+type TestData[T api.NaisObject, P any] struct {
 	// Name of this test case (set from filename)
 	Name string
 

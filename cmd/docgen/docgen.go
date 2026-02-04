@@ -19,7 +19,7 @@ import (
 
 	yaml2 "github.com/ghodss/yaml"
 	"github.com/imdario/mergo"
-	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/pkg/api"
 	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	"github.com/spf13/pflag"
@@ -38,7 +38,7 @@ var exampleResource any
 
 // ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
 // Add new CRD examples here when adding new CRDs to the project.
-var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
+var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	{
 		Group:   datav1.GroupVersion.Group,
 		Version: datav1.GroupVersion.Version,

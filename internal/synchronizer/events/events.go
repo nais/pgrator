@@ -3,43 +3,45 @@ package events
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/pkg/api"
 	core_v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 )
 
 type Recorder interface {
-	RecordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any)
-	RecordErrorEvent(obj object.NaisObject, phase string, err error)
+	RecordEvent(obj api.NaisObject, eventType string, reason string, messageFmt string, args ...any)
+	RecordErrorEvent(obj api.NaisObject, phase string, err error)
 }
 
-func NewRecorder(recorder record.EventRecorder) Recorder {
+func NewRecorder(recorder events.EventRecorder) Recorder {
 	return &eventRecorder{
 		recorder: recorder,
 	}
 }
 
 type eventRecorder struct {
-	recorder record.EventRecorder
+	recorder events.EventRecorder
 }
 
-func (e *eventRecorder) RecordEvent(obj object.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
+func (e *eventRecorder) RecordEvent(obj api.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
 	correlationId := obj.GetCorrelationId()
 	if correlationId == "" {
 		correlationId = "no correlation id"
 	}
 	if e.recorder != nil {
 		msg := fmt.Sprintf(messageFmt, args...)
-		e.recorder.Eventf(obj, eventType, reason, "[%s] %s", correlationId, msg)
+		// TODO: Consider using related argument to link to relevant objects (sub resources)
+		// TODO: We should have separate reason and action in the events to make it easier for us to parse them later
+		e.recorder.Eventf(obj, nil, eventType, reason, reason, "[%s] %s", correlationId, msg)
 	}
 }
 
-func (e *eventRecorder) RecordErrorEvent(obj object.NaisObject, phase string, err error) {
+func (e *eventRecorder) RecordErrorEvent(obj api.NaisObject, phase string, err error) {
 	if e.recorder != nil {
 		correlationId := obj.GetCorrelationId()
 		if correlationId == "" {
 			correlationId = "no correlation id"
 		}
-		e.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		e.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), phase, "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }

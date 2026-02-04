@@ -1,11 +1,11 @@
 package v1
 
 import (
-	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func ExampleValkeyForDocumentation() object.NaisObject {
+func ExampleValkeyForDocumentation() api.NaisObject {
 	return &Valkey{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Valkey",

@@ -10,16 +10,15 @@ import (
 	"testing"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
+	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
-
-	"github.com/nais/pgrator/internal/synchronizer/object"
-	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 )
 
-type Golden[T object.NaisObject, P any] struct {
+type Golden[T api.NaisObject, P any] struct {
 	reconciler reconciler.Reconciler[T, P]
 	testCases  []*TestData[T, P]
 }
@@ -32,7 +31,7 @@ type compareKey struct {
 }
 
 func NewGolden[T interface {
-	object.NaisObject
+	api.NaisObject
 	*O
 }, P any, O any](t *testing.T, r reconciler.Reconciler[T, P], testDataDir string) *Golden[T, P] {
 	gomega := NewGomegaWithT(t)

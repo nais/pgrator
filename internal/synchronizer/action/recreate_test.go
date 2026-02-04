@@ -3,7 +3,7 @@ package action
 import (
 	"context"
 
-	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,11 +16,11 @@ import (
 
 type mockRecorder struct{}
 
-func (m *mockRecorder) RecordEvent(obj object.NaisObject, eventType, reason, messageFmt string, args ...any) {
+func (m *mockRecorder) RecordEvent(obj api.NaisObject, eventType, reason, messageFmt string, args ...any) {
 	// Mock implementation - does nothing
 }
 
-func (m *mockRecorder) RecordErrorEvent(obj object.NaisObject, phase string, err error) {
+func (m *mockRecorder) RecordErrorEvent(obj api.NaisObject, phase string, err error) {
 	// Mock implementation - does nothing
 }
 

@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nais/pgrator/internal/synchronizer/object"
-	"github.com/nais/pgrator/pkg/annotation"
+	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -149,7 +148,7 @@ type OpenSearchSpec struct {
 
 // OpenSearchStatus defines the observed state of OpenSearch.
 type OpenSearchStatus struct {
-	object.BaseStatus `json:",inline"`
+	api.BaseStatus `json:",inline"`
 }
 
 // +kubebuilder:object:root=true
@@ -178,10 +177,10 @@ type OpenSearch struct {
 }
 
 func (o *OpenSearch) GetCorrelationId() string {
-	return o.Annotations[annotation.DeploymentCorrelationIDAnnotation]
+	return o.Annotations[api.DeploymentCorrelationIDAnnotation]
 }
 
-func (o *OpenSearch) GetStatus() object.Status {
+func (o *OpenSearch) GetStatus() api.Status {
 	if o.Status == nil {
 		o.Status = &OpenSearchStatus{}
 	}

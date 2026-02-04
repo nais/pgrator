@@ -46,11 +46,17 @@ run = '''
 
 [tasks.fmt]
 description = "Run go fmt against code."
-run = "go fmt ./..."
+run = [
+	"go fmt ./...",
+	"cd pkg/api && go fmt ./...",
+]
 
 [tasks.vet]
 description = "Run go vet against code."
-run = "go vet ./..."
+run = [
+	"go vet ./...",
+	"cd pkg/api && go vet ./...",
+]
 
 [tasks.helm-lint]
 description = "Lint helm charts"
@@ -58,17 +64,24 @@ run = "helm lint --strict ./charts/pgrator"
 
 [tasks.lint]
 description = "Run golangci-lint linter"
-run = "golangci-lint run"
+run = [
+	"golangci-lint run",
+	"cd pkg/api && golangci-lint run",
+]
 
 [tasks.lint-fix]
 description = "Run golangci-lint linter and perform fixes"
-run = "golangci-lint run --fix"
+run = [
+	"golangci-lint run --fix",
+	"cd pkg/api && golangci-lint run --fix",
+]
 
 [tasks.lint-config]
 description = "Verify golangci-lint linter configuration"
 run = "golangci-lint config verify"
 
 [tasks.checks]
+alias	= "check"
 depends = ["lint", "fmt", "vet", "helm-lint"]
 
 [tasks.setup-envtest]

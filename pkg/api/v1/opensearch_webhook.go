@@ -5,21 +5,16 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
-
-var _ webhook.CustomValidator = &OpenSearchValidator{}
 
 // OpenSearchValidator validates OpenSearch resources
 type OpenSearchValidator struct{}
 
 // SetupWebhookWithManager sets up the webhook with the Manager.
 func (o *OpenSearch) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(o).
+	return ctrl.NewWebhookManagedBy(mgr, o).
 		WithValidator(&OpenSearchValidator{}).
 		Complete()
 }
@@ -27,29 +22,17 @@ func (o *OpenSearch) SetupWebhookWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:webhook:path=/validate-nais-io-v1-opensearch,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=opensearches,verbs=create;update,versions=v1,name=vopensearch.nais.io,admissionReviewVersions=v1
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *OpenSearchValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	o, ok := obj.(*OpenSearch)
-	if !ok {
-		return nil, fmt.Errorf("expected OpenSearch but got %T", obj)
-	}
-	return o.validate()
+func (v *OpenSearchValidator) ValidateCreate(_ context.Context, obj *OpenSearch) (admission.Warnings, error) {
+	return obj.validate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *OpenSearchValidator) ValidateUpdate(_ context.Context, oldObj runtime.Object, newObj runtime.Object) (admission.Warnings, error) {
-	o, ok := newObj.(*OpenSearch)
-	if !ok {
-		return nil, fmt.Errorf("expected OpenSearch but got %T", newObj)
-	}
-	old, ok := oldObj.(*OpenSearch)
-	if !ok {
-		return nil, fmt.Errorf("expected OpenSearch but got %T", oldObj)
-	}
-	return o.validateUpdate(old)
+func (v *OpenSearchValidator) ValidateUpdate(_ context.Context, oldObj *OpenSearch, newObj *OpenSearch) (admission.Warnings, error) {
+	return newObj.validateUpdate(oldObj)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *OpenSearchValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *OpenSearchValidator) ValidateDelete(_ context.Context, _ *OpenSearch) (admission.Warnings, error) {
 	// No validation needed for delete
 	return nil, nil
 }

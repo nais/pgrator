@@ -8,10 +8,10 @@ import (
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
+	"github.com/nais/pgrator/pkg/api"
 	core_v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type Synchronizer[T object.NaisObject, P any] struct {
+type Synchronizer[T api.NaisObject, P any] struct {
 	client     client.Client
 	scheme     *runtime.Scheme
 	reconciler reconciler.Reconciler[T, P]
@@ -43,7 +43,7 @@ type Synchronizer[T object.NaisObject, P any] struct {
 	relevantListTypes map[schema.GroupVersionKind]reflect.Type
 }
 
-func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder) *Synchronizer[T, P] {
+func NewSynchronizer[T api.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder) *Synchronizer[T, P] {
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
@@ -55,7 +55,7 @@ func NewSynchronizer[T object.NaisObject, P any](k8sClient client.Client, scheme
 	}
 }
 
-func findRelevantListTypes[T object.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
+func findRelevantListTypes[T api.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
 	relevantTypes := make([]client.Object, 0)
 	for _, ownedType := range r.OwnedTypes() {
 		relevantTypes = append(relevantTypes, ownedType.Type)

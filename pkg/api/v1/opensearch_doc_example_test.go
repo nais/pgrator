@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nais/pgrator/internal/testutil"
+	"github.com/nais/pgrator/pkg/api/internal/testutil"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 

@@ -3,8 +3,7 @@ package v1
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/synchronizer/object"
-	"github.com/nais/pgrator/pkg/annotation"
+	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -97,7 +96,7 @@ type ValkeySpec struct {
 
 // ValkeyStatus defines the observed state of Valkey.
 type ValkeyStatus struct {
-	object.BaseStatus `json:",inline"`
+	api.BaseStatus `json:",inline"`
 }
 
 // +kubebuilder:object:root=true
@@ -124,10 +123,10 @@ type Valkey struct {
 }
 
 func (v *Valkey) GetCorrelationId() string {
-	return v.Annotations[annotation.DeploymentCorrelationIDAnnotation]
+	return v.Annotations[api.DeploymentCorrelationIDAnnotation]
 }
 
-func (v *Valkey) GetStatus() object.Status {
+func (v *Valkey) GetStatus() api.Status {
 	if v.Status == nil {
 		v.Status = &ValkeyStatus{}
 	}

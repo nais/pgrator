@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	kevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -326,7 +326,7 @@ var _ = Describe("Valkey Controller", func() {
 
 		BeforeEach(func() {
 			By("using a fresh recorder to avoid blocking on full channel from previous tests")
-			recorder := events.NewRecorder(record.NewFakeRecorder(100))
+			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
 
 			By("creating the synchronizer for valkey")
 			valkeyReconciler := &ValkeyReconciler{
@@ -564,7 +564,7 @@ var _ = Describe("Valkey Controller", func() {
 
 		BeforeAll(func() {
 			By("using a fresh recorder to avoid blocking on full channel from previous tests")
-			recorder := events.NewRecorder(record.NewFakeRecorder(100))
+			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
 
 			By("creating a synchronizer for valkey")
 			valkeyReconciler := &ValkeyReconciler{

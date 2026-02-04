@@ -1,13 +1,13 @@
 package datav1
 
 import (
-	"github.com/nais/pgrator/internal/synchronizer/object"
+	"github.com/nais/pgrator/pkg/api"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
-func ExamplePostgresForDocumentation() object.NaisObject {
+func ExamplePostgresForDocumentation() api.NaisObject {
 	return &Postgres{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Postgres",

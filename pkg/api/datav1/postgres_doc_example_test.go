@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nais/pgrator/internal/testutil"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+	"github.com/nais/pgrator/pkg/api/internal/testutil"
 )
 
 var ignoredPostgresFields = []string{
