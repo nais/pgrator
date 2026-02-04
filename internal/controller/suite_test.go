@@ -29,9 +29,9 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
 	"github.com/nais/pgrator/pkg/api/datav1"
-	aiven_v1alpha1 "github.com/nais/pgrator/pkg/api/thirdparty/aiven/v1alpha1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/pkg/api/thirdparty/google/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
