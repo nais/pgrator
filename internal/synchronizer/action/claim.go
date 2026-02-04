@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +54,7 @@ func (a *claim) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme,
 	return nil
 }
 
-func Claim(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+func Claim(obj client.Object, owner api.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
 	return &claim{
 		action: action{
 			obj:             obj,

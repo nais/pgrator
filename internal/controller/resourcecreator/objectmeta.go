@@ -1,7 +1,7 @@
 package resourcecreator
 
 import (
-	"github.com/nais/pgrator/pkg/annotation"
+	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -14,7 +14,7 @@ func CreateObjectMeta(postgres *data_nais_io_v1.Postgres) metav1.ObjectMeta {
 	var annotations map[string]string
 	if postgres.GetCorrelationId() != "" {
 		annotations = map[string]string{
-			annotation.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
+			api.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
 		}
 	}
 

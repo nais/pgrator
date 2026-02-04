@@ -1,8 +1,7 @@
 package datav1
 
 import (
-	"github.com/nais/pgrator/internal/synchronizer/object"
-	"github.com/nais/pgrator/pkg/annotation"
+	"github.com/nais/pgrator/pkg/api"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -91,7 +90,7 @@ type PostgresSpec struct {
 
 // PostgresStatus defines the observed state of Postgres.
 type PostgresStatus struct {
-	object.BaseStatus `json:",inline"`
+	api.BaseStatus `json:",inline"`
 }
 
 // +kubebuilder:object:root=true
@@ -121,10 +120,10 @@ type Postgres struct {
 }
 
 func (p *Postgres) GetCorrelationId() string {
-	return p.Annotations[annotation.DeploymentCorrelationIDAnnotation]
+	return p.Annotations[api.DeploymentCorrelationIDAnnotation]
 }
 
-func (p *Postgres) GetStatus() object.Status {
+func (p *Postgres) GetStatus() api.Status {
 	if p.Status == nil {
 		p.Status = &PostgresStatus{}
 	}

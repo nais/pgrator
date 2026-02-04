@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,7 +62,7 @@ func (a *createIfNotExists) Do(ctx context.Context, c client.Client, scheme *run
 	return nil
 }
 
-func CreateIfNotExists(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+func CreateIfNotExists(obj client.Object, owner api.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
 	return &createIfNotExists{
 		action: action{
 			obj:             obj,

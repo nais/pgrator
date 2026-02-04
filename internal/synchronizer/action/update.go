@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/object"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,7 +52,7 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	return nil
 }
 
-func Update(obj client.Object, owner object.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+func Update(obj client.Object, owner api.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
 	return &update{
 		action: action{
 			obj:             obj,

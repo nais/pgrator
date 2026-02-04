@@ -6,7 +6,7 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
-	"github.com/nais/pgrator/pkg/annotation"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,7 +30,7 @@ func CreateValkeyObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
 	var annotations map[string]string
 	if valkey.GetCorrelationId() != "" {
 		annotations = map[string]string{
-			annotation.DeploymentCorrelationIDAnnotation: valkey.GetCorrelationId(),
+			api.DeploymentCorrelationIDAnnotation: valkey.GetCorrelationId(),
 		}
 	}
 
