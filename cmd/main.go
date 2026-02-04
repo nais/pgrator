@@ -97,7 +97,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	recorder := events.NewRecorder(mgr.GetEventRecorderFor("pgrator"))
+	recorder := events.NewRecorder(mgr.GetEventRecorder("pgrator"))
 
 	postgresReconciler := &controller.PostgresReconciler{
 		Config:   cfg,

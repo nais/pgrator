@@ -5,7 +5,7 @@ import (
 
 	"github.com/nais/pgrator/pkg/api"
 	core_v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 )
 
 type Recorder interface {
@@ -13,14 +13,14 @@ type Recorder interface {
 	RecordErrorEvent(obj api.NaisObject, phase string, err error)
 }
 
-func NewRecorder(recorder record.EventRecorder) Recorder {
+func NewRecorder(recorder events.EventRecorder) Recorder {
 	return &eventRecorder{
 		recorder: recorder,
 	}
 }
 
 type eventRecorder struct {
-	recorder record.EventRecorder
+	recorder events.EventRecorder
 }
 
 func (e *eventRecorder) RecordEvent(obj api.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
@@ -30,7 +30,8 @@ func (e *eventRecorder) RecordEvent(obj api.NaisObject, eventType string, reason
 	}
 	if e.recorder != nil {
 		msg := fmt.Sprintf(messageFmt, args...)
-		e.recorder.Eventf(obj, eventType, reason, "[%s] %s", correlationId, msg)
+		// TODO: Consider using related argument to link to relevant objects (sub resources)
+		e.recorder.Eventf(obj, nil, eventType, reason, "[%s] %s", correlationId, msg)
 	}
 }
 
@@ -40,6 +41,6 @@ func (e *eventRecorder) RecordErrorEvent(obj api.NaisObject, phase string, err e
 		if correlationId == "" {
 			correlationId = "no correlation id"
 		}
-		e.recorder.Eventf(obj, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		e.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }

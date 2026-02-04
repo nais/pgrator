@@ -19,7 +19,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
+	kevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -157,7 +157,7 @@ var _ = BeforeSuite(func() {
 	// Install ValidatingAdmissionPolicy for Valkey name validation
 	err = installAdmissionPolicies(ctx, k8sClient)
 	Expect(err).NotTo(HaveOccurred())
-	recorder = events.NewRecorder(record.NewFakeRecorder(1000))
+	recorder = events.NewRecorder(kevents.NewFakeRecorder(1000))
 	Expect(recorder).NotTo(BeNil())
 
 	err = postgresGolden.ParseData(k8sClient.Scheme())
