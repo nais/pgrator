@@ -16,6 +16,12 @@ jobs:
   lint:
     name: Check project
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mise-task:
+          - check
+          - ci:fmt
+          - ci:generate
     steps:
       - name: Clone the code
         uses: actions/checkout@v5
@@ -27,7 +33,7 @@ jobs:
       - name: Running Checks
         run: |
           go mod tidy
-          mise run checks
+          mise run ${{ matrix.mise-task }}
 
   test:
     name: Test project
