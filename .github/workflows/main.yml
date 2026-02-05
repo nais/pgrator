@@ -12,6 +12,9 @@ on:
 env:
   GOOGLE_REGISTRY: "europe-north1-docker.pkg.dev"
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Check project
@@ -24,12 +27,12 @@ jobs:
           - ci:generate
     steps:
       - name: Clone the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # ratchet:actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # ratchet:jdx/mise-action@v3
       - name: Running Checks
         run: |
           go mod tidy
@@ -40,12 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # ratchet:actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # ratchet:jdx/mise-action@v3
       - name: Running Tests
         run: |
           go mod tidy
@@ -57,25 +60,25 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           path: pgrator
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # ratchet:actions/setup-go@v6
         with:
           go-version-file: pgrator/go.mod
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # ratchet:jdx/mise-action@v3
       - name: Generate documentation
         working-directory: pgrator
         run: |
           mise run generate:doc
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # ratchet:actions/create-github-app-token@v2
         id: get-token
         with:
           app-id: ${{ secrets.NAIS_APP_ID }}
           private-key: ${{ secrets.NAIS_APP_PRIVATE_KEY }}
           repositories: doc
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           repository: nais/doc
           token: ${{ steps.get-token.outputs.token }}
@@ -85,7 +88,7 @@ jobs:
         run: |
           cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
           cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
@@ -103,10 +106,9 @@ jobs:
     name: Build and push image
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # ratchet:actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # ratchet:sigstore/cosign-installer@v4.0.0
         with:
@@ -132,12 +134,12 @@ jobs:
       - build
     steps:
       - name: Clone the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # ratchet:actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
+      - uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # ratchet:azure/setup-helm@v3
         name: 'Setup Helm'
         with:
           version: '3.8.0'
@@ -188,14 +190,13 @@ jobs:
 
   chart:
     permissions:
-      contents: 'read'
       id-token: 'write'
     name: Build and push chart
     runs-on: ubuntu-latest
     needs:
       - build
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # ratchet:actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
         if: github.ref == 'refs/heads/main'
@@ -205,12 +206,12 @@ jobs:
           service_account: 'gh-pgrator@nais-io.iam.gserviceaccount.com'
           token_format: 'access_token'
       - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db' # ratchet:google-github-actions/setup-gcloud@v1
+        uses: 'google-github-actions/setup-gcloud@e30db14379863a8c79331b04a9969f4c1e225e0b' # ratchet:google-github-actions/setup-gcloud@v1
       - name: 'Log in to Google Artifact Registry'
         if: github.ref == 'refs/heads/main'
         run: |-
           echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://${{ env.GOOGLE_REGISTRY }}
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
+      - uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # ratchet:azure/setup-helm@v3
         name: 'Setup Helm'
         with:
           version: '3.8.0'
