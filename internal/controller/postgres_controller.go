@@ -18,6 +18,7 @@ import (
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	core_v1 "k8s.io/api/core/v1"
 	networking_v1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,6 +30,8 @@ const (
 	maxClusterNameLength        = 50
 	GSAName                     = "postgres-pod"
 	KSAName                     = "postgres-pod"
+	RoleBindingName             = "postgres-pod-additional"
+	ClusterRoleName             = "postgres-pod-additional"
 	ServiceAccountsNamespace    = "serviceaccounts"
 	ProjectIDLabel              = "google-cloud-project"
 	ProjectIDAnnotationFallback = "cnrm.cloud.google.com/project-id"
@@ -107,6 +110,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
 		&core_v1.ServiceAccount{},
+		&rbacv1.RoleBinding{},
 	}
 	if !r.Config.PrometheusRulesDisabled {
 		objects = append(objects, &monitoring_v1.PrometheusRule{})
@@ -193,6 +197,14 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 	} else {
 		actions = append(actions, action.Create(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	}
+
+	postgresPodRoleBinding := resourcecreator.CreateRoleBinding(RoleBindingName, KSAName, ClusterRoleName, pgNamespace)
+	existingPRB := relatedObjects.GetMatching(postgresPodRoleBinding)
+	if existingPRB != nil {
+		actions = append(actions, action.Update(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
 	}
 
 	if !r.Config.PrometheusRulesDisabled {

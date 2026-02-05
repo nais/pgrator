@@ -2,11 +2,9 @@ apiVersion: data.nais.io/v1
 kind: Postgres
 metadata:
   name: example
-  namespace: platting
+  namespace: nais
 spec:
   cluster:
-    audit:
-      enabled: true
     allowDeletion: true
     majorVersion: "17"
     resources:

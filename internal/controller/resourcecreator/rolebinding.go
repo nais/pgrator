@@ -1,0 +1,31 @@
+package resourcecreator
+
+import (
+	v1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+func CreateRoleBinding(name, ksaName, clusterRoleName, namespace string) *v1.RoleBinding {
+	return &v1.RoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "rbac.authorization.k8s.io/v1",
+			APIVersion: "RoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Subjects: []v1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      ksaName,
+				Namespace: namespace,
+			},
+		},
+		RoleRef: v1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     clusterRoleName,
+		},
+	}
+}
