@@ -2,6 +2,8 @@ module github.com/nais/pgrator
 
 go 1.25.5
 
+tool github.com/onsi/ginkgo/v2/ginkgo
+
 require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.3
