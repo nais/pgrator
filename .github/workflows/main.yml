@@ -68,7 +68,7 @@ jobs:
       - name: Generate documentation
         working-directory: pgrator
         run: |
-          mise run generate-doc
+          mise run generate:doc
       - uses: actions/create-github-app-token@v2
         id: get-token
         with:
