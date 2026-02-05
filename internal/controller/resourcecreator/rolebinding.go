@@ -8,8 +8,8 @@ import (
 func CreateRoleBinding(name, ksaName, clusterRoleName, namespace string) *v1.RoleBinding {
 	return &v1.RoleBinding{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "rbac.authorization.k8s.io/v1",
-			APIVersion: "RoleBinding",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "RoleBinding",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
