@@ -3,7 +3,6 @@ _.source = ".config/mise/extract_env.sh"
 PGRATOR_IMAGE = "europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest"
 PGRATOR_TTL_IMAGE = "ttl.sh/pgrator:1h"
 
-
 [tools]
 golangci-lint = "2.4.0"
 kube-controller-tools = "0.19.0"
@@ -99,7 +98,7 @@ declare -a output_flags
 if [[ "${GITHUB_ACTIONS}" == "true" ]]; then
   output_flags+=("--github-output")
 fi
-go run github.com/onsi/ginkgo/v2/ginkgo run -r --keep-going "${output_flags[@]}"
+go tool ginkgo run -r --keep-going "${output_flags[@]}"
 """
 
 ### Build
