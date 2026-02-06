@@ -31,14 +31,33 @@ rules:
   verbs: [get, patch, update]
 {{- end }}
 
-# Managed resources - child resources created/owned by controllers
-{{- range .Values.rbac.managedResources }}
-- apiGroups:
-  {{- toYaml .apiGroups | nindent 2 }}
-  resources:
-  {{- toYaml .resources | nindent 2 }}
+# Resources needed for Valkey/OpenSearch controllers
+- apiGroups: [aiven.io]
+  resources: [valkeys, opensearches, serviceintegrations]
   verbs: [create, delete, get, list, patch, update, watch]
-{{- end }}
+
+# Resources needed for Postgres controller
+- apiGroups: [acid.zalan.do]
+  resources: [postgresqls]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [iam.cnrm.cloud.google.com]
+  resources: [iampolicymembers, iamserviceaccounts]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [networkpolicies]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [monitoring.coreos.com]
+  resources: [prometheusrules]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [rbac.authorization.k8s.io]
+  resources: [rolebindings]
+  verbs: [create, get, list, patch, update, watch]
+- apiGroups: [""]
+  resources: [serviceaccounts]
+  verbs: [create, get, list, patch, update, watch]
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [get, list, watch]
 
 # Controller runtime requirements
 - apiGroups: [coordination.k8s.io]
@@ -47,11 +66,4 @@ rules:
 - apiGroups: ["", events.k8s.io]
   resources: [events]
   verbs: [create, patch]
-# TODO: these seem to be unused? possibly a remnant from kube-rbac-proxy?
-- apiGroups: [authorization.k8s.io]
-  resources: [subjectaccessreviews]
-  verbs: [create]
-- apiGroups: [authentication.k8s.io]
-  resources: [tokenreviews]
-  verbs: [create]
 {{- end -}}

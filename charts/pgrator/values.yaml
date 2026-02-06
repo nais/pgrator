@@ -42,36 +42,16 @@ controllerManager:
     enable: true
 
 # [RBAC]: To enable RBAC (Permissions) configurations
-# When adding resources, ensure that you're using the *plural* form of the resource name
 rbac:
   enable: true
   # Primary resources - CRDs owned/reconciled by pgrator (full CRUD)
   # The template auto-generates /finalizers and /status subresource rules
+  # When adding resources, ensure that you're using the *plural* form of the resource name
   primaryResources:
     - apiGroups: [data.nais.io]
       resources: [postgres]
     - apiGroups: [nais.io]
       resources: [valkeys, opensearches]
-
-  # Managed child resources - created/owned by controllers (full CRUD)
-  managedResources:
-    # Valkey/OpenSearch controllers
-    - apiGroups: [aiven.io]
-      resources: [valkeys, opensearches, serviceintegrations]
-    # Postgres controller
-    - apiGroups: [acid.zalan.do]
-      resources: [postgresqls]
-    - apiGroups: [iam.cnrm.cloud.google.com]
-      resources: [iampolicymembers, iamserviceaccounts]
-    - apiGroups: [networking.k8s.io]
-      resources: [networkpolicies]
-    - apiGroups: [monitoring.coreos.com]
-      resources: [prometheusrules]
-    - apiGroups: [rbac.authorization.k8s.io]
-      resources: [rolebindings]
-    # TODO: does pgrator need full CRUD on namespaces or just get/list?
-    - apiGroups: [""]
-      resources: [serviceaccounts, namespaces]
 
 # [METRICS]: Set to true to generate manifests for exporting metrics.
 # To disable metrics export set false, and ensure that the
