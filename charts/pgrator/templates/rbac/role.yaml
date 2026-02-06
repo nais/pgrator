@@ -7,190 +7,51 @@ metadata:
     {{- include "chart.labels" . | nindent 4 }}
   name: pgrator-manager-role
 rules:
+# Primary resources - CRDs owned/reconciled by pgrator
+# Auto-generates main resource + /finalizers and /status subresource rules
+{{- range .Values.rbac.primaryResources }}
 - apiGroups:
-  - data.nais.io
+  {{- toYaml .apiGroups | nindent 2 }}
   resources:
-  - postgres
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+  {{- toYaml .resources | nindent 2 }}
+  verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups:
-  - data.nais.io
+  {{- toYaml .apiGroups | nindent 2 }}
   resources:
-  - postgres/finalizers
-  verbs:
-  - update
+  {{- range .resources }}
+  - {{ . }}/finalizers
+  {{- end }}
+  verbs: [update]
 - apiGroups:
-  - data.nais.io
+  {{- toYaml .apiGroups | nindent 2 }}
   resources:
-  - postgres/status
-  verbs:
-  - get
-  - patch
-  - update
+  {{- range .resources }}
+  - {{ . }}/status
+  {{- end }}
+  verbs: [get, patch, update]
+{{- end }}
+
+# Managed resources - child resources created/owned by controllers
+{{- range .Values.rbac.managedResources }}
 - apiGroups:
-    - nais.io
+  {{- toYaml .apiGroups | nindent 2 }}
   resources:
-    - valkeys
-    - opensearches
-  verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
-- apiGroups:
-    - nais.io
-  resources:
-    - valkeys
-    - opensearches
-  verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
-- apiGroups:
-    - nais.io
-  resources:
-    - valkeys/finalizers
-    - opensearches/finalizers
-  verbs:
-    - update
-- apiGroups:
-    - nais.io
-  resources:
-    - valkeys/status
-    - opensearches/status
-  verbs:
-    - get
-    - patch
-    - update
-- apiGroups:
-    - aiven.io
-  resources:
-    - valkeys
-    - opensearches
-    - serviceintegrations
-  verbs:
-    - create
-    - delete
-    - get
-    - list
-    - patch
-    - update
-    - watch
-- apiGroups:
-    - coordination.k8s.io
-  resources:
-    - leases
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-    - delete
-- apiGroups:
-    - monitoring.coreos.com
-  resources:
-    - prometheusrules
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-    - delete
-- apiGroups:
-    - acid.zalan.do
-  resources:
-    - postgresqls
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-    - delete
-- apiGroups:
-    - networking.k8s.io
-  resources:
-    - networkpolicies
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-    - delete
-- apiGroups:
-    - iam.cnrm.cloud.google.com
-  resources:
-    - iampolicymembers
-    - iamserviceaccounts
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-    - delete
-- apiGroups:
-    - ""
-  resources:
-    - serviceaccounts
-    - namespaces
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
-- apiGroups:
-    - ""
-    - events.k8s.io
-  resources:
-    - events
-  verbs:
-    - create
-    - patch
-- apiGroups:
-    - authorization.k8s.io
-  resources:
-    - subjectaccessreviews
-  verbs:
-    - create
-- apiGroups:
-    - authentication.k8s.io
-  resources:
-    - tokenreviews
-  verbs:
-    - create
-- apiGroups:
-    - rbac.authorization.k8s.io
-  resources:
-    - rolebindings
-  verbs:
-    - get
-    - list
-    - watch
-    - create
-    - update
-    - patch
+  {{- toYaml .resources | nindent 2 }}
+  verbs: [create, delete, get, list, patch, update, watch]
+{{- end }}
+
+# Controller runtime requirements
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: ["", events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
+# TODO: these seem to be unused? possibly a remnant from kube-rbac-proxy?
+- apiGroups: [authorization.k8s.io]
+  resources: [subjectaccessreviews]
+  verbs: [create]
+- apiGroups: [authentication.k8s.io]
+  resources: [tokenreviews]
+  verbs: [create]
 {{- end -}}
