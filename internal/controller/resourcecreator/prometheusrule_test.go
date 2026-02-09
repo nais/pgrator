@@ -7,12 +7,12 @@ import (
 
 var _ = Describe("makeSingleQuery", func() {
 	It("should create a basic query without rate", func() {
-		result := makeSingleQuery("container_memory_usage_bytes", "pod", []string{
+		result := makeSingleQuery("container_memory_working_set_bytes", "pod", []string{
 			"container=\"postgres\"",
 			"namespace=\"test-namespace\"",
 			"pod=~\"test-cluster-[0-9]\"",
 		}, false)
-		expected := `avg(container_memory_usage_bytes{container="postgres", namespace="test-namespace", pod=~"test-cluster-[0-9]"}) by (pod)`
+		expected := `avg(container_memory_working_set_bytes{container="postgres", namespace="test-namespace", pod=~"test-cluster-[0-9]"}) by (pod)`
 		Expect(result).To(Equal(expected))
 	})
 

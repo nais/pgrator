@@ -36,7 +36,7 @@ func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName 
 					{
 						Alert: "PostgresMemoryUsageHigh",
 						Expr: intstr.FromString(makeQuery(
-							makeSingleQuery("container_memory_usage_bytes", "pod", []string{
+							makeSingleQuery("container_memory_working_set_bytes", "pod", []string{
 								"container=\"postgres\"",
 								fmt.Sprintf("namespace=\"%s\"", pgNamespace),
 								fmt.Sprintf("pod=~\"%s-[0-9]\"", pgClusterName),
