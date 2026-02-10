@@ -112,7 +112,16 @@ func serviceIntegrationConditionGetter(_ client.Object, _ *runtime.Scheme) []met
 }
 
 func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	// TODO: refuse deletion if the resource does not have some annotation set
+	//  this should also be checked by a validating webhook for immediate feedback
+
 	var actions []action.Action
+
+	// TODO: terminationProtection is enabled;
+	//  the deletion process should:
+	//  - disable terminationProtection - requires Update action on the Valkey resource
+	//  - block (set a finalizer?) until aiven-operator has propagated the setting which we need to observe via the Valkey's status conditions
+	//  - once propagated (remove finalizer and) delete the child resources
 
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
 	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))

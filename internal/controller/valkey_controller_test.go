@@ -123,7 +123,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(result.Spec.Plan).To(Equal("startup-4"))
 			Expect(result.Spec.ProjectVPCID).To(Equal("vpc-123"))
 			Expect(result.Spec.TerminationProtection).NotTo(BeNil())
-			Expect(*result.Spec.TerminationProtection).To(BeFalse())
+			Expect(*result.Spec.TerminationProtection).To(BeTrue())
 			Expect(result.Spec.UserConfig).To(BeNil())
 			Expect(result.Spec.Tags["team"]).To(Equal(testTeamName))
 			Expect(result.Spec.Tags["app"]).To(Equal(testValkeyName))

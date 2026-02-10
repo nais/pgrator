@@ -70,7 +70,7 @@ var _ = Describe("OpenSearch Controller", func() {
 			Expect(result.Spec.ProjectVPCID).To(Equal("vpc-123"))
 			Expect(result.Spec.DiskSpace).To(Equal("80GiB"))
 			Expect(result.Spec.TerminationProtection).NotTo(BeNil())
-			Expect(*result.Spec.TerminationProtection).To(BeFalse())
+			Expect(*result.Spec.TerminationProtection).To(BeTrue())
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
 			Expect(result.Spec.UserConfig.OpenSearchVersion).NotTo(BeNil())
 			Expect(*result.Spec.UserConfig.OpenSearchVersion).To(Equal("2"))
