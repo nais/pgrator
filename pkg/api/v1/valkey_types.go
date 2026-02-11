@@ -147,6 +147,12 @@ func (v *Valkey) AivenPlan() (string, error) {
 	return plan, nil
 }
 
+func (v *Valkey) CanBeDeleted() (string, bool) {
+	allowDeletion, ok := v.GetAnnotations()[api.AllowDeletionAnnotation]
+	reason := fmt.Sprintf("Deletion requires the annotation %q set to \"true\"", api.AllowDeletionAnnotation)
+	return reason, ok && allowDeletion == "true"
+}
+
 // +kubebuilder:object:root=true
 
 // ValkeyList contains a list of Valkey

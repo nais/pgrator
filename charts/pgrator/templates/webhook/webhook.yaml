@@ -48,4 +48,24 @@ webhooks:
         resources:
           - opensearches
     sideEffects: None
+  - name: vvalkey.nais.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: pgrator-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-nais-io-v1-valkey
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - nais.io
+        apiVersions:
+          - v1
+        operations:
+          - DELETE
+        resources:
+          - valkeys
+    sideEffects: None
 {{- end }}

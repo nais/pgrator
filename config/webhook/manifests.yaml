@@ -24,3 +24,22 @@ webhooks:
     resources:
     - opensearches
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-nais-io-v1-valkey
+  failurePolicy: Fail
+  name: vvalkey.nais.io
+  rules:
+  - apiGroups:
+    - nais.io
+    apiVersions:
+    - v1
+    operations:
+    - DELETE
+    resources:
+    - valkeys
+  sideEffects: None
