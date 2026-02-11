@@ -234,7 +234,28 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 	})
 
 	Describe("ValidateDelete", func() {
-		It("should allow deletion", func() {
+		It("should allow deletion when annotation is present and true", func() {
+			obj := &OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-opensearch",
+					Namespace: "my-team",
+					Annotations: map[string]string{
+						"nais.io/allowDeletion": "true",
+					},
+				},
+				Spec: OpenSearchSpec{
+					Tier:      OpenSearchTierSingleNode,
+					Memory:    OpenSearchMemory4GB,
+					Version:   OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+
+			_, err := validator.ValidateDelete(context.Background(), obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should refuse deletion when annotation is missing", func() {
 			obj := &OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-opensearch",
@@ -249,7 +270,30 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			}
 
 			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nais.io/allowDeletion"))
+		})
+
+		It("should refuse deletion when annotation is set to false", func() {
+			obj := &OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-opensearch",
+					Namespace: "my-team",
+					Annotations: map[string]string{
+						"nais.io/allowDeletion": "false",
+					},
+				},
+				Spec: OpenSearchSpec{
+					Tier:      OpenSearchTierSingleNode,
+					Memory:    OpenSearchMemory4GB,
+					Version:   OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+
+			_, err := validator.ValidateDelete(context.Background(), obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nais.io/allowDeletion"))
 		})
 	})
 })

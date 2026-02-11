@@ -19,7 +19,7 @@ func (o *OpenSearch) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-nais-io-v1-opensearch,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=opensearches,verbs=create;update,versions=v1,name=vopensearch.nais.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nais-io-v1-opensearch,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=opensearches,verbs=create;update;delete,versions=v1,name=vopensearch.nais.io,admissionReviewVersions=v1
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *OpenSearchValidator) ValidateCreate(_ context.Context, obj *OpenSearch) (admission.Warnings, error) {
@@ -32,8 +32,11 @@ func (v *OpenSearchValidator) ValidateUpdate(_ context.Context, oldObj *OpenSear
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *OpenSearchValidator) ValidateDelete(_ context.Context, _ *OpenSearch) (admission.Warnings, error) {
-	// No validation needed for delete
+func (v *OpenSearchValidator) ValidateDelete(_ context.Context, obj *OpenSearch) (admission.Warnings, error) {
+	reason, ok := obj.CanBeDeleted()
+	if !ok {
+		return nil, fmt.Errorf("refusing deletion: %s", reason)
+	}
 	return nil, nil
 }
 

@@ -20,8 +20,10 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	kevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 )
 
 var (
@@ -682,6 +684,231 @@ var _ = Describe("OpenSearch Controller", func() {
 				By("verifying that ObservedGeneration matches the new generation")
 				Expect(updatedOpenSearch.Status.ObservedGeneration).To(Equal(updatedOpenSearch.Generation))
 			})
+		})
+	})
+
+	When("deleting an OpenSearch resource", Serial, Ordered, func() {
+		const (
+			deleteTestNamespace = "opensearch-delete-test"
+		)
+
+		var syncReconciler *synchronizer.Synchronizer[*v1.OpenSearch, OpenSearchPreparedData]
+
+		BeforeAll(func() {
+			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
+			opensearchReconciler := &OpenSearchReconciler{
+				Aiven: config.Aiven{
+					Project:                      "test-project",
+					ProjectVPCID:                 "test-vpc-id",
+					MetricsDestinationEndpointID: "test-metrics-service",
+				},
+				Tenant:   config.Tenant{Name: "test-tenant"},
+				Recorder: recorder,
+				Scheme:   scheme.Scheme,
+			}
+			syncReconciler = synchronizer.NewSynchronizer(k8sClient, scheme.Scheme, opensearchReconciler, recorder)
+
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: deleteTestNamespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+		})
+
+		It("should refuse deletion without allowDeletion annotation", func() {
+			opensearchName := "delete-no-annotation"
+			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+
+			By("creating and reconciling an OpenSearch resource")
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opensearchName,
+					Namespace: deleteTestNamespace,
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deleting the OpenSearch resource without the annotation")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
+
+			By("reconciling - should refuse deletion")
+			_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("refusing to delete"))
+
+			By("verifying the finalizer is still present (resource not deleted)")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(opensearch.GetFinalizers()).To(ContainElement("opensearch.nais.io/finalizer"))
+		})
+
+		It("should disable terminationProtection before deleting child resources", func() {
+			opensearchName := "delete-with-protection"
+			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+
+			By("creating and reconciling an OpenSearch resource")
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opensearchName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the Aiven OpenSearch was created with terminationProtection=true")
+			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
+			Expect(aivenOpenSearch.Spec.TerminationProtection).NotTo(BeNil())
+			Expect(*aivenOpenSearch.Spec.TerminationProtection).To(BeTrue())
+
+			By("deleting the OpenSearch resource")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
+
+			By("reconciling - should disable terminationProtection and requeue")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			By("verifying terminationProtection was disabled on the Aiven resource")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
+			Expect(*aivenOpenSearch.Spec.TerminationProtection).To(BeFalse())
+
+			By("verifying the finalizer is still present")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(opensearch.GetFinalizers()).To(ContainElement("opensearch.nais.io/finalizer"))
+
+			By("reconciling again - should now delete child resources and remove finalizer")
+			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the Aiven OpenSearch resource was deleted")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("verifying the OpenSearch CR was garbage collected (finalizer removed)")
+			err = k8sClient.Get(ctx, opensearchKey, opensearch)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should skip terminationProtection dance when Aiven resource doesn't exist", func() {
+			opensearchName := "delete-no-aiven"
+			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+
+			By("creating an OpenSearch resource with the delete annotation")
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opensearchName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+
+			By("reconciling to add finalizer and create Aiven resource")
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("manually deleting the Aiven resource to simulate external deletion")
+			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, aivenOpenSearch)).To(Succeed())
+
+			By("deleting the OpenSearch CR")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
+
+			By("reconciling - should complete immediately since Aiven resource is gone")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the OpenSearch CR was garbage collected")
+			err = k8sClient.Get(ctx, opensearchKey, opensearch)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should delete when terminationProtection is already disabled", func() {
+			opensearchName := "delete-no-protection"
+			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+
+			By("creating and reconciling an OpenSearch resource")
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      opensearchName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("manually disabling terminationProtection")
+			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
+			aivenOpenSearch.Spec.TerminationProtection = ptr.To(false)
+			Expect(k8sClient.Update(ctx, aivenOpenSearch)).To(Succeed())
+
+			By("deleting the OpenSearch CR")
+			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
+
+			By("reconciling - should delete immediately (no requeue)")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the Aiven resource was deleted")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("verifying the OpenSearch CR was garbage collected")
+			err = k8sClient.Get(ctx, opensearchKey, opensearch)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 })
