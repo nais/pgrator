@@ -19,6 +19,23 @@ func makeCondition(value bool) meta_v1.ConditionStatus {
 	return meta_v1.ConditionFalse
 }
 
+// conditionsEqual returns true if two condition slices have the same content.
+func conditionsEqual(a, b []meta_v1.Condition) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Type != b[i].Type ||
+			a[i].Status != b[i].Status ||
+			a[i].Reason != b[i].Reason ||
+			a[i].Message != b[i].Message ||
+			!a[i].LastTransitionTime.Equal(&b[i].LastTransitionTime) {
+			return false
+		}
+	}
+	return true
+}
+
 func typePrefix(obj client.Object, scheme *runtime.Scheme) string {
 	gvk, err := apiutil.GVKForObject(obj, scheme)
 	if err != nil {

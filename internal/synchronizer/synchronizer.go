@@ -154,6 +154,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	finalizerFunc := controllerutil.AddFinalizer
 	var actions []action.Action
+	var deleteResult ctrl.Result
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
@@ -171,7 +172,13 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
 				return result, err
 			}
-			finalizerFunc = controllerutil.RemoveFinalizer
+			deleteResult = result
+			// Only remove the finalizer when the reconciler signals completion
+			// (zero result). A non-zero result means the deletion is still in
+			// progress and the reconciler expects to be called again.
+			if deleteResult.IsZero() {
+				finalizerFunc = controllerutil.RemoveFinalizer
+			}
 		}
 	} else {
 		obj.GetStatus().SetReconcilePhase("EvaluatingUpdate")
@@ -202,21 +209,26 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	s.UpdatingOwnership(actions, relatedObjects)
 
-	obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
-	if err = updateStatus(); err != nil {
-		if apierrors.IsConflict(err) {
-			logger.Info("conflict during status update in DetectingUnreferenced phase, requeuing")
-			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+	// Skip unreferenced resource detection during multi-phase deletion.
+	// When the reconciler requests a requeue, owned resources that are not
+	// yet referenced by actions should be preserved until the final phase.
+	if deleteResult.IsZero() {
+		obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
+		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
+		if err = updateStatus(); err != nil {
+			if apierrors.IsConflict(err) {
+				logger.Info("conflict during status update in DetectingUnreferenced phase, requeuing")
+				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
-	}
 
-	actions, err = s.DetectUnreferenced(ctx, obj, actions)
-	if err != nil {
-		logger.Error(err, "unable to detect unreferenced resources")
-		s.recorder.RecordErrorEvent(obj, "DetectUnreferenced", err)
-		return ctrl.Result{}, err
+		actions, err = s.DetectUnreferenced(ctx, obj, actions)
+		if err != nil {
+			logger.Error(err, "unable to detect unreferenced resources")
+			s.recorder.RecordErrorEvent(obj, "DetectUnreferenced", err)
+			return ctrl.Result{}, err
+		}
 	}
 
 	obj.GetStatus().SetReconcilePhase("PerformingActions")
@@ -234,6 +246,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		logger.Error(err, "failed to perform reconciliation")
 		s.recorder.RecordErrorEvent(obj, "PerformActions", err)
 		return result, err
+	}
+
+	// Preserve the result from Delete() if it requested a requeue
+	if !deleteResult.IsZero() {
+		result = deleteResult
 	}
 
 	if finalizerFunc(obj, finalizer) {

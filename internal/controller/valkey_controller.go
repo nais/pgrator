@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
@@ -11,8 +12,11 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -60,8 +64,13 @@ func (r *ValkeyReconciler) OwnedTypes() []reconciler.OwnedType {
 					if !ok1 || !ok2 {
 						return false
 					}
-					// We're only watching for status.state changes
-					return oldObj.Status.State != newObj.Status.State
+
+					if oldObj.Status.State != newObj.Status.State {
+						return true
+					}
+
+					// Watch for condition changes to detect terminationProtection propagation
+					return !conditionsEqual(oldObj.Status.Conditions, newObj.Status.Conditions)
 				},
 			},
 		},
@@ -111,22 +120,43 @@ func serviceIntegrationConditionGetter(_ client.Object, _ *runtime.Scheme) []met
 	return nil
 }
 
-func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	// TODO: refuse deletion if the resource does not have some annotation set
-	//  this should also be checked by a validating webhook for immediate feedback
-
-	var actions []action.Action
-
-	// TODO: terminationProtection is enabled;
-	//  the deletion process should:
-	//  - disable terminationProtection - requires Update action on the Valkey resource
-	//  - block (set a finalizer?) until aiven-operator has propagated the setting which we need to observe via the Valkey's status conditions
-	//  - once propagated (remove finalizer and) delete the child resources
-
-	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
-	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
+func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if reason, ok := obj.CanBeDeleted(); !ok {
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "DeletionRefused", reason)
+		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
+	}
 
 	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
+
+	// Check the current state of the Aiven resource
+	existing := relatedObjects.GetMatching(aivenValkey)
+	if existing == nil {
+		// Aiven resource doesn't exist; nothing to delete
+		return nil, ctrl.Result{}, nil
+	}
+
+	existingValkey := existing.(*aiven_v1alpha1.Valkey)
+
+	// Phase 1: Disable terminationProtection if still enabled
+	if existingValkey.Spec.TerminationProtection != nil && *existingValkey.Spec.TerminationProtection {
+		aivenValkey.Spec.TerminationProtection = ptr.To(false)
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DisablingTerminationProtection", "Disabling termination protection before deletion")
+		return []action.Action{action.Update(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder)}, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// Phase 2: Wait for the Aiven operator to propagate the terminationProtection change.
+	// The only indication is when the CheckRunning condition's lastTransitionTime is updated.
+	// TODO: consider comparing lastTransitionTime isAfter deletionTimestamp to avoid false positives from other updates?
+	checkRunning := meta.FindStatusCondition(existingValkey.Status.Conditions, "Running")
+	if checkRunning == nil || checkRunning.Reason != "CheckRunning" {
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "WaitingForPropagation", "Waiting for Aiven operator to confirm terminationProtection is disabled")
+		return nil, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// Phase 3: Propagation confirmed, delete child resources
+	var actions []action.Action
+	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
+	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
 	actions = append(actions, action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil

@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	kevents "k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
@@ -683,6 +685,257 @@ var _ = Describe("Valkey Controller", func() {
 				By("verifying that ObservedGeneration matches the new generation")
 				Expect(updatedValkey.Status.ObservedGeneration).To(Equal(updatedValkey.Generation))
 			})
+		})
+	})
+
+	When("deleting a Valkey resource", Serial, Ordered, func() {
+		const (
+			deleteTestNamespace = "valkey-delete-test"
+		)
+
+		var syncReconciler *synchronizer.Synchronizer[*v1.Valkey, ValkeyPreparedData]
+
+		BeforeAll(func() {
+			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
+			valkeyReconciler := &ValkeyReconciler{
+				Aiven: config.Aiven{
+					Project:                      "test-project",
+					ProjectVPCID:                 "test-vpc-id",
+					MetricsDestinationEndpointID: "test-metrics-service",
+				},
+				Tenant:   config.Tenant{Name: "test-tenant"},
+				Recorder: recorder,
+				Scheme:   scheme.Scheme,
+			}
+			syncReconciler = synchronizer.NewSynchronizer(k8sClient, scheme.Scheme, valkeyReconciler, recorder)
+
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: deleteTestNamespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+		})
+
+		It("should refuse deletion without allowDeletion annotation", func() {
+			valkeyName := "delete-no-annotation"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: deleteTestNamespace}
+
+			By("creating and reconciling a Valkey resource")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: deleteTestNamespace,
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deleting the Valkey resource without the annotation")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, valkey)).To(Succeed())
+
+			By("reconciling - should refuse deletion")
+			_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("refusing to delete"))
+
+			By("verifying the finalizer is still present (resource not deleted)")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(valkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
+		})
+
+		It("should disable terminationProtection before deleting child resources", func() {
+			valkeyName := "delete-with-protection"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: deleteTestNamespace}
+			aivenValkeyName := "valkey-" + deleteTestNamespace + "-" + valkeyName
+
+			By("creating and reconciling a Valkey resource")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the Aiven Valkey was created with terminationProtection=true")
+			aivenValkey := &aiven_v1alpha1.Valkey{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			Expect(aivenValkey.Spec.TerminationProtection).NotTo(BeNil())
+			Expect(*aivenValkey.Spec.TerminationProtection).To(BeTrue())
+
+			By("deleting the Valkey resource")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, valkey)).To(Succeed())
+
+			By("reconciling - should disable terminationProtection and requeue")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			By("verifying terminationProtection was disabled on the Aiven resource")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			Expect(*aivenValkey.Spec.TerminationProtection).To(BeFalse())
+
+			By("verifying the finalizer is still present")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(valkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
+
+			By("reconciling again - should wait for propagation (no Running condition yet)")
+			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+
+			By("verifying the finalizer is still present while waiting")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(valkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
+
+			By("simulating the Aiven operator confirming propagation via Running condition")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			aivenValkey.Status.Conditions = []metav1.Condition{
+				{
+					Type:               "Running",
+					Status:             metav1.ConditionTrue,
+					Reason:             "CheckRunning",
+					Message:            "Service is running",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, aivenValkey)).To(Succeed())
+
+			By("reconciling - should now delete child resources and remove finalizer")
+			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the Aiven Valkey resource was deleted")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("verifying the Valkey CR was garbage collected (finalizer removed)")
+			err = k8sClient.Get(ctx, valkeyKey, valkey)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should skip terminationProtection dance when Aiven resource doesn't exist", func() {
+			valkeyName := "delete-no-aiven"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: deleteTestNamespace}
+
+			By("creating a Valkey resource with the delete annotation")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+			By("reconciling to add finalizer and create Aiven resource")
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("manually deleting the Aiven resource to simulate external deletion")
+			aivenValkeyName := "valkey-" + deleteTestNamespace + "-" + valkeyName
+			aivenValkey := &aiven_v1alpha1.Valkey{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, aivenValkey)).To(Succeed())
+
+			By("deleting the Valkey CR")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, valkey)).To(Succeed())
+
+			By("reconciling - should complete immediately since Aiven resource is gone")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the Valkey CR was garbage collected")
+			err = k8sClient.Get(ctx, valkeyKey, valkey)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should delete when terminationProtection is already disabled", func() {
+			valkeyName := "delete-no-protection"
+			valkeyKey := types.NamespacedName{Name: valkeyName, Namespace: deleteTestNamespace}
+			aivenValkeyName := "valkey-" + deleteTestNamespace + "-" + valkeyName
+
+			By("creating and reconciling a Valkey resource")
+			valkey := &v1.Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      valkeyName,
+					Namespace: deleteTestNamespace,
+					Annotations: map[string]string{
+						api.AllowDeletionAnnotation: "true",
+					},
+				},
+				Spec: v1.ValkeySpec{
+					Tier:   v1.ValkeyTierSingleNode,
+					Memory: v1.ValkeyMemory4GB,
+				},
+			}
+			Expect(k8sClient.Create(ctx, valkey)).To(Succeed())
+
+			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("manually disabling terminationProtection and adding Running condition")
+			aivenValkey := &aiven_v1alpha1.Valkey{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			aivenValkey.Spec.TerminationProtection = ptr.To(false)
+			Expect(k8sClient.Update(ctx, aivenValkey)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
+			aivenValkey.Status.Conditions = []metav1.Condition{
+				{
+					Type:               "Running",
+					Status:             metav1.ConditionTrue,
+					Reason:             "CheckRunning",
+					Message:            "Service is running",
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, aivenValkey)).To(Succeed())
+
+			By("deleting the Valkey CR")
+			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, valkey)).To(Succeed())
+
+			By("reconciling - should delete immediately (no requeue)")
+			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			By("verifying the Aiven resource was deleted")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			By("verifying the Valkey CR was garbage collected")
+			err = k8sClient.Get(ctx, valkeyKey, valkey)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 })
