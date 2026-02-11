@@ -798,29 +798,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
 			Expect(valkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
 
-			By("reconciling again - should wait for propagation (no Running condition yet)")
-			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
-
-			By("verifying the finalizer is still present while waiting")
-			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())
-			Expect(valkey.GetFinalizers()).To(ContainElement("valkey.nais.io/finalizer"))
-
-			By("simulating the Aiven operator confirming propagation via Running condition")
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
-			aivenValkey.Status.Conditions = []metav1.Condition{
-				{
-					Type:               "Running",
-					Status:             metav1.ConditionTrue,
-					Reason:             "CheckRunning",
-					Message:            "Service is running",
-					LastTransitionTime: metav1.Now(),
-				},
-			}
-			Expect(k8sClient.Status().Update(ctx, aivenValkey)).To(Succeed())
-
-			By("reconciling - should now delete child resources and remove finalizer")
+			By("reconciling again - should now delete child resources and remove finalizer")
 			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
@@ -902,23 +880,11 @@ var _ = Describe("Valkey Controller", func() {
 			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("manually disabling terminationProtection and adding Running condition")
+			By("manually disabling terminationProtection")
 			aivenValkey := &aiven_v1alpha1.Valkey{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
 			aivenValkey.Spec.TerminationProtection = ptr.To(false)
 			Expect(k8sClient.Update(ctx, aivenValkey)).To(Succeed())
-
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenValkeyName, Namespace: deleteTestNamespace}, aivenValkey)).To(Succeed())
-			aivenValkey.Status.Conditions = []metav1.Condition{
-				{
-					Type:               "Running",
-					Status:             metav1.ConditionTrue,
-					Reason:             "CheckRunning",
-					Message:            "Service is running",
-					LastTransitionTime: metav1.Now(),
-				},
-			}
-			Expect(k8sClient.Status().Update(ctx, aivenValkey)).To(Succeed())
 
 			By("deleting the Valkey CR")
 			Expect(k8sClient.Get(ctx, valkeyKey, valkey)).To(Succeed())

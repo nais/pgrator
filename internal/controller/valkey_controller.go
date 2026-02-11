@@ -13,7 +13,6 @@ import (
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	core_v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -65,12 +64,8 @@ func (r *ValkeyReconciler) OwnedTypes() []reconciler.OwnedType {
 						return false
 					}
 
-					if oldObj.Status.State != newObj.Status.State {
-						return true
-					}
-
-					// Watch for condition changes to detect terminationProtection propagation
-					return !conditionsEqual(oldObj.Status.Conditions, newObj.Status.Conditions)
+					// We're only watching for status.state changes
+					return oldObj.Status.State != newObj.Status.State
 				},
 			},
 		},
@@ -144,16 +139,7 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 		return []action.Action{action.Update(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder)}, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	// Phase 2: Wait for the Aiven operator to propagate the terminationProtection change.
-	// The only indication is when the CheckRunning condition's lastTransitionTime is updated.
-	// TODO: consider comparing lastTransitionTime isAfter deletionTimestamp to avoid false positives from other updates?
-	checkRunning := meta.FindStatusCondition(existingValkey.Status.Conditions, "Running")
-	if checkRunning == nil || checkRunning.Reason != "CheckRunning" {
-		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "WaitingForPropagation", "Waiting for Aiven operator to confirm terminationProtection is disabled")
-		return nil, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
-
-	// Phase 3: Propagation confirmed, delete child resources
+	// Phase 2: terminationProtection disabled, delete child resources
 	var actions []action.Action
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
 	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
