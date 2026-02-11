@@ -121,6 +121,8 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
 	}
 
+	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
+
 	// Check the current state of the Aiven resource
 	existing := relatedObjects.GetMatching(aivenValkey)
 	if existing == nil {
@@ -141,8 +143,6 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 	var actions []action.Action
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
 	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
-
-	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
 	actions = append(actions, action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil
