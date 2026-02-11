@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 
+	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -240,7 +241,7 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 					Name:      "my-opensearch",
 					Namespace: "my-team",
 					Annotations: map[string]string{
-						"nais.io/allowDeletion": "true",
+						api.AllowDeletionAnnotation: "true",
 					},
 				},
 				Spec: OpenSearchSpec{
@@ -280,7 +281,7 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 					Name:      "my-opensearch",
 					Namespace: "my-team",
 					Annotations: map[string]string{
-						"nais.io/allowDeletion": "false",
+						api.AllowDeletionAnnotation: "false",
 					},
 				},
 				Spec: OpenSearchSpec{
