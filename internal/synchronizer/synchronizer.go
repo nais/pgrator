@@ -88,7 +88,7 @@ func (s *Synchronizer[T, P]) GetOwnerManager() ownership.OwnerManager {
 
 // TODO: consider refactoring this, especially the status updates (we should only update the status once; i.e. when the function actually returns) and the finalizer handling.
 //
-//gocyclo:ignore
+// nolint:gocyclo
 func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := logf.FromContext(ctx)
 
