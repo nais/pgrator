@@ -122,28 +122,32 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 	}
 
 	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
-
-	// Check the current state of the Aiven resource
 	existing := relatedObjects.GetMatching(aivenValkey)
 	if existing == nil {
-		// Aiven resource doesn't exist; nothing to delete
 		return nil, ctrl.Result{}, nil
 	}
 
-	existingValkey := existing.(*aiven_v1alpha1.Valkey)
+	existingValkey, ok := existing.(*aiven_v1alpha1.Valkey)
+	if !ok {
+		return nil, ctrl.Result{}, fmt.Errorf("unexpected type for existing Valkey: %T", existing)
+	}
 
-	// Phase 1: Disable terminationProtection if still enabled
 	if existingValkey.Spec.TerminationProtection != nil && *existingValkey.Spec.TerminationProtection {
 		existingValkey.Spec.TerminationProtection = ptr.To(false)
 		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DisablingTerminationProtection", "Disabling termination protection before deletion")
-		return []action.Action{action.Update(existingValkey, obj, aivenValkeyConditionGetter, r.Recorder)}, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+
+		actions := []action.Action{
+			action.Update(existingValkey, obj, aivenValkeyConditionGetter, r.Recorder),
+		}
+
+		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	// Phase 2: terminationProtection disabled, delete child resources
-	var actions []action.Action
 	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
-	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
-	actions = append(actions, action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
+	actions := []action.Action{
+		action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder),
+		action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder),
+	}
 
 	return actions, ctrl.Result{}, nil
 }
