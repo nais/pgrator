@@ -14,7 +14,7 @@ object:
     project: test-project
     plan: hobbyist
     projectVpcId: test-vpc-id
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: dev-team
       app: hobbyist-valkey

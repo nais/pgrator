@@ -1,3 +1,6 @@
 package api
 
-const DeploymentCorrelationIDAnnotation = "nais.io/deploymentCorrelationID"
+const (
+	AllowDeletionAnnotation           = "nais.io/allowDeletion"
+	DeploymentCorrelationIDAnnotation = "nais.io/deploymentCorrelationID"
+)

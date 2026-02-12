@@ -22,7 +22,7 @@ object:
     plan: hobbyist
     projectVpcId: test-vpc-id
     disk_space: 16GiB
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: dev-team
       app: hobbyist-opensearch

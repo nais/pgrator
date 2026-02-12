@@ -22,7 +22,7 @@ object:
     plan: business-16
     projectVpcId: test-vpc-id
     disk_space: 1050GiB
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: v3-team
       app: v3-opensearch

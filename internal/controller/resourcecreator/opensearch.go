@@ -76,12 +76,11 @@ func CreateAivenOpenSearchSpec(
 	}
 
 	aivenOpenSearch.Spec = aiven_v1alpha1.OpenSearchSpec{
-		Project:      aiven.Project,
-		Plan:         plan,
-		ProjectVPCID: aiven.ProjectVPCID,
-		DiskSpace:    strconv.Itoa(opensearch.Spec.StorageGB) + "GiB",
-		// Disable termination protection because Nais API will just set it to false before deleting
-		TerminationProtection: ptr.To(false),
+		Project:               aiven.Project,
+		Plan:                  plan,
+		ProjectVPCID:          aiven.ProjectVPCID,
+		DiskSpace:             strconv.Itoa(opensearch.Spec.StorageGB) + "GiB",
+		TerminationProtection: ptr.To(true),
 		Tags: map[string]string{
 			"team":   opensearch.GetNamespace(),
 			"app":    opensearch.GetName(),

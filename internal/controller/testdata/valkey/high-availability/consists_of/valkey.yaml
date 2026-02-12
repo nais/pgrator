@@ -14,7 +14,7 @@ object:
     project: test-project
     plan: business-8
     projectVpcId: test-vpc-id
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: production-team
       app: ha-valkey

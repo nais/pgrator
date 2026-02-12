@@ -208,6 +208,12 @@ func (o *OpenSearch) aivenPlanConfig() (*openSearchPlanConfig, error) {
 	return &config, nil
 }
 
+func (o *OpenSearch) CanBeDeleted() (string, bool) {
+	allowDeletion, ok := o.GetAnnotations()[api.AllowDeletionAnnotation]
+	reason := fmt.Sprintf("Deletion requires the annotation %q set to \"true\"", api.AllowDeletionAnnotation)
+	return reason, ok && allowDeletion == "true"
+}
+
 // +kubebuilder:object:root=true
 
 // OpenSearchList contains a list of OpenSearch

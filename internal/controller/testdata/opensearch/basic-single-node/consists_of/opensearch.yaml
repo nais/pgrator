@@ -22,7 +22,7 @@ object:
     plan: startup-4
     projectVpcId: test-vpc-id
     disk_space: 80GiB
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: my-team
       app: my-opensearch

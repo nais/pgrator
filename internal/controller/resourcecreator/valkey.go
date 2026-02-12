@@ -70,11 +70,10 @@ func CreateAivenValkeySpec(
 	}
 
 	aivenValkey.Spec = aiven_v1alpha1.ValkeySpec{
-		Project:      aiven.Project,
-		Plan:         plan,
-		ProjectVPCID: aiven.ProjectVPCID,
-		// Disable termination protection because Nais API will just set it to false before deleting
-		TerminationProtection: ptr.To(false),
+		Project:               aiven.Project,
+		Plan:                  plan,
+		ProjectVPCID:          aiven.ProjectVPCID,
+		TerminationProtection: ptr.To(true),
 		Tags: map[string]string{
 			"team":   valkey.GetNamespace(),
 			"app":    valkey.GetName(),

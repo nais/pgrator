@@ -22,7 +22,7 @@ object:
     plan: business-8
     projectVpcId: test-vpc-id
     disk_space: 525GiB
-    terminationProtection: false
+    terminationProtection: true
     tags:
       team: production-team
       app: ha-opensearch

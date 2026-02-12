@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
@@ -11,8 +12,10 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	core_v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -111,14 +114,39 @@ func openSearchServiceIntegrationConditionGetter(_ client.Object, _ *runtime.Sch
 	return nil
 }
 
-func (r *OpenSearchReconciler) Delete(obj *v1.OpenSearch, _ OpenSearchPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	var actions []action.Action
-
-	serviceIntegration := resourcecreator.MinimalOpenSearchServiceIntegration(obj)
-	actions = append(actions, action.DeleteIfExists(serviceIntegration, obj, openSearchServiceIntegrationConditionGetter, r.Recorder))
+func (r *OpenSearchReconciler) Delete(obj *v1.OpenSearch, _ OpenSearchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if reason, ok := obj.CanBeDeleted(); !ok {
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "DeletionRefused", reason)
+		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
+	}
 
 	aivenOpenSearch := resourcecreator.MinimalAivenOpenSearch(obj)
-	actions = append(actions, action.DeleteIfExists(aivenOpenSearch, obj, aivenOpenSearchConditionGetter, r.Recorder))
+	existing := relatedObjects.GetMatching(aivenOpenSearch)
+	if existing == nil {
+		return nil, ctrl.Result{}, nil
+	}
+
+	existingOpenSearch, ok := existing.(*aiven_v1alpha1.OpenSearch)
+	if !ok {
+		return nil, ctrl.Result{}, fmt.Errorf("unexpected type for existing OpenSearch: %T", existing)
+	}
+
+	if existingOpenSearch.Spec.TerminationProtection != nil && *existingOpenSearch.Spec.TerminationProtection {
+		existingOpenSearch.Spec.TerminationProtection = ptr.To(false)
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DisablingTerminationProtection", "Disabling termination protection before deletion")
+
+		actions := []action.Action{
+			action.Update(existingOpenSearch, obj, aivenOpenSearchConditionGetter, r.Recorder),
+		}
+
+		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	serviceIntegration := resourcecreator.MinimalOpenSearchServiceIntegration(obj)
+	actions := []action.Action{
+		action.DeleteIfExists(serviceIntegration, obj, openSearchServiceIntegrationConditionGetter, r.Recorder),
+		action.DeleteIfExists(aivenOpenSearch, obj, aivenOpenSearchConditionGetter, r.Recorder),
+	}
 
 	return actions, ctrl.Result{}, nil
 }
