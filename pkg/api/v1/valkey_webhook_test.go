@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
@@ -36,8 +37,7 @@ var _ = Describe("Valkey Webhook Validation", func() {
 		It("should allow name at exactly the max length", func() {
 			namespace := "my-team"
 			// max = 63 - 8 - len("my-team") = 48
-			name := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			Expect(name).To(HaveLen(48))
+			name := strings.Repeat("a", 48)
 
 			valkey := &Valkey{
 				ObjectMeta: metav1.ObjectMeta{
@@ -57,8 +57,7 @@ var _ = Describe("Valkey Webhook Validation", func() {
 		It("should reject name that is too long", func() {
 			namespace := "my-team"
 			// max = 63 - 8 - len("my-team") = 48, so 49 should fail
-			name := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			Expect(name).To(HaveLen(49))
+			name := strings.Repeat("a", 49)
 
 			valkey := &Valkey{
 				ObjectMeta: metav1.ObjectMeta{

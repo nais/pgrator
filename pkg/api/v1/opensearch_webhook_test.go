@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
@@ -56,8 +57,8 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 			Entry("HighAvailability storage with 30GB increment",
 				"my-opensearch", "my-team",
 				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 270),
-			Entry("Name is at max length (63-len('opensearch-')-len(namespace))=44 for generated service name",
-				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "my-team",
+			Entry("Name is at max length (63-len('opensearch-')-len(namespace))=44",
+				strings.Repeat("a", 44), "my-team",
 				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80),
 		)
 
@@ -108,8 +109,8 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 				"my-opensearch", "my-team",
 				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 250,
 				"storage must be in increments of 30GB"),
-			Entry("Name exceeds max length (63-len('opensearch-')-len(namespace))=48",
-				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "my-team",
+			Entry("Name exceeds max length (63-len('opensearch-')-len(namespace))=44",
+				strings.Repeat("a", 45), "my-team",
 				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
 				"metadata.name is too long; max length is 44 characters"),
 		)

@@ -45,10 +45,12 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 
 	// Validate name length for generated Aiven service name
 	// Format: opensearch-{namespace}-{name} must be <= 63 characters
-	// "opensearch-" is 11 characters, "-" is 1 character = 12 characters overhead
-	maxNameLength := 63 - 12 - len(o.GetNamespace())
+	maxNameLength := 63 - len("opensearch-") - len(o.GetNamespace()) - len("-")
+	if maxNameLength <= 0 {
+		return nil, fmt.Errorf("metadata.namespace is too long; cannot construct service name \"opensearch-%s-%s\" within 63 characters", o.GetNamespace(), o.GetName())
+	}
 	if len(o.GetName()) > maxNameLength {
-		errs = append(errs, fmt.Sprintf("metadata.name is too long; max length is %d characters (generated service name would exceed 63 characters)", maxNameLength))
+		errs = append(errs, fmt.Sprintf("metadata.name is too long; max length is %d characters", maxNameLength))
 	}
 
 	// Validate version is known

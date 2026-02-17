@@ -24,8 +24,10 @@ func (v *Valkey) SetupWebhookWithManager(mgr ctrl.Manager) error {
 func (v *ValkeyValidator) ValidateCreate(_ context.Context, obj *Valkey) (admission.Warnings, error) {
 	// Validate name length for generated Aiven service name
 	// Format: valkey-{namespace}-{name} must be <= 63 characters
-	// "valkey-" is 7 characters, "-" is 1 character = 8 characters overhead
-	maxNameLength := 63 - 8 - len(obj.GetNamespace())
+	maxNameLength := 63 - len("valkey-") - len(obj.GetNamespace()) - len("-")
+	if maxNameLength <= 0 {
+		return nil, fmt.Errorf("metadata.namespace is too long; cannot construct service name \"valkey-%s-%s\" within 63 characters", obj.GetNamespace(), obj.GetName())
+	}
 	if len(obj.GetName()) > maxNameLength {
 		return nil, fmt.Errorf("metadata.name is too long; max length is %d characters", maxNameLength)
 	}
