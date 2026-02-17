@@ -154,9 +154,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// Install ValidatingAdmissionPolicy for Valkey name validation
+	// Install ValidatingAdmissionPolicies
 	err = installAdmissionPolicies(ctx, k8sClient)
 	Expect(err).NotTo(HaveOccurred())
+
 	recorder = events.NewRecorder(kevents.NewFakeRecorder(1000))
 	Expect(recorder).NotTo(BeNil())
 

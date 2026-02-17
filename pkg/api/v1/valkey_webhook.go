@@ -18,10 +18,17 @@ func (v *Valkey) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-nais-io-v1-valkey,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=valkeys,verbs=delete,versions=v1,name=vvalkey.nais.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nais-io-v1-valkey,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=valkeys,verbs=create;delete,versions=v1,name=vvalkey.nais.io,admissionReviewVersions=v1
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *ValkeyValidator) ValidateCreate(_ context.Context, _ *Valkey) (admission.Warnings, error) {
+func (v *ValkeyValidator) ValidateCreate(_ context.Context, obj *Valkey) (admission.Warnings, error) {
+	// Validate name length for generated Aiven service name
+	// Format: valkey-{namespace}-{name} must be <= 63 characters
+	// "valkey-" is 7 characters, "-" is 1 character = 8 characters overhead
+	maxNameLength := 63 - 8 - len(obj.GetNamespace())
+	if len(obj.GetName()) > maxNameLength {
+		return nil, fmt.Errorf("metadata.name is too long; max length is %d characters", maxNameLength)
+	}
 	return nil, nil
 }
 
