@@ -1,0 +1,79 @@
+# These validating admission policies are designed to protect pgrator-managed Aiven Valkey and OpenSearch resources
+# (i.e. owned by a valkey.nais.io or opensearch.nais.io resource) from being modified or deleted by human users or
+# team service accounts (`system:serviceaccount:<namespace>:serviceuser-<namespace>`).
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: protect-nais-valkeys
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["aiven.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["DELETE", "UPDATE"]
+        resources: ["valkeys"]
+  matchConditions:
+    - name: "match-team-serviceuser-and-humans"
+      expression: |
+        request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':serviceuser-' + request.namespace ||
+        !request.userInfo.username.startsWith('system:serviceaccount:')
+  validations:
+    - expression: |
+        oldObject == null ||
+        !has(oldObject.metadata.labels) ||
+        !('valkey.nais.io/name' in oldObject.metadata.labels)
+      messageExpression: |
+        oldObject.metadata.name + " can only be modified through Nais Console."
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: protect-nais-valkeys
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  policyName: protect-nais-valkeys
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: protect-nais-opensearches
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["aiven.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["DELETE", "UPDATE"]
+        resources: ["opensearches"]
+  matchConditions:
+    - name: "match-team-serviceuser-and-humans"
+      expression: |
+        request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':serviceuser-' + request.namespace ||
+        !request.userInfo.username.startsWith('system:serviceaccount:')
+  validations:
+    - expression: |
+        oldObject == null ||
+        !has(oldObject.metadata.labels) ||
+        !('opensearch.nais.io/name' in oldObject.metadata.labels)
+      messageExpression: |
+        oldObject.metadata.name + " can only be modified through Nais Console."
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: protect-nais-opensearches
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  policyName: protect-nais-opensearches
+  validationActions: [Deny]
