@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
@@ -31,6 +32,65 @@ var _ = Describe("Valkey Webhook Validation", func() {
 
 			_, err := validator.ValidateCreate(context.Background(), valkey)
 			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should allow name at exactly the max length", func() {
+			namespace := "my-team"
+			// max = 63 - 8 - len("my-team") = 48
+			name := strings.Repeat("a", 48)
+
+			valkey := &Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: ValkeySpec{
+					Tier:   ValkeyTierSingleNode,
+					Memory: ValkeyMemory4GB,
+				},
+			}
+
+			_, err := validator.ValidateCreate(context.Background(), valkey)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should reject name that is too long", func() {
+			namespace := "my-team"
+			// max = 63 - 8 - len("my-team") = 48, so 49 should fail
+			name := strings.Repeat("a", 49)
+
+			valkey := &Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: ValkeySpec{
+					Tier:   ValkeyTierSingleNode,
+					Memory: ValkeyMemory4GB,
+				},
+			}
+
+			_, err := validator.ValidateCreate(context.Background(), valkey)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("metadata.name is too long"))
+		})
+
+		It("should reject resource when namespace is excessively long", func() {
+			// Choose a namespace long enough that maxNameLength becomes zero or negative
+			// maxNameLength = 63 - 8 - len(namespace); len(namespace) = 60 => maxNameLength = -5
+			namespace := strings.Repeat("n", 60)
+			valkey := &Valkey{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "valkey",
+					Namespace: namespace,
+				},
+				Spec: ValkeySpec{
+					Tier:   ValkeyTierSingleNode,
+					Memory: ValkeyMemory4GB,
+				},
+			}
+			_, err := validator.ValidateCreate(context.Background(), valkey)
+			Expect(err).To(HaveOccurred())
 		})
 	})
 

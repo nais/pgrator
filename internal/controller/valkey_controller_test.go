@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,63 +32,6 @@ var (
 )
 
 var _ = Describe("Valkey Controller", func() {
-	Describe("ValidatingAdmissionPolicy", func() {
-		It("should reject valkey with name too long for generated service name", func() {
-			// The generated Valkey service name is "valkey-{namespace}-{name}"
-			// which must be <= 63 characters. With "valkey-" (7 chars) and "-" (1 char),
-			// name + namespace must be <= 55 characters.
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-admission-ns",
-				},
-			}
-			err := k8sClient.Create(ctx, namespace)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Create a name that's too long: namespace (17) + name (40) = 57 > 55
-			longName := strings.Repeat("a", 40)
-			valkey := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      longName,
-					Namespace: namespace.Name,
-				},
-				Spec: v1.ValkeySpec{
-					Tier:   v1.ValkeyTierSingleNode,
-					Memory: v1.ValkeyMemory4GB,
-				},
-			}
-
-			err = k8sClient.Create(ctx, valkey)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("metadata.name is too long"))
-		})
-
-		It("should accept valkey with name that fits within service name limit", func() {
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-admission-ok",
-				},
-			}
-			err := k8sClient.Create(ctx, namespace)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Create a name that fits: namespace (17) + name (10) = 27 <= 55
-			valkey := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "short-name",
-					Namespace: namespace.Name,
-				},
-				Spec: v1.ValkeySpec{
-					Tier:   v1.ValkeyTierSingleNode,
-					Memory: v1.ValkeyMemory4GB,
-				},
-			}
-
-			err = k8sClient.Create(ctx, valkey)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
 	Describe("CreateAivenValkeySpec", func() {
 		const (
 			testValkeyName = "my-valkey"
