@@ -26,6 +26,7 @@ func ExampleValkeyForDocumentation() api.NaisObject {
 			Persistence: &ValkeyPersistence{
 				Disabled: true,
 			},
+			Databases: new(16),
 		},
 	}
 }

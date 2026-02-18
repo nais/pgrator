@@ -95,7 +95,9 @@ func CreateAivenValkeySpec(
 }
 
 func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
-	userConfig := aiven_v1alpha1.ValkeyUserConfig{}
+	userConfig := aiven_v1alpha1.ValkeyUserConfig{
+		ValkeyNumberOfDatabases: valkey.Spec.Databases,
+	}
 
 	if valkey.Spec.MaxMemoryPolicy != "" {
 		userConfig.ValkeyMaxmemoryPolicy = new(string(valkey.Spec.MaxMemoryPolicy))

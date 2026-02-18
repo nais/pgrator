@@ -30,3 +30,4 @@ object:
       valkey_maxmemory_policy: volatile-lru
       valkey_notify_keyspace_events: KEA
       valkey_persistence: "off"
+      valkey_number_of_databases: 32
