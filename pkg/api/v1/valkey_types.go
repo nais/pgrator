@@ -96,6 +96,13 @@ type ValkeySpec struct {
 	// Persistence controls persistence and backup settings.
 	// +optional
 	Persistence *ValkeyPersistence `json:"persistence,omitempty"`
+
+	// Databases defines the number of logical databases for the Valkey instance. The default is 16.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=128
+	// +kubebuilder:default=16
+	Databases *int `json:"databases,omitempty"`
 }
 
 type ValkeyPersistence struct {

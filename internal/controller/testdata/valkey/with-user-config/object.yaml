@@ -13,3 +13,4 @@ spec:
   notifyKeyspaceEvents: KEA
   persistence:
     disabled: true
+  databases: 32

@@ -132,6 +132,7 @@ var _ = Describe("Valkey Controller", func() {
 					Persistence: &v1.ValkeyPersistence{
 						Disabled: true,
 					},
+					Databases: new(32),
 				},
 			}
 
@@ -143,6 +144,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(*result.Spec.UserConfig.ValkeyMaxmemoryPolicy).To(Equal("allkeys-lfu"))
 			Expect(*result.Spec.UserConfig.ValkeyNotifyKeyspaceEvents).To(Equal("Ex"))
 			Expect(*result.Spec.UserConfig.ValkeyPersistence).To(Equal("off"))
+			Expect(*result.Spec.UserConfig.ValkeyNumberOfDatabases).To(Equal(32))
 		})
 
 		It("should preserve labels from source valkey", func() {

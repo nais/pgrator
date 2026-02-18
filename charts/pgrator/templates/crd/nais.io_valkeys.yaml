@@ -54,6 +54,12 @@ spec:
             spec:
               description: spec defines the desired state of Valkey
               properties:
+                databases:
+                  default: 16
+                  description: Databases defines the number of logical databases for the Valkey instance. The default is 16.
+                  maximum: 128
+                  minimum: 1
+                  type: integer
                 maxMemoryPolicy:
                   description: MaxMemoryPolicy defines the maximum memory policy for the Valkey instance
                   enum:
