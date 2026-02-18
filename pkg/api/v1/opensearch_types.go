@@ -144,6 +144,51 @@ type OpenSearchSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=16
 	StorageGB int `json:"storageGB"`
+
+	// TODO: reconsider the naming of this setting
+	// ShardIndexingPressure controls the shard indexing back pressure settings.
+	// +optional
+	ShardIndexingPressure *OpenSearchShardIndexingPressure `json:"shardIndexingPressure,omitempty"`
+
+	// Indices controls index settings for the OpenSearch instance.
+	// +optional
+	Indices *OpenSearchIndices `json:"indices,omitempty"`
+
+	// Http controls HTTP settings for the OpenSearch instance.
+	// +optional
+	Http *OpenSearchHttp `json:"http,omitempty"`
+}
+
+type OpenSearchShardIndexingPressure struct {
+	// Enable or disable shard indexing backpressure. Default is false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+	// Run shard indexing backpressure in shadow mode or enforced mode.
+	// In shadow mode (value set as false), shard indexing backpressure tracks all granular-level metrics, but it
+	// doesn’t actually reject any indexing requests. In enforced mode (value set as true), shard indexing backpressure
+	// rejects any requests to the cluster that might cause a dip in its performance.
+	// +optional
+	Enforced bool `json:"enforced,omitempty"`
+}
+
+type OpenSearchIndices struct {
+	// TODO: reconsider exposing this setting; check with users that have this set
+	// Maximum number of clauses Lucene BooleanQuery can have. The default value (1024) is relatively high,
+	// and increasing it may cause performance issues. Investigate other approaches first before increasing this value.
+	// +kubebuilder:validation:Minimum=64
+	// +kubebuilder:validation:Maximum=4096
+	// +kubebuilder:default=1024
+	// +optional
+	QueryBoolMaxClauseCount *int `json:"queryBoolMaxClauseCount,omitempty"`
+}
+
+type OpenSearchHttp struct {
+	// TODO: reconsider exposing this setting; check with users that have this set
+	// Maximum content length for HTTP requests to the OpenSearch HTTP API, in bytes. Default to 100mb (104857600 bytes).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483647
+	// +optional
+	MaxContentLength *int `json:"maxContentLength,omitempty"`
 }
 
 // OpenSearchStatus defines the observed state of OpenSearch.

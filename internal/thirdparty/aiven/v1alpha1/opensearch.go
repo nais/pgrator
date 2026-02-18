@@ -195,6 +195,15 @@ type OpenSearchPublicAccess struct {
 	Prometheus *bool `json:"prometheus,omitempty"`
 }
 
+// OpenSearchShardIndexingPressure contains shard indexing backpressure settings
+type OpenSearchShardIndexingPressure struct {
+	// Enable or disable shard indexing backpressure
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Run shard indexing backpressure in shadow mode or enforced mode
+	Enforced *bool `json:"enforced,omitempty"`
+}
+
 // OpenSearchSettings contains OpenSearch-specific settings
 type OpenSearchSettings struct {
 	// action.auto_create_index setting
@@ -238,6 +247,9 @@ type OpenSearchSettings struct {
 
 	// search.max_buckets setting
 	SearchMaxBuckets *int `json:"search_max_buckets,omitempty"`
+
+	// shard_indexing_pressure settings
+	ShardIndexingPressure *OpenSearchShardIndexingPressure `json:"shard_indexing_pressure,omitempty"`
 
 	// thread_pool.analyze.queue_size setting
 	ThreadPoolAnalyzeQueueSize *int `json:"thread_pool_analyze_queue_size,omitempty"`
