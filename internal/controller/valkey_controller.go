@@ -11,6 +11,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
+	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	core_v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -117,7 +118,7 @@ func serviceIntegrationConditionGetter(_ client.Object, _ *runtime.Scheme) []met
 
 func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	if reason, ok := obj.CanBeDeleted(); !ok {
-		r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "DeletionRefused", reason)
+		r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "DeletionRefused", "Deletion requires the annotation %q set to \"true\"", api.AllowDeletionAnnotation)
 		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
 	}
 
