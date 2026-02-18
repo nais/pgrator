@@ -92,6 +92,18 @@ type ValkeySpec struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[KEg$lshztdxemnA]*$`
 	NotifyKeyspaceEvents string `json:"notifyKeyspaceEvents,omitempty"`
+
+	// Persistence controls persistence and backup settings.
+	// +optional
+	Persistence *ValkeyPersistence `json:"persistence,omitempty"`
+}
+
+type ValkeyPersistence struct {
+	// Disabled indicates whether persistence (i.e. RDB dumps and backups) should be disabled for the Valkey instance.
+	// If true, the Valkey instance will not perform RDB dumps and backups. All data will be lost if the instance is restarted for any reason.
+	// Defaults to false.
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // ValkeyStatus defines the observed state of Valkey.

@@ -56,7 +56,7 @@ func NewSynchronizer[T api.NaisObject, P any](k8sClient client.Client, scheme *r
 }
 
 func findRelevantListTypes[T api.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
-	relevantTypes := make([]client.Object, 0)
+	relevantTypes := make([]client.Object, 0, len(r.OwnedTypes())+len(r.AdditionalTypes()))
 	for _, ownedType := range r.OwnedTypes() {
 		relevantTypes = append(relevantTypes, ownedType.Type)
 	}

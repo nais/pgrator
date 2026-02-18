@@ -4,7 +4,7 @@ PGRATOR_IMAGE = "europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest
 PGRATOR_TTL_IMAGE = "ttl.sh/pgrator:1h"
 
 [tools]
-golangci-lint = "2.4.0"
+golangci-lint = "2.10.1"
 kube-controller-tools = "0.19.0"
 setup-envtest = """
 {%- set tool = '"\\ssigs.k8s.io/controller-runtime\\s"' -%}

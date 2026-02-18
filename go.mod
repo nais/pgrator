@@ -1,6 +1,6 @@
 module github.com/nais/pgrator
 
-go 1.25.6
+go 1.26.0
 
 tool (
 	github.com/onsi/ginkgo/v2/ginkgo
