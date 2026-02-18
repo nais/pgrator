@@ -23,6 +23,9 @@ func ExampleValkeyForDocumentation() api.NaisObject {
 			Memory:               ValkeyMemory1GB,
 			MaxMemoryPolicy:      ValkeyMaxMemoryPolicyNoEviction,
 			NotifyKeyspaceEvents: "KEA",
+			Persistence: &ValkeyPersistence{
+				Disabled: true,
+			},
 		},
 	}
 }

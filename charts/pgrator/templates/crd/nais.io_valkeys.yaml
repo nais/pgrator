@@ -82,6 +82,16 @@ spec:
                   description: Configure keyspace notifications for the Valkey instance. See https://valkey.io/topics/notifications/ for details.
                   pattern: ^[KEg$lshztdxemnA]*$
                   type: string
+                persistence:
+                  description: Persistence controls persistence and backup settings.
+                  properties:
+                    disabled:
+                      description: |-
+                        Disabled indicates whether persistence (i.e. RDB dumps and backups) should be disabled for the Valkey instance.
+                        If true, the Valkey instance will not perform RDB dumps and backups. All data will be lost if the instance is restarted for any reason.
+                        Defaults to false.
+                      type: boolean
+                  type: object
                 tier:
                   description: Tier defines the tier of the Valkey instance
                   enum:

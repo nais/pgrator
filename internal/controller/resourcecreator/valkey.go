@@ -3,6 +3,7 @@ package resourcecreator
 import (
 	"fmt"
 	"maps"
+	"reflect"
 
 	"github.com/nais/pgrator/internal/config"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
@@ -81,18 +82,7 @@ func CreateAivenValkeySpec(
 		},
 	}
 
-	if valkey.Spec.MaxMemoryPolicy != "" || valkey.Spec.NotifyKeyspaceEvents != "" {
-		userConfig := &aiven_v1alpha1.ValkeyUserConfig{}
-
-		if valkey.Spec.MaxMemoryPolicy != "" {
-			policy := string(valkey.Spec.MaxMemoryPolicy)
-			userConfig.ValkeyMaxmemoryPolicy = &policy
-		}
-
-		if valkey.Spec.NotifyKeyspaceEvents != "" {
-			userConfig.ValkeyNotifyKeyspaceEvents = &valkey.Spec.NotifyKeyspaceEvents
-		}
-
+	if userConfig := aivenValkeyUserConfig(valkey); userConfig != nil {
 		aivenValkey.Spec.UserConfig = userConfig
 	}
 
@@ -102,6 +92,27 @@ func CreateAivenValkeySpec(
 	}
 
 	return aivenValkey, nil
+}
+
+func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
+	userConfig := aiven_v1alpha1.ValkeyUserConfig{}
+
+	if valkey.Spec.MaxMemoryPolicy != "" {
+		userConfig.ValkeyMaxmemoryPolicy = new(string(valkey.Spec.MaxMemoryPolicy))
+	}
+
+	if valkey.Spec.NotifyKeyspaceEvents != "" {
+		userConfig.ValkeyNotifyKeyspaceEvents = &valkey.Spec.NotifyKeyspaceEvents
+	}
+
+	if valkey.Spec.Persistence != nil && valkey.Spec.Persistence.Disabled {
+		userConfig.ValkeyPersistence = new("off")
+	}
+
+	if reflect.DeepEqual(userConfig, aiven_v1alpha1.ValkeyUserConfig{}) {
+		return nil
+	}
+	return &userConfig
 }
 
 // MinimalServiceIntegration creates a minimal ServiceIntegration object for use in delete operations

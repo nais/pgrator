@@ -129,6 +129,9 @@ var _ = Describe("Valkey Controller", func() {
 					Memory:               v1.ValkeyMemory14GB,
 					MaxMemoryPolicy:      v1.ValkeyMaxMemoryPolicyAllkeysLFU,
 					NotifyKeyspaceEvents: "Ex",
+					Persistence: &v1.ValkeyPersistence{
+						Disabled: true,
+					},
 				},
 			}
 
@@ -139,6 +142,7 @@ var _ = Describe("Valkey Controller", func() {
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
 			Expect(*result.Spec.UserConfig.ValkeyMaxmemoryPolicy).To(Equal("allkeys-lfu"))
 			Expect(*result.Spec.UserConfig.ValkeyNotifyKeyspaceEvents).To(Equal("Ex"))
+			Expect(*result.Spec.UserConfig.ValkeyPersistence).To(Equal("off"))
 		})
 
 		It("should preserve labels from source valkey", func() {

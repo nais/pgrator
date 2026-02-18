@@ -11,3 +11,5 @@ spec:
   memory: 14GB
   maxMemoryPolicy: volatile-lru
   notifyKeyspaceEvents: KEA
+  persistence:
+    disabled: true
