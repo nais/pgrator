@@ -44,8 +44,8 @@ func (in *OpenSearchHttp) DeepCopyInto(out *OpenSearchHttp) {
 	*out = *in
 	if in.MaxContentLength != nil {
 		in, out := &in.MaxContentLength, &out.MaxContentLength
-		*out = new(int)
-		**out = **in
+		x := (*in).DeepCopy()
+		*out = &x
 	}
 }
 

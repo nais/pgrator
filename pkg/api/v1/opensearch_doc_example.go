@@ -2,6 +2,7 @@ package v1
 
 import (
 	"github.com/nais/pgrator/pkg/api"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -31,7 +32,7 @@ func ExampleOpenSearchForDocumentation() api.NaisObject {
 				QueryBoolMaxClauseCount: new(1024),
 			},
 			Http: &OpenSearchHttp{
-				MaxContentLength: new(104857600),
+				MaxContentLength: new(resource.MustParse("100Mi")),
 			},
 		},
 	}

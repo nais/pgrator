@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -166,10 +167,10 @@ var _ = Describe("OpenSearch Controller", func() {
 						Enforced: true,
 					},
 					Indices: &v1.OpenSearchIndices{
-						QueryBoolMaxClauseCount: ptr.To(2048),
+						QueryBoolMaxClauseCount: new(2048),
 					},
 					Http: &v1.OpenSearchHttp{
-						MaxContentLength: ptr.To(209715200),
+						MaxContentLength: new(resource.MustParse("200Mi")),
 					},
 				},
 			}

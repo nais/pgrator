@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/nais/pgrator/pkg/api"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -181,11 +182,12 @@ type OpenSearchIndices struct {
 }
 
 type OpenSearchHttp struct {
-	// Maximum content length for HTTP requests to the OpenSearch HTTP API, in bytes. Defaults to 100mb (104857600 bytes).
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=2147483647
+	// Maximum content length for HTTP requests to the OpenSearch HTTP API. Default is 100mb.
+	// The value is specified as a Kubernetes resource.Quantity, e.g. "100Mi", "1Gi".
+	// Unitless values are interpreted as bytes.
+	// Minimum value is 1 byte, maximum value is 2147483647 bytes (approximately 2047Mi).
 	// +optional
-	MaxContentLength *int `json:"maxContentLength,omitempty"`
+	MaxContentLength *resource.Quantity `json:"maxContentLength,omitempty"`
 }
 
 // OpenSearchStatus defines the observed state of OpenSearch.
