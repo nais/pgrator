@@ -120,8 +120,9 @@ func aivenOpenSearchSettings(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSear
 		settings.IndicesQueryBoolMaxClauseCount = opensearch.Spec.Indices.QueryBoolMaxClauseCount
 	}
 
-	if opensearch.Spec.Http != nil {
-		settings.HttpMaxContentLength = opensearch.Spec.Http.MaxContentLength
+	if opensearch.Spec.Http != nil && opensearch.Spec.Http.MaxContentLength != nil {
+		bytes := int(opensearch.Spec.Http.MaxContentLength.Value())
+		settings.HttpMaxContentLength = &bytes
 	}
 
 	if reflect.DeepEqual(settings, aiven_v1alpha1.OpenSearchSettings{}) {

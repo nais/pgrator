@@ -7,6 +7,7 @@ import (
 	"github.com/nais/pgrator/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -117,6 +118,64 @@ var _ = Describe("OpenSearch Webhook Validation", func() {
 				"my-opensearch", strings.Repeat("n", 60),
 				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
 				"metadata.namespace is too long"),
+		)
+
+		DescribeTable("valid http.maxContentLength configurations",
+			func(quantity string) {
+				q := resource.MustParse(quantity)
+				opensearch := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   OpenSearchVersionV2,
+						StorageGB: 80,
+						Http: &OpenSearchHttp{
+							MaxContentLength: &q,
+						},
+					},
+				}
+
+				_, err := validator.ValidateCreate(context.Background(), opensearch)
+				Expect(err).NotTo(HaveOccurred())
+			},
+			Entry("100Mi", "100Mi"),
+			Entry("1Gi", "1Gi"),
+			Entry("1", "1"),
+			Entry("just under 2Gi (2147483647 bytes)", "2147483647"),
+			Entry("2G", "2G"),
+			Entry("2047Mi", "2047Mi"),
+		)
+
+		DescribeTable("invalid http.maxContentLength configurations",
+			func(quantity string, expectedError string) {
+				q := resource.MustParse(quantity)
+				opensearch := &OpenSearch{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-opensearch",
+						Namespace: "my-team",
+					},
+					Spec: OpenSearchSpec{
+						Tier:      OpenSearchTierSingleNode,
+						Memory:    OpenSearchMemory4GB,
+						Version:   OpenSearchVersionV2,
+						StorageGB: 80,
+						Http: &OpenSearchHttp{
+							MaxContentLength: &q,
+						},
+					},
+				}
+
+				_, err := validator.ValidateCreate(context.Background(), opensearch)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedError))
+			},
+			Entry("0 bytes", "0", "http.maxContentLength must be at least 1 byte"),
+			Entry("exceeds max (3Gi)", "3Gi", "http.maxContentLength must be at most 2147483647 bytes"),
+			Entry("exactly 2Gi (exceeds int32 max)", "2Gi", "http.maxContentLength must be at most 2147483647 bytes"),
 		)
 	})
 

@@ -68,6 +68,17 @@ func (o *OpenSearch) validate() (admission.Warnings, error) {
 		errs = append(errs, storageErrs...)
 	}
 
+	// Validate http.maxContentLength bounds
+	if o.Spec.Http != nil && o.Spec.Http.MaxContentLength != nil {
+		bytes := o.Spec.Http.MaxContentLength.Value()
+		if bytes < 1 {
+			errs = append(errs, "http.maxContentLength must be at least 1 byte")
+		}
+		if bytes > 2147483647 {
+			errs = append(errs, "http.maxContentLength must be at most 2147483647 bytes (2047Mi or less)")
+		}
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
