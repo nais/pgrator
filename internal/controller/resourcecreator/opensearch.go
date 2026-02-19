@@ -3,6 +3,7 @@ package resourcecreator
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"strconv"
 
 	"github.com/nais/pgrator/internal/config"
@@ -75,6 +76,14 @@ func CreateAivenOpenSearchSpec(
 		return nil, err
 	}
 
+	userConfig := &aiven_v1alpha1.OpenSearchUserConfig{
+		OpenSearchVersion: &version,
+	}
+
+	if osSettings := aivenOpenSearchSettings(opensearch); osSettings != nil {
+		userConfig.OpenSearch = osSettings
+	}
+
 	aivenOpenSearch.Spec = aiven_v1alpha1.OpenSearchSpec{
 		Project:               aiven.Project,
 		Plan:                  plan,
@@ -86,9 +95,7 @@ func CreateAivenOpenSearchSpec(
 			"app":    opensearch.GetName(),
 			"tenant": tenant.Name,
 		},
-		UserConfig: &aiven_v1alpha1.OpenSearchUserConfig{
-			OpenSearchVersion: &version,
-		},
+		UserConfig: userConfig,
 	}
 
 	err = controllerutil.SetControllerReference(opensearch, aivenOpenSearch, scheme)
@@ -97,6 +104,30 @@ func CreateAivenOpenSearchSpec(
 	}
 
 	return aivenOpenSearch, nil
+}
+
+func aivenOpenSearchSettings(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSearchSettings {
+	settings := aiven_v1alpha1.OpenSearchSettings{}
+
+	if opensearch.Spec.ShardIndexingPressure != nil {
+		settings.ShardIndexingPressure = &aiven_v1alpha1.OpenSearchShardIndexingPressure{
+			Enabled:  &opensearch.Spec.ShardIndexingPressure.Enabled,
+			Enforced: &opensearch.Spec.ShardIndexingPressure.Enforced,
+		}
+	}
+
+	if opensearch.Spec.Indices != nil {
+		settings.IndicesQueryBoolMaxClauseCount = opensearch.Spec.Indices.QueryBoolMaxClauseCount
+	}
+
+	if opensearch.Spec.Http != nil {
+		settings.HttpMaxContentLength = opensearch.Spec.Http.MaxContentLength
+	}
+
+	if reflect.DeepEqual(settings, aiven_v1alpha1.OpenSearchSettings{}) {
+		return nil
+	}
+	return &settings
 }
 
 // MinimalOpenSearchServiceIntegration creates a minimal ServiceIntegration object for use in delete operations

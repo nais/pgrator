@@ -1,0 +1,20 @@
+---
+apiVersion: nais.io/v1
+kind: OpenSearch
+metadata:
+  name: configured-opensearch
+  namespace: config-team
+  labels:
+    team: config-team
+spec:
+  tier: SingleNode
+  memory: 4GB
+  version: "2"
+  storageGB: 80
+  shardIndexingPressure:
+    enabled: true
+    enforced: true
+  indices:
+    queryBoolMaxClauseCount: 2048
+  http:
+    maxContentLength: 209715200

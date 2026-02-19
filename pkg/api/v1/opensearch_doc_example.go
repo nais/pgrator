@@ -23,6 +23,16 @@ func ExampleOpenSearchForDocumentation() api.NaisObject {
 			Memory:    OpenSearchMemory4GB,
 			Version:   "3.3",
 			StorageGB: 80,
+			ShardIndexingPressure: &OpenSearchShardIndexingPressure{
+				Enabled:  true,
+				Enforced: false,
+			},
+			Indices: &OpenSearchIndices{
+				QueryBoolMaxClauseCount: new(1024),
+			},
+			Http: &OpenSearchHttp{
+				MaxContentLength: new(104857600),
+			},
 		},
 	}
 }

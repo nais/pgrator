@@ -59,6 +59,28 @@ spec:
           spec:
             description: spec defines the desired state of OpenSearch
             properties:
+              http:
+                description: Http controls HTTP settings for the OpenSearch instance.
+                properties:
+                  maxContentLength:
+                    description: Maximum content length for HTTP requests to the OpenSearch
+                      HTTP API, in bytes. Defaults to 100mb (104857600 bytes).
+                    maximum: 2147483647
+                    minimum: 1
+                    type: integer
+                type: object
+              indices:
+                description: Indices controls index settings for the OpenSearch instance.
+                properties:
+                  queryBoolMaxClauseCount:
+                    default: 1024
+                    description: |-
+                      Maximum number of clauses Lucene BooleanQuery can have. The default value (1024) is relatively high,
+                      and increasing it may cause performance issues. Investigate other approaches first before increasing this value.
+                    maximum: 4096
+                    minimum: 64
+                    type: integer
+                type: object
               memory:
                 description: Memory defines the available memory for the OpenSearch
                   instance
@@ -70,6 +92,22 @@ spec:
                 - 32GB
                 - 64GB
                 type: string
+              shardIndexingPressure:
+                description: ShardIndexingPressure controls the shard indexing back
+                  pressure settings.
+                properties:
+                  enabled:
+                    description: Enable or disable shard indexing backpressure. Default
+                      is false.
+                    type: boolean
+                  enforced:
+                    description: |-
+                      Run shard indexing backpressure in shadow mode or enforced mode.
+                      In shadow mode (value set as false), shard indexing backpressure tracks all granular-level metrics, but it
+                      doesn’t actually reject any indexing requests. In enforced mode (value set as true), shard indexing backpressure
+                      rejects any requests to the cluster that might cause a dip in its performance.
+                    type: boolean
+                type: object
               storageGB:
                 description: StorageGB defines the storage capacity in gigabytes
                 minimum: 16

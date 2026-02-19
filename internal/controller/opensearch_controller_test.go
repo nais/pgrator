@@ -129,6 +129,63 @@ var _ = Describe("OpenSearch Controller", func() {
 			Expect(*result.Spec.UserConfig.OpenSearchVersion).To(Equal("3.3"))
 		})
 
+		It("should not set opensearch settings when no optional fields are specified", func() {
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "basic-opensearch",
+					Namespace: "basic-team",
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+				},
+			}
+
+			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result.Spec.UserConfig).NotTo(BeNil())
+			Expect(result.Spec.UserConfig.OpenSearch).To(BeNil())
+		})
+
+		It("should set opensearch settings when optional fields are specified", func() {
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "configured-opensearch",
+					Namespace: "config-team",
+				},
+				Spec: v1.OpenSearchSpec{
+					Tier:      v1.OpenSearchTierSingleNode,
+					Memory:    v1.OpenSearchMemory4GB,
+					Version:   v1.OpenSearchVersionV2,
+					StorageGB: 80,
+					ShardIndexingPressure: &v1.OpenSearchShardIndexingPressure{
+						Enabled:  true,
+						Enforced: true,
+					},
+					Indices: &v1.OpenSearchIndices{
+						QueryBoolMaxClauseCount: ptr.To(2048),
+					},
+					Http: &v1.OpenSearchHttp{
+						MaxContentLength: ptr.To(209715200),
+					},
+				},
+			}
+
+			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(result.Spec.UserConfig).NotTo(BeNil())
+			Expect(result.Spec.UserConfig.OpenSearch).NotTo(BeNil())
+			Expect(result.Spec.UserConfig.OpenSearch.ShardIndexingPressure).NotTo(BeNil())
+			Expect(*result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enabled).To(BeTrue())
+			Expect(*result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enforced).To(BeTrue())
+			Expect(*result.Spec.UserConfig.OpenSearch.IndicesQueryBoolMaxClauseCount).To(Equal(2048))
+			Expect(*result.Spec.UserConfig.OpenSearch.HttpMaxContentLength).To(Equal(209715200))
+		})
+
 		It("should create hobbyist plan for 2GB memory", func() {
 			opensearch := &v1.OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
