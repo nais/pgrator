@@ -181,7 +181,7 @@ type OpenSearchIndices struct {
 }
 
 type OpenSearchHttp struct {
-	// Maximum content length for HTTP requests to the OpenSearch HTTP API, in bytes. Default to 100mb (104857600 bytes).
+	// Maximum content length for HTTP requests to the OpenSearch HTTP API, in bytes. Defaults to 100mb (104857600 bytes).
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=2147483647
 	// +optional
