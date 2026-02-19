@@ -64,7 +64,7 @@ spec:
                 properties:
                   maxContentLength:
                     description: Maximum content length for HTTP requests to the OpenSearch
-                      HTTP API, in bytes. Default to 100mb (104857600 bytes).
+                      HTTP API, in bytes. Defaults to 100mb (104857600 bytes).
                     maximum: 2147483647
                     minimum: 1
                     type: integer
