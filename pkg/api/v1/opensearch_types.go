@@ -145,7 +145,6 @@ type OpenSearchSpec struct {
 	// +kubebuilder:validation:Minimum=16
 	StorageGB int `json:"storageGB"`
 
-	// TODO: reconsider the naming of this setting
 	// ShardIndexingPressure controls the shard indexing back pressure settings.
 	// +optional
 	ShardIndexingPressure *OpenSearchShardIndexingPressure `json:"shardIndexingPressure,omitempty"`
@@ -172,7 +171,6 @@ type OpenSearchShardIndexingPressure struct {
 }
 
 type OpenSearchIndices struct {
-	// TODO: reconsider exposing this setting; check with users that have this set
 	// Maximum number of clauses Lucene BooleanQuery can have. The default value (1024) is relatively high,
 	// and increasing it may cause performance issues. Investigate other approaches first before increasing this value.
 	// +kubebuilder:validation:Minimum=64
@@ -183,7 +181,6 @@ type OpenSearchIndices struct {
 }
 
 type OpenSearchHttp struct {
-	// TODO: reconsider exposing this setting; check with users that have this set
 	// Maximum content length for HTTP requests to the OpenSearch HTTP API, in bytes. Default to 100mb (104857600 bytes).
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=2147483647
