@@ -28,7 +28,7 @@ type PostgresAudit struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// Statement classes to log.
-	// +nais:doc:Default="ddl,write"
+	// +kubebuilder:default={"write","ddl","role"}
 	StatementClasses []PostgresAuditStatementClass `json:"statementClasses,omitempty"`
 }
 

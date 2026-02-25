@@ -71,6 +71,10 @@ spec:
                           description: Enable audit logging for the Postgres cluster.
                           type: boolean
                         statementClasses:
+                          default:
+                            - write
+                            - ddl
+                            - role
                           description: Statement classes to log.
                           items:
                             enum:
