@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -102,7 +103,8 @@ func (g *Golden[T, P]) DefineTests() {
 							consistsOf := makeCompareList(testCase.ConsistOf, func(e *Expected) compareKey {
 								return e.compareKey()
 							})
-							Expect(maps.Keys(compareActions)).To(ConsistOf(consistsOf))
+							keys := slices.Collect(maps.Keys(compareActions))
+							Expect(keys).To(ConsistOf(consistsOf))
 						})
 
 						It("each action should match expected object", func() {
@@ -119,7 +121,8 @@ func (g *Golden[T, P]) DefineTests() {
 							contains := makeCompareList(testCase.Contains, func(e *Expected) compareKey {
 								return e.compareKey()
 							})
-							Expect(maps.Keys(compareActions)).To(ContainElements(contains))
+							keys := slices.Collect(maps.Keys(compareActions))
+							Expect(keys).To(ContainElements(contains))
 						})
 
 						It("each action should match expected object", func() {
