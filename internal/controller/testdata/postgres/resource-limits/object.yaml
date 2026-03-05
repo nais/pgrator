@@ -1,0 +1,14 @@
+---
+apiVersion: data.nais.io/v1
+kind: Postgres
+metadata:
+  name: test-name
+  namespace: test-namespace
+spec:
+  cluster:
+    majorVersion: 17
+    allowDeletion: true
+    resources:
+      diskSize: 2Gi
+      memory: 2Gi
+      cpu: 250m

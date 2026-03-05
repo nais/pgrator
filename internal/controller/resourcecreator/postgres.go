@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	cpuLimitFactor = 4
+	cpuLimitFactor    = 4
+	memoryLimitFactor = 4
 
 	maintenanceDuration = 1
 
@@ -62,6 +63,9 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 
 	cpuLimit := postgres.Spec.Cluster.Resources.Cpu.DeepCopy()
 	cpuLimit.Mul(cpuLimitFactor)
+
+	memoryLimit := postgres.Spec.Cluster.Resources.Memory.DeepCopy()
+	memoryLimit.Mul(memoryLimitFactor)
 
 	numberOfInstances := defaultNumInstances
 	if postgres.Spec.Cluster.HighAvailability {
@@ -165,7 +169,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 			},
 			ResourceLimits: acid_zalan_do_v1.ResourceDescription{
 				CPU:    ptr.To(cpuLimit.String()),
-				Memory: ptr.To(postgres.Spec.Cluster.Resources.Memory.String()),
+				Memory: ptr.To(memoryLimit.String()),
 			},
 		},
 		TeamID:             postgres.GetNamespace(),
