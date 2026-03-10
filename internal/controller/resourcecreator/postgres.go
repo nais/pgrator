@@ -19,7 +19,8 @@ const (
 
 	maintenanceDuration = 1
 
-	allowDeletionAnnotation = "nais.io/postgresqlDeleteResource"
+	allowDeletionAnnotation   = "nais.io/postgresqlDeleteResource"
+	resourceRemoverAnnotation = "resource-remover.nais.io/skip"
 
 	defaultNumInstances = int32(2)
 	haNumInstances      = int32(3)
@@ -48,6 +49,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pg
 	if postgres.Spec.Cluster.AllowDeletion {
 		metav1.SetMetaDataAnnotation(&objectMeta, allowDeletionAnnotation, pgClusterName)
 	}
+	metav1.SetMetaDataAnnotation(&objectMeta, resourceRemoverAnnotation, "true")
 
 	return &acid_zalan_do_v1.Postgresql{
 		TypeMeta: metav1.TypeMeta{
