@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	cpuLimitFactor    = 4
+	cpuLimitFactor    = 10
 	memoryLimitFactor = 4
 
 	maintenanceDuration = 1
