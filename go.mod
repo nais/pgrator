@@ -15,7 +15,7 @@ require (
 	github.com/nais/pgrator/pkg/api v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.90.0
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.90.1
 	github.com/sethvargo/go-envconfig v1.3.0
 	github.com/spf13/pflag v1.0.10
 	github.com/zalando/postgres-operator v1.15.1
