@@ -35,3 +35,6 @@ is manually re-applied afterwards.
 
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
+## Some code generated with GitHub Copilot
+
+This repository occasionally uses GitHub Copilot to generate code.
