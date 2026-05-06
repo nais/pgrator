@@ -73,10 +73,11 @@ func (r *PostgresReconciler) MetricsLabels(obj *data_nais_io_v1.Postgres) map[st
 	if obj.Spec.Cluster.HighAvailability {
 		ha = "true"
 	}
+	engine, _ := getEngine(obj)
 	return map[string]string{
 		"major_version":     obj.Spec.Cluster.MajorVersion,
 		"high_availability": ha,
-		"engine":            getEngine(obj),
+		"engine":            engine,
 	}
 }
 
@@ -85,8 +86,17 @@ func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
 }
 
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *data_nais_io_v1.Postgres) (PreparedData, ctrl.Result, error) {
+	engine, err := getEngine(obj)
+	if err != nil {
+		return PreparedData{}, ctrl.Result{}, err
+	}
+
+	if err := validateEngineImmutability(obj, engine); err != nil {
+		return PreparedData{}, ctrl.Result{}, err
+	}
+
 	teamNamespace := &core_v1.Namespace{}
-	err := reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, teamNamespace)
+	err = reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, teamNamespace)
 	if err != nil {
 		return PreparedData{}, ctrl.Result{}, fmt.Errorf("failed to get namespace %q: %w", obj.Namespace, err)
 	}
@@ -110,7 +120,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 
 	p := PreparedData{
 		teamGoogleProjectID: projectID,
-		engine:              getEngine(obj),
+		engine:              engine,
 	}
 
 	return p, ctrl.Result{}, nil
@@ -139,6 +149,13 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 }
 
 func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	// Persist the engine choice as an annotation so it becomes immutable.
+	// This is saved to the API server on the first reconcile when the finalizer is added.
+	if obj.Annotations == nil {
+		obj.Annotations = make(map[string]string)
+	}
+	obj.Annotations[api.ActiveEngineAnnotation] = preparedData.engine
+
 	switch preparedData.engine {
 	case api.EngineCNPG:
 		return r.updateCNPG(obj, preparedData, relatedObjects)
@@ -155,7 +172,10 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	var actions []action.Action
 
-	cluster := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+	cluster, err := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace, preparedData.teamGoogleProjectID)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
 	existingCluster := relatedObjects.GetMatching(cluster)
 	if existingCluster != nil {
 		actions = append(actions, action.Update(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
@@ -179,8 +199,11 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	// IAM resources are the same regardless of engine
-	actions = append(actions, r.iamActions(obj, preparedData, pgNamespace, relatedObjects)...)
+	iamActions, err := r.iamActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, iamActions...)
 
 	return actions, ctrl.Result{}, nil
 }
@@ -422,8 +445,8 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, sharedActionFunc(existingWorkloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	if r.Config.WalGsBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+	if r.Config.CNPG.BackupBucket != "" {
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.CNPG.BackupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy != nil {
 			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
@@ -550,17 +573,42 @@ func strPtrDiffers(a *string, b *string) bool {
 }
 
 // getEngine returns the engine annotation value, defaulting to Zalando.
-func getEngine(obj *data_nais_io_v1.Postgres) string {
-	if obj.Annotations != nil {
-		if engine, ok := obj.Annotations[api.EngineAnnotation]; ok && engine == api.EngineCNPG {
-			return api.EngineCNPG
-		}
+// Returns an error for unknown engine values.
+func getEngine(obj *data_nais_io_v1.Postgres) (string, error) {
+	if obj.Annotations == nil {
+		return api.EngineZalando, nil
 	}
-	return api.EngineZalando
+	engine, ok := obj.Annotations[api.EngineAnnotation]
+	if !ok || engine == "" {
+		return api.EngineZalando, nil
+	}
+	switch engine {
+	case api.EngineZalando, api.EngineCNPG:
+		return engine, nil
+	default:
+		return "", fmt.Errorf("unsupported engine %q in annotation %s (valid: %s, %s)", engine, api.EngineAnnotation, api.EngineZalando, api.EngineCNPG)
+	}
+}
+
+// validateEngineImmutability checks that the engine hasn't been changed after initial provisioning.
+// Returns an error if engine change is detected.
+func validateEngineImmutability(obj *data_nais_io_v1.Postgres, engine string) error {
+	if obj.Annotations == nil {
+		return nil
+	}
+	activeEngine, ok := obj.Annotations[api.ActiveEngineAnnotation]
+	if !ok || activeEngine == "" {
+		// First reconcile — no active engine yet, allow any choice.
+		return nil
+	}
+	if activeEngine != engine {
+		return fmt.Errorf("engine change from %q to %q is not supported; annotation %s is immutable after provisioning", activeEngine, engine, api.EngineAnnotation)
+	}
+	return nil
 }
 
 // iamActions returns the shared IAM actions used by both Zalando and CNPG codepaths.
-func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace string, relatedObjects reconciler.RelatedObjects) []action.Action {
+func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
 	var actions []action.Action
 
 	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
@@ -572,19 +620,23 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
 			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
 		}
 	} else {
 		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	if r.Config.WalGsBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+	if backupBucket != "" {
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, backupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 			if r.Config.ResyncIAMPermissions {
 				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			} else {
+				return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
 			}
 		} else {
 			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
@@ -598,6 +650,8 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	} else if iamPolicyHasChanges(logsWriterPolicy, existingLogsWriterPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
 			actions = append(actions, action.Recreate(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(logsWriterPolicy))
 		}
 	} else {
 		actions = append(actions, action.Claim(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
@@ -627,7 +681,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
 	}
 
-	return actions
+	return actions, nil
 }
 
 func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
@@ -652,12 +706,19 @@ func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.
 			Status: isReady,
 		},
 		{
-			Type:   "Progressing",
-			Status: cluster.Status.Phase == "Setting up primary" || cluster.Status.Phase == "Creating replica",
+			Type: "Progressing",
+			Status: cluster.Status.Phase == cnpgv1.PhaseFirstPrimary ||
+				cluster.Status.Phase == cnpgv1.PhaseCreatingReplica ||
+				cluster.Status.Phase == cnpgv1.PhaseUpgrade ||
+				cluster.Status.Phase == cnpgv1.PhaseOnlineUpgrading ||
+				cluster.Status.Phase == cnpgv1.PhaseApplyingConfiguration ||
+				cluster.Status.Phase == cnpgv1.PhaseSwitchover,
 		},
 		{
-			Type:   "Degraded",
-			Status: cluster.Status.Phase == "Unrecoverable" || cluster.Status.ReadyInstances < cluster.Status.Instances,
+			Type: "Degraded",
+			Status: cluster.Status.Phase == cnpgv1.PhaseUnrecoverable ||
+				cluster.Status.Phase == cnpgv1.PhaseImageCatalogError ||
+				cluster.Status.ReadyInstances < cluster.Status.Instances,
 		},
 	}
 

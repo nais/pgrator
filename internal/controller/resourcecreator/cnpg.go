@@ -39,7 +39,7 @@ func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespa
 	}
 }
 
-func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.Cluster {
+func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, teamGoogleProjectID string) (*cnpgv1.Cluster, error) {
 	cluster := MinimalCNPGCluster(postgres, clusterName, namespace)
 
 	instances := cnpgDefaultInstances
@@ -51,9 +51,22 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		maxSyncReplicas = 1
 	}
 
-	majorVersion, _ := strconv.Atoi(postgres.Spec.Cluster.MajorVersion)
+	majorVersion, err := strconv.Atoi(postgres.Spec.Cluster.MajorVersion)
+	if err != nil {
+		return nil, fmt.Errorf("invalid major version %q: %w", postgres.Spec.Cluster.MajorVersion, err)
+	}
 
 	diskSize := enforceMinimum2GiDisk(postgres.Spec.Cluster.Resources.DiskSize)
+
+	var storageClass *string
+	if cfg.CNPG.StorageClass != "" {
+		storageClass = ptr.To(cfg.CNPG.StorageClass)
+	}
+
+	collation := "en_US.UTF-8"
+	if postgres.Spec.Database != nil && postgres.Spec.Database.Collation != "" {
+		collation = fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
+	}
 
 	cluster.Spec = cnpgv1.ClusterSpec{
 		Instances:       instances,
@@ -75,21 +88,16 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
 			InitDB: &cnpgv1.BootstrapInitDB{
-				Database: cnpgDatabaseName,
-				Owner:    cnpgDatabaseUser,
-				LocaleCollate: func() string {
-					if postgres.Spec.Database != nil && postgres.Spec.Database.Collation != "" {
-						return fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
-					}
-					return "en_US.UTF-8"
-				}(),
-				LocaleCType: "en_US.UTF-8",
-				Encoding:    "UTF8",
+				Database:      cnpgDatabaseName,
+				Owner:         cnpgDatabaseUser,
+				LocaleCollate: collation,
+				LocaleCType:   collation,
+				Encoding:      "UTF8",
 			},
 		},
 
 		StorageConfiguration: cnpgv1.StorageConfiguration{
-			StorageClass: ptr.To(cfg.CNPG.StorageClass),
+			StorageClass: storageClass,
 			Size:         diskSize.String(),
 		},
 
@@ -115,13 +123,9 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 			TopologyKey:           "kubernetes.io/hostname",
 		},
 
-		ServiceAccountTemplate: &cnpgv1.ServiceAccountTemplate{
-			Metadata: cnpgv1.Metadata{
-				Annotations: map[string]string{
-					"iam.gke.io/gcp-service-account": fmt.Sprintf("%s@%s.iam.gserviceaccount.com", cnpgGSAName, cfg.GoogleProjectID),
-				},
-			},
-		},
+		// Reuse the existing KSA created by the IAM actions, which already has
+		// workload identity bindings to the correct GCP service account.
+		ServiceAccountName: cnpgGSAName,
 
 		EnableSuperuserAccess: ptr.To(false),
 	}
@@ -140,7 +144,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		}
 	}
 
-	return cluster
+	return cluster, nil
 }
 
 func CreateCNPGScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.ScheduledBackup {
