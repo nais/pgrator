@@ -38,6 +38,7 @@ linters:
         path: internal/*
     paths:
       - third_party$
+      - thirdparty
       - builtin$
       - examples$
 formatters:

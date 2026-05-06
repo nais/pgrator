@@ -73,7 +73,10 @@ func (r *PostgresReconciler) MetricsLabels(obj *data_nais_io_v1.Postgres) map[st
 	if obj.Spec.Cluster.HighAvailability {
 		ha = "true"
 	}
-	engine, _ := getEngine(obj)
+	engine, err := getEngine(obj)
+	if err != nil {
+		engine = "unknown"
+	}
 	return map[string]string{
 		"major_version":     obj.Spec.Cluster.MajorVersion,
 		"high_availability": ha,
@@ -172,7 +175,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	var actions []action.Action
 
-	cluster, err := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace, preparedData.TeamGoogleProjectID)
+	cluster, err := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -572,12 +575,27 @@ func strPtrDiffers(a *string, b *string) bool {
 	return *a != *b
 }
 
-// getEngine returns the engine annotation value, defaulting to Zalando.
+// getEngine returns the engine for this Postgres resource.
+// Once an active-engine annotation is set (after first successful reconcile),
+// it is the source of truth — the user-facing engine annotation is only used
+// to detect requested changes (which are rejected by validateEngineImmutability).
 // Returns an error for unknown engine values.
 func getEngine(obj *data_nais_io_v1.Postgres) (string, error) {
 	if obj.Annotations == nil {
 		return api.EngineZalando, nil
 	}
+
+	// If active-engine is set, use it as the authoritative engine.
+	if active, ok := obj.Annotations[api.ActiveEngineAnnotation]; ok && active != "" {
+		switch active {
+		case api.EngineZalando, api.EngineCNPG:
+			return active, nil
+		default:
+			return "", fmt.Errorf("unsupported active engine %q in annotation %s (valid: %s, %s)", active, api.ActiveEngineAnnotation, api.EngineZalando, api.EngineCNPG)
+		}
+	}
+
+	// First reconcile: use the user-facing annotation to determine engine.
 	engine, ok := obj.Annotations[api.EngineAnnotation]
 	if !ok || engine == "" {
 		return api.EngineZalando, nil

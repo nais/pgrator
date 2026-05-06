@@ -47,11 +47,19 @@ run = "go vet ./..."
 
 [tasks.tidy]
 description = "Tidy and verify go.mod"
-run = ["go mod tidy", "go mod verify"]
+run = """
+go mod tidy
+cd pkg/api && go mod tidy && cd ../..
+go mod verify
+"""
 
 [tasks.tidy-check]
 description = "Check if go.mod is tidy"
-run = ["go mod tidy", "git diff --exit-code go.mod go.sum"]
+run = """
+go mod tidy
+cd pkg/api && go mod tidy && cd ../..
+git diff --exit-code go.mod go.sum pkg/api/go.mod pkg/api/go.sum
+"""
 
 [tasks.check]
 description = "Run static analysis and vulnerability check"

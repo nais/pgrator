@@ -48,7 +48,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 	Describe("CreateCNPGClusterSpec", func() {
 		It("should create a valid cluster with default settings", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cluster).NotTo(BeNil())
 
@@ -61,7 +61,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should set HA instances when HighAvailability is true", func() {
 			postgres.Spec.Cluster.HighAvailability = true
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Instances).To(Equal(3))
@@ -70,7 +70,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should use ImageCatalogRef with correct major version", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.ImageCatalogRef).NotTo(BeNil())
@@ -81,13 +81,13 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should return error for invalid major version", func() {
 			postgres.Spec.Cluster.MajorVersion = "invalid"
-			_, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			_, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid major version"))
 		})
 
 		It("should set storage class when configured", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.StorageClass).NotTo(BeNil())
@@ -96,14 +96,14 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should leave storage class nil when not configured", func() {
 			cfg.CNPG.StorageClass = ""
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.StorageClass).To(BeNil())
 		})
 
 		It("should set ServiceAccountName to reuse existing KSA", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.ServiceAccountName).To(Equal("postgres-pod"))
@@ -111,7 +111,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should configure barman-cloud plugin when backup bucket is set", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Plugins).To(HaveLen(1))
@@ -121,7 +121,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should not configure plugins when backup bucket is empty", func() {
 			cfg.CNPG.BackupBucket = ""
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Plugins).To(BeEmpty())
@@ -131,7 +131,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 			postgres.Spec.Database = &data_nais_io_v1.PostgresDatabase{
 				Collation: "nb_NO",
 			}
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCollate).To(Equal("nb_NO.UTF-8"))
@@ -140,14 +140,14 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should enforce minimum 2Gi disk", func() {
 			postgres.Spec.Cluster.Resources.DiskSize = resource.MustParse("500Mi")
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.Size).To(Equal("2Gi"))
 		})
 
 		It("should disable superuser access", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.EnableSuperuserAccess).NotTo(BeNil())
@@ -155,7 +155,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should set node affinity for postgres nodes", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Affinity.NodeSelector).To(HaveKeyWithValue("nais.io/type", "postgres"))
@@ -163,7 +163,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should set memory limit to 4x request", func() {
-			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team", "team-project-id")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
 			memLimit := cluster.Spec.Resources.Limits.Memory()

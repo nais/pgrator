@@ -45,6 +45,21 @@ func TestGetEngine(t *testing.T) {
 			annotations: map[string]string{api.EngineAnnotation: ""},
 			wantEngine:  api.EngineZalando,
 		},
+		{
+			name:        "active-engine takes precedence over engine annotation",
+			annotations: map[string]string{api.ActiveEngineAnnotation: api.EngineCNPG, api.EngineAnnotation: api.EngineZalando},
+			wantEngine:  api.EngineCNPG,
+		},
+		{
+			name:        "active-engine used even if engine annotation is removed",
+			annotations: map[string]string{api.ActiveEngineAnnotation: api.EngineCNPG},
+			wantEngine:  api.EngineCNPG,
+		},
+		{
+			name:        "invalid active-engine returns error",
+			annotations: map[string]string{api.ActiveEngineAnnotation: "invalid"},
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {

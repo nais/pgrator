@@ -22,7 +22,7 @@ const (
 	cnpgDatabaseName = "app"
 	cnpgDatabaseUser = "app"
 
-	cnpgGSAName = "postgres-pod"
+	cnpgKSAName = "postgres-pod"
 )
 
 func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
@@ -39,7 +39,7 @@ func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespa
 	}
 }
 
-func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, teamGoogleProjectID string) (*cnpgv1.Cluster, error) {
+func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) (*cnpgv1.Cluster, error) {
 	cluster := MinimalCNPGCluster(postgres, clusterName, namespace)
 
 	instances := cnpgDefaultInstances
@@ -125,7 +125,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 
 		// Reuse the existing KSA created by the IAM actions, which already has
 		// workload identity bindings to the correct GCP service account.
-		ServiceAccountName: cnpgGSAName,
+		ServiceAccountName: cnpgKSAName,
 
 		EnableSuperuserAccess: ptr.To(false),
 	}
