@@ -6,6 +6,7 @@ PGRATOR_TTL_IMAGE = "ttl.sh/pgrator:1h"
 [tools]
 golangci-lint = "2.10.1"
 kube-controller-tools = "0.19.0"
+chainsaw = "0.2.12"
 setup-envtest = """
 {%- set tool = '"\\ssigs.k8s.io/controller-runtime\\s"' -%}
 {%- set version_fmt = '"%d.%d"' -%}

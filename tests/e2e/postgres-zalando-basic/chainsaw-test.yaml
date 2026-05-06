@@ -1,0 +1,78 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-zalando-basic
+spec:
+  description: Verify that a Postgres resource with Zalando engine creates expected child resources
+  steps:
+    - name: Create prerequisites
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: zalando-team
+                labels:
+                  google-cloud-project: test-project
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: pg-zalando-team
+    - name: Create Postgres resource
+      try:
+        - apply:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+                namespace: zalando-team
+              spec:
+                cluster:
+                  majorVersion: 17
+                  allowDeletion: true
+                  resources:
+                    diskSize: 10Gi
+                    memory: 1Gi
+                    cpu: 1
+    - name: Assert Zalando postgresql created
+      try:
+        - assert:
+            resource:
+              apiVersion: acid.zalan.do/v1
+              kind: postgresql
+              metadata:
+                name: mydb
+                namespace: pg-zalando-team
+    - name: Assert NetworkPolicy created
+      try:
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: mydb
+                namespace: pg-zalando-team
+    - name: Assert ServiceAccount created
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: postgres-pod
+                namespace: pg-zalando-team
+    - name: Assert engine annotation set
+      try:
+        - assert:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+                namespace: zalando-team
+                annotations:
+                  postgres.nais.io/active-engine: zalando

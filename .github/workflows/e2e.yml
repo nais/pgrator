@@ -1,0 +1,109 @@
+name: E2E Tests
+
+on:
+  push:
+    paths-ignore:
+      - '*.md'
+  pull_request:
+    paths-ignore:
+      - '*.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Chainsaw E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # ratchet:jdx/mise-action@v3
+
+      - name: Build operator image
+        run: |
+          docker build -t pgrator:e2e .
+
+      - name: Create kind cluster
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind create cluster --wait 60s
+
+      - name: Load image into kind
+        run: |
+          kind load docker-image pgrator:e2e
+
+      - name: Install CRDs
+        run: |
+          # pgrator CRDs
+          kubectl apply -f config/crd/bases/
+
+          # External CRDs needed by the operator
+          kubectl apply -f internal/controller/testdata/external-crds/
+
+          # Zalando CRD (generated programmatically, apply via Go)
+          go run ./tests/e2e/setup/install-zalando-crd.go
+
+      - name: Install cert-manager
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 120s
+
+      - name: Install Prometheus Operator CRDs
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm install prometheus-crds prometheus-community/prometheus-operator-crds
+
+      - name: Install pgrator via Helm
+        run: |
+          helm install pgrator ./charts/pgrator \
+            --namespace pgrator-system --create-namespace \
+            --set controllerManager.container.image.repository=pgrator \
+            --set controllerManager.container.image.tag=e2e \
+            --set controllerManager.container.imagePullPolicy=Never \
+            --set google.projectId=test-project \
+            --set aiven.project=test-project \
+            --set aiven.projectVPCID=test-vpc \
+            --set aiven.metricsDestinationEndpointID=test-endpoint \
+            --set fasit.tenant.name=test-tenant \
+            --set walGsBucket=test-bucket \
+            --set cnpg.backupBucket=test-cnpg-bucket \
+            --wait --timeout 120s
+
+      - name: Wait for operator readiness
+        run: |
+          kubectl wait --namespace pgrator-system \
+            --for=condition=available \
+            --timeout=120s \
+            deployment/pgrator
+
+      - name: Run Chainsaw E2E tests
+        run: |
+          mise run e2e
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          kubectl logs -n pgrator-system deployment/pgrator --tail=100 || true
+          echo "=== All pods ==="
+          kubectl get pods -A || true
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -50 || true

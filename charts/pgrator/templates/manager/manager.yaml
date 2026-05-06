@@ -55,6 +55,22 @@ spec:
             - name: RESYNC_IAM_PERMISSIONS
               value: "{{ .Values.resyncIAMPermissions }}"
             {{- end }}
+            {{- if .Values.cnpg.imageCatalogName }}
+            - name: CNPG_IMAGE_CATALOG_NAME
+              value: {{ .Values.cnpg.imageCatalogName }}
+            {{- end }}
+            {{- if .Values.cnpg.storageClass }}
+            - name: CNPG_STORAGE_CLASS
+              value: {{ .Values.cnpg.storageClass }}
+            {{- end }}
+            {{- if .Values.cnpg.backupBucket }}
+            - name: CNPG_BACKUP_BUCKET
+              value: {{ .Values.cnpg.backupBucket }}
+            {{- end }}
+            {{- if .Values.cnpg.barmanPluginName }}
+            - name: CNPG_BARMAN_PLUGIN_NAME
+              value: {{ .Values.cnpg.barmanPluginName }}
+            {{- end }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}

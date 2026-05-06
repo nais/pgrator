@@ -1,0 +1,14 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Configuration
+metadata:
+  name: pgrator-e2e
+spec:
+  timeouts:
+    apply: 30s
+    assert: 60s
+    error: 30s
+    delete: 30s
+    cleanup: 60s
+  skipDelete: false
+  failFast: true
+  parallel: 1

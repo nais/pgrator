@@ -3,6 +3,12 @@ walGsBucket: ""
 google:
   projectId: ""
 
+cnpg:
+  imageCatalogName: "postgresql"
+  storageClass: ""
+  backupBucket: ""
+  barmanPluginName: "barman-cloud.cloudnative-pg.io"
+
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:
   replicas: 1
