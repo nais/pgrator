@@ -1,0 +1,9 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: postgres-pod
+    namespace: pg-my-team

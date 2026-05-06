@@ -1,0 +1,22 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: acid.zalan.do/v1
+  kind: postgresql
+  metadata:
+    labels:
+      postgres.data.nais.io/name: test-db
+    name: test-db
+    namespace: pg-my-team
+  spec:
+    teamId: pg-my-team
+    numberOfInstances: 1
+    postgresql:
+      version: "16"
+    volume:
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi

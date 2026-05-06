@@ -60,8 +60,8 @@ var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &Postgres
 var _ reconciler.MetricsLabeler[*data_nais_io_v1.Postgres] = &PostgresReconciler{}
 
 type PreparedData struct {
-	teamGoogleProjectID string
-	engine              string
+	TeamGoogleProjectID string `yaml:"teamGoogleProjectID"`
+	Engine              string `yaml:"engine"`
 }
 
 func (r *PostgresReconciler) Name() string {
@@ -119,8 +119,8 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 	}
 
 	p := PreparedData{
-		teamGoogleProjectID: projectID,
-		engine:              engine,
+		TeamGoogleProjectID: projectID,
+		Engine:              engine,
 	}
 
 	return p, ctrl.Result{}, nil
@@ -154,9 +154,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	if obj.Annotations == nil {
 		obj.Annotations = make(map[string]string)
 	}
-	obj.Annotations[api.ActiveEngineAnnotation] = preparedData.engine
+	obj.Annotations[api.ActiveEngineAnnotation] = preparedData.Engine
 
-	switch preparedData.engine {
+	switch preparedData.Engine {
 	case api.EngineCNPG:
 		return r.updateCNPG(obj, preparedData, relatedObjects)
 	default:
@@ -172,7 +172,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	var actions []action.Action
 
-	cluster, err := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace, preparedData.teamGoogleProjectID)
+	cluster, err := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace, preparedData.TeamGoogleProjectID)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -244,7 +244,7 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 	}
 
 	if r.Config.WalGsBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, r.Config.WalGsBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
@@ -259,7 +259,7 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy == nil {
 		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
@@ -281,7 +281,7 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
 		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
@@ -401,7 +401,7 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 }
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	switch preparedData.engine {
+	switch preparedData.Engine {
 	case api.EngineCNPG:
 		return r.deleteCNPG(obj, preparedData, relatedObjects)
 	default:
@@ -446,20 +446,20 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	if r.Config.CNPG.BackupBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.CNPG.BackupBucket)
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, r.Config.CNPG.BackupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy != nil {
 			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy != nil {
 		actions = append(actions, sharedActionFunc(existingLogsWriterPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
 		actions = append(actions, sharedActionFunc(kubernetesSA, obj, existsConditionGetter, r.Recorder))
@@ -499,20 +499,20 @@ func (r *PostgresReconciler) deleteZalando(obj *data_nais_io_v1.Postgres, prepar
 	}
 
 	if r.Config.WalGsBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, r.Config.WalGsBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy != nil {
 			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy != nil {
 		actions = append(actions, sharedActionFunc(existingLogsWriterPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
 		actions = append(actions, sharedActionFunc(kubernetesSA, obj, existsConditionGetter, r.Recorder))
@@ -628,7 +628,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	if backupBucket != "" {
-		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, backupBucket)
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
@@ -643,7 +643,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		}
 	}
 
-	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy == nil {
 		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
@@ -665,7 +665,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
 		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))

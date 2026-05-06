@@ -54,6 +54,14 @@ func TestControllers(t *testing.T) {
 
 	postgresReconcilerConfig := config.Config{
 		PrometheusRulesDisabled: true,
+		GoogleProjectID:         "test-gcp-project",
+		WalGsBucket:             "test-wal-bucket",
+		CNPG: config.CNPG{
+			ImageCatalogName: "postgresql",
+			StorageClass:     "ssd-storage",
+			BackupBucket:     "test-cnpg-backup-bucket",
+			BarmanPluginName: "barman-cloud.cloudnative-pg.io",
+		},
 	}
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
 

@@ -1,0 +1,21 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    labels:
+      postgres.data.nais.io/name: test-db
+    name: test-db
+    namespace: pg-my-team
+  spec:
+    instances: 1
+    imageCatalogRef:
+      apiGroup: postgresql.cnpg.io
+      kind: ClusterImageCatalog
+      name: postgresql
+      major: 16
+    storage:
+      size: 10Gi
+      storageClass: ssd-storage

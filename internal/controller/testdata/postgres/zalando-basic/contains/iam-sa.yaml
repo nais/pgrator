@@ -1,0 +1,9 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: iam.cnrm.cloud.google.com/v1beta1
+  kind: IAMServiceAccount
+  metadata:
+    name: postgres-pod
+    namespace: serviceaccounts

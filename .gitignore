@@ -30,3 +30,4 @@ go.work
 *.swo
 *~
 .DS_Store
+doc/pgrator-overview-dashboard.json
