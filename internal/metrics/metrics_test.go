@@ -8,6 +8,16 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+const (
+	testPhaseCompleted   = "Completed"
+	testPhasePreparing   = "Preparing"
+	testResourceType     = "postgres.data.nais.io"
+	testNamespace        = "my-team"
+	testName             = "my-db"
+	testMajorVersion     = "16"
+	testHighAvailability = "true"
+)
+
 func collectGaugeVec(g *prometheus.GaugeVec) []*dto.Metric {
 	ch := make(chan prometheus.Metric, 100)
 	g.Collect(ch)
@@ -64,12 +74,12 @@ func TestSetResourceInfo(t *testing.T) {
 	ResourceInfo.Reset()
 
 	labels := ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
-		Namespace:        "my-team",
-		Name:             "my-db",
+		ResourceType:     testResourceType,
+		Namespace:        testNamespace,
+		Name:             testName,
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	}
 
 	SetResourceInfo(labels)
@@ -83,13 +93,13 @@ func TestSetResourceInfo(t *testing.T) {
 	if m.GetGauge().GetValue() != 1 {
 		t.Errorf("expected gauge value 1, got %f", m.GetGauge().GetValue())
 	}
-	if got := getLabelValue(m, "resource_type"); got != "postgres.data.nais.io" {
+	if got := getLabelValue(m, "resource_type"); got != testResourceType {
 		t.Errorf("expected resource_type=postgres.data.nais.io, got %s", got)
 	}
-	if got := getLabelValue(m, "namespace"); got != "my-team" {
+	if got := getLabelValue(m, "namespace"); got != testNamespace {
 		t.Errorf("expected namespace=my-team, got %s", got)
 	}
-	if got := getLabelValue(m, "name"); got != "my-db" {
+	if got := getLabelValue(m, "name"); got != testName {
 		t.Errorf("expected name=my-db, got %s", got)
 	}
 	if got := getLabelValue(m, "major_version"); got != "16" {
@@ -98,7 +108,7 @@ func TestSetResourceInfo(t *testing.T) {
 	if got := getLabelValue(m, "high_availability"); got != "true" {
 		t.Errorf("expected high_availability=true, got %s", got)
 	}
-	if got := getLabelValue(m, "phase"); got != "Completed" {
+	if got := getLabelValue(m, "phase"); got != testPhaseCompleted {
 		t.Errorf("expected phase=Completed, got %s", got)
 	}
 }
@@ -107,18 +117,18 @@ func TestSetResourceInfo_UpdatesExisting(t *testing.T) {
 	ResourceInfo.Reset()
 
 	labels := ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
-		Namespace:        "my-team",
-		Name:             "my-db",
+		ResourceType:     testResourceType,
+		Namespace:        testNamespace,
+		Name:             testName,
 		MajorVersion:     "16",
 		HighAvailability: "false",
-		Phase:            "Preparing",
+		Phase:            testPhasePreparing,
 	}
 	SetResourceInfo(labels)
 
 	// Update with new phase — this creates a new time series (different label set)
 	// The old one with phase=Preparing will still exist
-	labels.Phase = "Completed"
+	labels.Phase = testPhaseCompleted
 	SetResourceInfo(labels)
 
 	metrics := collectGaugeVec(ResourceInfo)
@@ -133,20 +143,20 @@ func TestRemoveResourceInfo(t *testing.T) {
 
 	// Set two resources
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
+		ResourceType:     testResourceType,
 		Namespace:        "team-a",
 		Name:             "db-1",
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	})
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
+		ResourceType:     testResourceType,
 		Namespace:        "team-b",
 		Name:             "db-2",
 		MajorVersion:     "17",
 		HighAvailability: "false",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	})
 
 	metrics := collectGaugeVec(ResourceInfo)
@@ -156,7 +166,7 @@ func TestRemoveResourceInfo(t *testing.T) {
 
 	// Remove one resource
 	RemoveResourceInfo(ResourceLabels{
-		ResourceType: "postgres.data.nais.io",
+		ResourceType: testResourceType,
 		Namespace:    "team-a",
 		Name:         "db-1",
 	})
@@ -177,20 +187,20 @@ func TestRemoveResourceInfo_RemovesAllPhases(t *testing.T) {
 
 	// A resource that was updated with different phases will have multiple series
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
+		ResourceType:     testResourceType,
 		Namespace:        "team-a",
 		Name:             "db-1",
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Preparing",
+		Phase:            testPhasePreparing,
 	})
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
+		ResourceType:     testResourceType,
 		Namespace:        "team-a",
 		Name:             "db-1",
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	})
 
 	metrics := collectGaugeVec(ResourceInfo)
@@ -200,7 +210,7 @@ func TestRemoveResourceInfo_RemovesAllPhases(t *testing.T) {
 
 	// DeletePartialMatch should remove both
 	RemoveResourceInfo(ResourceLabels{
-		ResourceType: "postgres.data.nais.io",
+		ResourceType: testResourceType,
 		Namespace:    "team-a",
 		Name:         "db-1",
 	})
@@ -214,8 +224,8 @@ func TestRemoveResourceInfo_RemovesAllPhases(t *testing.T) {
 func TestObserveReconcileDuration(t *testing.T) {
 	ReconcileDuration.Reset()
 
-	ObserveReconcileDuration("postgres.data.nais.io", "success", 500*time.Millisecond)
-	ObserveReconcileDuration("postgres.data.nais.io", "error", 100*time.Millisecond)
+	ObserveReconcileDuration(testResourceType, "success", 500*time.Millisecond)
+	ObserveReconcileDuration(testResourceType, "error", 100*time.Millisecond)
 
 	metrics := collectHistogramVec(ReconcileDuration)
 	if len(metrics) != 2 {
@@ -246,9 +256,9 @@ func TestObserveReconcileDuration(t *testing.T) {
 func TestIncReconcileError(t *testing.T) {
 	ReconcileErrors.Reset()
 
-	IncReconcileError("postgres.data.nais.io", "my-team", "Preparing")
-	IncReconcileError("postgres.data.nais.io", "my-team", "Preparing")
-	IncReconcileError("postgres.data.nais.io", "my-team", "PerformActions")
+	IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
+	IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
+	IncReconcileError(testResourceType, testNamespace, "PerformActions")
 
 	metrics := collectCounterVec(ReconcileErrors)
 	if len(metrics) != 2 {
@@ -259,7 +269,7 @@ func TestIncReconcileError(t *testing.T) {
 		phase := getLabelValue(m, "phase")
 		value := m.GetCounter().GetValue()
 		switch phase {
-		case "Preparing":
+		case testPhasePreparing:
 			if value != 2 {
 				t.Errorf("expected Preparing counter=2, got %f", value)
 			}
@@ -279,9 +289,9 @@ func TestSetResourceInfo_EmptyOptionalLabels(t *testing.T) {
 	// Valkey/OpenSearch won't have major_version or high_availability
 	labels := ResourceLabels{
 		ResourceType: "valkey.nais.io",
-		Namespace:    "my-team",
+		Namespace:    testNamespace,
 		Name:         "my-cache",
-		Phase:        "Completed",
+		Phase:        testPhaseCompleted,
 	}
 	SetResourceInfo(labels)
 
@@ -304,29 +314,29 @@ func TestRemoveBeforeSet_PreventsStalePhase(t *testing.T) {
 
 	// Simulate the synchronizer pattern: remove then set
 	labels := ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
-		Namespace:        "my-team",
-		Name:             "my-db",
+		ResourceType:     testResourceType,
+		Namespace:        testNamespace,
+		Name:             testName,
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Preparing",
+		Phase:            testPhasePreparing,
 	}
 	SetResourceInfo(labels)
 
 	// Now simulate updateResourceInfoMetric which removes first
 	RemoveResourceInfo(ResourceLabels{
-		ResourceType: "postgres.data.nais.io",
-		Namespace:    "my-team",
-		Name:         "my-db",
+		ResourceType: testResourceType,
+		Namespace:    testNamespace,
+		Name:         testName,
 	})
-	labels.Phase = "Completed"
+	labels.Phase = testPhaseCompleted
 	SetResourceInfo(labels)
 
 	metrics := collectGaugeVec(ResourceInfo)
 	if len(metrics) != 1 {
 		t.Fatalf("expected exactly 1 metric (no stale phase), got %d", len(metrics))
 	}
-	if got := getLabelValue(metrics[0], "phase"); got != "Completed" {
+	if got := getLabelValue(metrics[0], "phase"); got != testPhaseCompleted {
 		t.Errorf("expected phase=Completed, got %s", got)
 	}
 }
@@ -336,27 +346,27 @@ func TestRemoveBeforeSet_PreventsStaleVersion(t *testing.T) {
 
 	// Simulate a version upgrade: 15 → 16
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
-		Namespace:        "my-team",
-		Name:             "my-db",
+		ResourceType:     testResourceType,
+		Namespace:        testNamespace,
+		Name:             testName,
 		MajorVersion:     "15",
 		HighAvailability: "true",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	})
 
 	// Upgrade: remove old, set new
 	RemoveResourceInfo(ResourceLabels{
-		ResourceType: "postgres.data.nais.io",
-		Namespace:    "my-team",
-		Name:         "my-db",
+		ResourceType: testResourceType,
+		Namespace:    testNamespace,
+		Name:         testName,
 	})
 	SetResourceInfo(ResourceLabels{
-		ResourceType:     "postgres.data.nais.io",
-		Namespace:        "my-team",
-		Name:             "my-db",
+		ResourceType:     testResourceType,
+		Namespace:        testNamespace,
+		Name:             testName,
 		MajorVersion:     "16",
 		HighAvailability: "true",
-		Phase:            "Completed",
+		Phase:            testPhaseCompleted,
 	})
 
 	metrics := collectGaugeVec(ResourceInfo)
