@@ -10,8 +10,8 @@ object:
     name: test-db
     namespace: pg-my-team
   spec:
-    teamId: pg-my-team
-    numberOfInstances: 1
+    teamId: my-team
+    numberOfInstances: 2
     postgresql:
       version: "16"
     volume:

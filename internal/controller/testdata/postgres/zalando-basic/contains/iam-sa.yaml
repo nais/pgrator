@@ -6,4 +6,4 @@ object:
   kind: IAMServiceAccount
   metadata:
     name: postgres-pod
-    namespace: serviceaccounts
+    namespace: my-team

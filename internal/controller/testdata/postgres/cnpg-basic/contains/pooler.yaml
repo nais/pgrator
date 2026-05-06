@@ -5,7 +5,7 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: Pooler
   metadata:
-    name: test-db
+    name: test-db-pooler
     namespace: pg-my-team
   spec:
     cluster:
