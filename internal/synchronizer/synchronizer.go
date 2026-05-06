@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/nais/pgrator/internal/metrics"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
@@ -91,15 +92,20 @@ func (s *Synchronizer[T, P]) GetOwnerManager() ownership.OwnerManager {
 // nolint:gocyclo
 func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := logf.FromContext(ctx)
+	startTime := time.Now()
+	resourceType := s.reconciler.Name()
 
 	obj := s.reconciler.New()
 	err := s.client.Get(ctx, req.NamespacedName, obj)
 	if err != nil {
-		// we'll ignore not-found errors, since they can't be fixed by an immediate
-		// requeue (we'll need to wait for a new notification), and we can get them
-		// on deleted requests.
 		if apierrors.IsNotFound(err) {
 			logger.Info("object not found, skipping reconciliation")
+			// Clean up info metric for deleted resource
+			metrics.RemoveResourceInfo(metrics.ResourceLabels{
+				ResourceType: resourceType,
+				Namespace:    req.Namespace,
+				Name:         req.Name,
+			})
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -140,6 +146,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
 		s.recorder.RecordErrorEvent(obj, "Preparing", err)
+		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "Preparing")
+		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 		return result, err
 	}
 
@@ -147,6 +155,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		logger.Error(err, "failed to find related objects")
 		s.recorder.RecordErrorEvent(obj, "FindRelated", err)
+		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "FindRelated")
+		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 		return result, err
 	}
 
@@ -173,6 +183,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
 				s.recorder.RecordErrorEvent(obj, "EvaluatingDeletion", err)
+				metrics.IncReconcileError(resourceType, obj.GetNamespace(), "EvaluatingDeletion")
+				metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 				return result, err
 			}
 			deleteResult = result
@@ -197,6 +209,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err != nil {
 			logger.Error(err, "failed to calculate update actions")
 			s.recorder.RecordErrorEvent(obj, "EvaluatingUpdate", err)
+			metrics.IncReconcileError(resourceType, obj.GetNamespace(), "EvaluatingUpdate")
+			metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 			return result, err
 		}
 	}
@@ -230,6 +244,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err != nil {
 			logger.Error(err, "unable to detect unreferenced resources")
 			s.recorder.RecordErrorEvent(obj, "DetectUnreferenced", err)
+			metrics.IncReconcileError(resourceType, obj.GetNamespace(), "DetectUnreferenced")
+			metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 			return ctrl.Result{}, err
 		}
 	}
@@ -248,6 +264,8 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
 		s.recorder.RecordErrorEvent(obj, "PerformActions", err)
+		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "PerformActions")
+		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 		return result, err
 	}
 
@@ -276,6 +294,15 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	obj.GetStatus().SetReconcilePhase("Completed")
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Completed", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
+
+	// Record metrics for successful reconciliation
+	metrics.ObserveReconcileDuration(resourceType, "success", time.Since(startTime))
+	if deletionTimestamp != nil {
+		s.removeResourceInfoMetric(obj)
+	} else {
+		s.updateResourceInfoMetric(obj)
+	}
+
 	return result, nil
 }
 
@@ -288,6 +315,42 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (s *Synchronizer[T, P]) updateResourceInfoMetric(obj T) {
+	// Remove existing series first to prevent stale labels (e.g., old phase values)
+	metrics.RemoveResourceInfo(metrics.ResourceLabels{
+		ResourceType: s.reconciler.Name(),
+		Namespace:    obj.GetNamespace(),
+		Name:         obj.GetName(),
+	})
+
+	labels := metrics.ResourceLabels{
+		ResourceType: s.reconciler.Name(),
+		Namespace:    obj.GetNamespace(),
+		Name:         obj.GetName(),
+		Phase:        obj.GetStatus().GetReconcilePhase(),
+	}
+
+	if labeler, ok := any(s.reconciler).(reconciler.MetricsLabeler[T]); ok {
+		extra := labeler.MetricsLabels(obj)
+		if v, exists := extra["major_version"]; exists {
+			labels.MajorVersion = v
+		}
+		if v, exists := extra["high_availability"]; exists {
+			labels.HighAvailability = v
+		}
+	}
+
+	metrics.SetResourceInfo(labels)
+}
+
+func (s *Synchronizer[T, P]) removeResourceInfoMetric(obj T) {
+	metrics.RemoveResourceInfo(metrics.ResourceLabels{
+		ResourceType: s.reconciler.Name(),
+		Namespace:    obj.GetNamespace(),
+		Name:         obj.GetName(),
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.

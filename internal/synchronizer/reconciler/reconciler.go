@@ -48,6 +48,14 @@ type FinalizerNamer interface {
 	FinalizerName() string
 }
 
+// MetricsLabeler can be implemented by reconcilers to provide resource-specific
+// labels for Prometheus metrics (e.g., major_version, high_availability).
+type MetricsLabeler[T client.Object] interface {
+	// MetricsLabels returns additional metric labels for the given resource.
+	// Keys should be: "major_version", "high_availability".
+	MetricsLabels(T) map[string]string
+}
+
 type OwnedType struct {
 	Type                client.Object
 	AdditionalPredicate predicate.Predicate

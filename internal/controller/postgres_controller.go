@@ -55,6 +55,7 @@ func IAMPolicyMemberNames(teamNamespace string) (string, string, string) {
 }
 
 var _ reconciler.Reconciler[*data_nais_io_v1.Postgres, PreparedData] = &PostgresReconciler{}
+var _ reconciler.MetricsLabeler[*data_nais_io_v1.Postgres] = &PostgresReconciler{}
 
 type PreparedData struct {
 	teamGoogleProjectID string
@@ -62,6 +63,17 @@ type PreparedData struct {
 
 func (r *PostgresReconciler) Name() string {
 	return "postgres.data.nais.io"
+}
+
+func (r *PostgresReconciler) MetricsLabels(obj *data_nais_io_v1.Postgres) map[string]string {
+	ha := "false"
+	if obj.Spec.Cluster.HighAvailability {
+		ha = "true"
+	}
+	return map[string]string{
+		"major_version":     obj.Spec.Cluster.MajorVersion,
+		"high_availability": ha,
+	}
 }
 
 func (r *PostgresReconciler) New() *data_nais_io_v1.Postgres {
