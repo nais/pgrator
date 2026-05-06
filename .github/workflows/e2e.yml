@@ -45,8 +45,8 @@ jobs:
           # pgrator CRDs
           kubectl apply -f config/crd/bases/
 
-          # External CRDs needed by the operator
-          kubectl apply -f internal/controller/testdata/external-crds/
+          # External CRDs needed by the operator (server-side apply for large CRDs)
+          kubectl apply --server-side -f internal/controller/testdata/external-crds/
 
           # Zalando CRD (generated programmatically, apply via Go)
           go run ./tests/e2e/setup/install-zalando-crd.go
