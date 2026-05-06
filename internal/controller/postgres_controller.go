@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller/resourcecreator"
 	"github.com/nais/pgrator/internal/namegen"
@@ -13,6 +14,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
+	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -59,6 +61,7 @@ var _ reconciler.MetricsLabeler[*data_nais_io_v1.Postgres] = &PostgresReconciler
 
 type PreparedData struct {
 	teamGoogleProjectID string
+	engine              string
 }
 
 func (r *PostgresReconciler) Name() string {
@@ -73,6 +76,7 @@ func (r *PostgresReconciler) MetricsLabels(obj *data_nais_io_v1.Postgres) map[st
 	return map[string]string{
 		"major_version":     obj.Spec.Cluster.MajorVersion,
 		"high_availability": ha,
+		"engine":            getEngine(obj),
 	}
 }
 
@@ -106,6 +110,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 
 	p := PreparedData{
 		teamGoogleProjectID: projectID,
+		engine:              getEngine(obj),
 	}
 
 	return p, ctrl.Result{}, nil
@@ -118,6 +123,9 @@ func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 	objects := []client.Object{
 		&acid_zalan_do_v1.Postgresql{},
+		&cnpgv1.Cluster{},
+		&cnpgv1.ScheduledBackup{},
+		&cnpgv1.Pooler{},
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
@@ -131,6 +139,53 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 }
 
 func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	switch preparedData.engine {
+	case api.EngineCNPG:
+		return r.updateCNPG(obj, preparedData, relatedObjects)
+	default:
+		return r.updateZalando(obj, preparedData, relatedObjects)
+	}
+}
+
+func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+
+	var actions []action.Action
+
+	cluster := resourcecreator.CreateCNPGClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+	existingCluster := relatedObjects.GetMatching(cluster)
+	if existingCluster != nil {
+		actions = append(actions, action.Update(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
+	}
+
+	if r.Config.CNPG.BackupBucket != "" {
+		backup := resourcecreator.CreateCNPGScheduledBackup(obj, r.Config, pgClusterName, pgNamespace)
+		actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
+	}
+
+	pooler := resourcecreator.CreateCNPGPooler(obj, pgClusterName, pgNamespace)
+	existingPooler := relatedObjects.GetMatching(pooler)
+	if existingPooler != nil {
+		actions = append(actions, action.Update(pooler, obj, existsConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(pooler, obj, existsConditionGetter, r.Recorder))
+	}
+
+	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
+	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
+
+	// IAM resources are the same regardless of engine
+	actions = append(actions, r.iamActions(obj, preparedData, pgNamespace, relatedObjects)...)
+
+	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var err error
 	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
 	if err != nil {
@@ -323,6 +378,74 @@ func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta
 }
 
 func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	switch preparedData.engine {
+	case api.EngineCNPG:
+		return r.deleteCNPG(obj, preparedData, relatedObjects)
+	default:
+		return r.deleteZalando(obj, preparedData, relatedObjects)
+	}
+}
+
+func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	actionFunc := action.DeleteIfExists
+	sharedActionFunc := action.Unclaim
+	if !obj.Spec.Cluster.AllowDeletion {
+		actionFunc = action.NoOp
+		sharedActionFunc = action.NoOp
+	}
+
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+
+	var actions []action.Action
+
+	cluster := resourcecreator.MinimalCNPGCluster(obj, pgClusterName, pgNamespace)
+	actions = append(actions, actionFunc(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
+
+	backup := resourcecreator.MinimalCNPGScheduledBackup(obj, pgClusterName, pgNamespace)
+	actions = append(actions, actionFunc(backup, obj, existsConditionGetter, r.Recorder))
+
+	pooler := resourcecreator.MinimalCNPGPooler(obj, pgClusterName, pgNamespace)
+	actions = append(actions, actionFunc(pooler, obj, existsConditionGetter, r.Recorder))
+
+	netpol := resourcecreator.MinimalNetpol(obj, pgClusterName, pgNamespace)
+	actions = append(actions, actionFunc(netpol, obj, existsConditionGetter, r.Recorder))
+
+	// IAM cleanup
+	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+
+	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
+	if existingWorkloadIdentityPolicy != nil {
+		actions = append(actions, sharedActionFunc(existingWorkloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	if r.Config.WalGsBucket != "" {
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+		if existingStorageBucketPolicy != nil {
+			actions = append(actions, sharedActionFunc(existingStorageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		}
+	}
+
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
+	if existingLogsWriterPolicy != nil {
+		actions = append(actions, sharedActionFunc(existingLogsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
+	if existingKubernetesSA != nil {
+		actions = append(actions, sharedActionFunc(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	}
+
+	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresReconciler) deleteZalando(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
 	sharedActionFunc := action.Unclaim
 	if !obj.Spec.Cluster.AllowDeletion {
@@ -424,4 +547,134 @@ func strPtrDiffers(a *string, b *string) bool {
 		return true
 	}
 	return *a != *b
+}
+
+// getEngine returns the engine annotation value, defaulting to Zalando.
+func getEngine(obj *data_nais_io_v1.Postgres) string {
+	if obj.Annotations != nil {
+		if engine, ok := obj.Annotations[api.EngineAnnotation]; ok && engine == api.EngineCNPG {
+			return api.EngineCNPG
+		}
+	}
+	return api.EngineZalando
+}
+
+// iamActions returns the shared IAM actions used by both Zalando and CNPG codepaths.
+func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace string, relatedObjects reconciler.RelatedObjects) []action.Action {
+	var actions []action.Action
+
+	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+
+	workloadIdentityPolicy := resourcecreator.CreateWorkloadIdentityIAMPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
+	if existingWorkloadIdentityPolicy == nil {
+		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		}
+	} else {
+		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	if r.Config.WalGsBucket != "" {
+		storageBucketPolicy := resourcecreator.CreateStorageBucketIAMPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.teamGoogleProjectID, GSAName, r.Config.WalGsBucket)
+		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+		if existingStorageBucketPolicy == nil {
+			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+			if r.Config.ResyncIAMPermissions {
+				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			}
+		} else {
+			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		}
+	}
+
+	logsWriterPolicy := resourcecreator.CreateLogsWriterIAMPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.teamGoogleProjectID, GSAName)
+	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
+	if existingLogsWriterPolicy == nil {
+		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(logsWriterPolicy, existingLogsWriterPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+		}
+	} else {
+		actions = append(actions, action.Claim(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	gsa := resourcecreator.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
+	existingGsa := relatedObjects.GetMatching(gsa)
+	if existingGsa != nil {
+		actions = append(actions, action.Claim(gsa, obj, iamConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
+	}
+
+	kubernetesSA := resourcecreator.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.teamGoogleProjectID, GSAName)
+	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
+	if existingKubernetesSA != nil {
+		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(kubernetesSA, obj, existsConditionGetter, r.Recorder))
+	}
+
+	postgresPodRoleBinding := resourcecreator.CreateRoleBinding(RoleBindingName, KSAName, ClusterRoleName, pgNamespace)
+	existingPRB := relatedObjects.GetMatching(postgresPodRoleBinding)
+	if existingPRB != nil {
+		actions = append(actions, action.Update(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
+	}
+
+	return actions
+}
+
+func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
+	cluster := obj.(*cnpgv1.Cluster)
+
+	type conditionConfig struct {
+		Type   string
+		Status bool
+	}
+
+	isReady := false
+	for _, cond := range cluster.Status.Conditions {
+		if cond.Type == "Ready" && cond.Status == meta_v1.ConditionTrue {
+			isReady = true
+			break
+		}
+	}
+
+	conditions := []conditionConfig{
+		{
+			Type:   "Available",
+			Status: isReady,
+		},
+		{
+			Type:   "Progressing",
+			Status: cluster.Status.Phase == "Setting up primary" || cluster.Status.Phase == "Creating replica",
+		},
+		{
+			Type:   "Degraded",
+			Status: cluster.Status.Phase == "Unrecoverable" || cluster.Status.ReadyInstances < cluster.Status.Instances,
+		},
+	}
+
+	reason := cluster.Status.Phase
+	if reason == "" {
+		reason = "Unknown"
+	}
+
+	result := make([]meta_v1.Condition, 0, len(conditions))
+	for _, condition := range conditions {
+		result = append(result, meta_v1.Condition{
+			Type:               fmt.Sprintf("postgresql.cnpg.io/Cluster/%s", condition.Type),
+			Status:             makeCondition(condition.Status),
+			ObservedGeneration: obj.GetGeneration(),
+			Reason:             reason,
+		})
+	}
+
+	return result
 }
