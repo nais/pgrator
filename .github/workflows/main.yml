@@ -37,7 +37,7 @@ jobs:
       - name: Generate documentation
         working-directory: pgrator
         run: mise run generate:doc
-      - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # ratchet:actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # ratchet:actions/create-github-app-token@v2
         id: get-token
         with:
           app-id: ${{ secrets.NAIS_APP_ID }}
