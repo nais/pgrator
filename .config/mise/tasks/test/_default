@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run all tests (unit + integration)"
-#MISE depends=["test:unit"]

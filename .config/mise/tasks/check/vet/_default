@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run go vet against code"
-#MISE depends=["check:vet:root", "check:vet:api"]

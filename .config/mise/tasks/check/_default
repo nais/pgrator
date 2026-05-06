@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run all checks"
-#MISE alias="checks"
-#MISE depends=["check:*"]

@@ -4,10 +4,17 @@ PGRATOR_IMAGE = "europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest
 PGRATOR_TTL_IMAGE = "ttl.sh/pgrator:1h"
 
 [tools]
+go = """
+{%- set command = 'grep "^go [0-9]*\\.[0-9]*" ' ~ config_root ~ "/go.mod | awk '{print $2}'" -%}
+
+{{- exec(cache_key="go", command=command) -}}
+"""
 golangci-lint = "2.10.1"
 kube-controller-tools = "0.19.0"
 "aqua:kyverno/chainsaw" = "0.2.12"
 lefthook = "latest"
+helm = "latest"
+yq = "4.50.1"
 setup-envtest = """
 {%- set tool = '"\\ssigs.k8s.io/controller-runtime\\s"' -%}
 {%- set version_fmt = '"%d.%d"' -%}
@@ -15,10 +22,104 @@ setup-envtest = """
 
 {{- exec(cache_key="setup-envtest", command=command) -}}
 """
-go = """
-{%- set command = 'grep "^go [0-9]*\\.[0-9]*" ' ~ config_root ~ "/go.mod | awk '{print $2}'" -%}
 
-{{- exec(cache_key="go", command=command) -}}
+# ─── Tasks expected by nais/actions reusable workflow ───────────────────────────
+
+[tasks.version]
+description = "Generate version tag"
+run = "echo $(date +'%Y%m%d')-$(git rev-parse --short HEAD)"
+
+[tasks.fmt]
+description = "Format Go code"
+run = "gofmt -w ."
+
+[tasks.fmt-check]
+description = "Check Go code formatting"
+run = "test -z \"$(gofmt -l .)\""
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run --timeout=10m ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.tidy]
+description = "Tidy and verify go.mod"
+run = ["go mod tidy", "go mod verify"]
+
+[tasks.tidy-check]
+description = "Check if go.mod is tidy"
+run = ["go mod tidy", "git diff --exit-code go.mod go.sum"]
+
+[tasks.check]
+description = "Run static analysis and vulnerability check"
+run = "go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+
+[tasks.generate]
+description = "Generate CRDs, manifests, and DeepCopy methods"
+run = """
+controller-gen crd rbac:roleName=manager-role webhook paths="./pkg/api/..." output:crd:artifacts:config=config/crd/bases
+controller-gen +object paths="./..."
+cp config/crd/bases/*.yaml charts/pgrator/templates/crd/
+for f in charts/pgrator/templates/crd/*.yaml; do
+  yq e -i 'select(.kind=="CustomResourceDefinition") | .metadata.annotations."helm.sh/resource-policy"="keep"' "$f"
+done
 """
-helm = "latest"
-yq = "4.50.1"
+
+[tasks.generate-check]
+description = "Check if generated code is up to date"
+depends = ["generate"]
+run = "git diff --exit-code"
+
+[tasks.test]
+description = "Run tests"
+depends = ["generate"]
+run = """
+KUBEBUILDER_ASSETS="$(setup-envtest use "${ENVTEST_K8S_VERSION}" -p path)"
+export KUBEBUILDER_ASSETS
+go tool ginkgo run -r --keep-going
+"""
+
+[tasks.test-race]
+description = "Run tests with race detector"
+depends = ["generate"]
+run = """
+KUBEBUILDER_ASSETS="$(setup-envtest use "${ENVTEST_K8S_VERSION}" -p path)"
+export KUBEBUILDER_ASSETS
+go tool ginkgo run -r --keep-going --race
+"""
+
+[tasks.test-e2e]
+description = "Run e2e tests with chainsaw (requires a running cluster)"
+run = "chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml"
+
+[tasks.build]
+description = "Build manager binary"
+depends = ["generate"]
+run = "go build -o bin/manager cmd/main.go"
+
+[tasks.all]
+description = "Run all checks and build"
+depends = ["tidy", "fmt", "generate", "lint", "vet", "check", "test", "build"]
+
+# ─── Helm ──────────────────────────────────────────────────────────────────────
+
+[tasks.helm-lint]
+description = "Lint Helm charts"
+run = "helm lint charts/*"
+
+# ─── Docker ────────────────────────────────────────────────────────────────────
+
+[tasks.docker]
+description = "Build Docker image"
+run = "docker build -t pgrator:dev ."
+
+# ─── Run ───────────────────────────────────────────────────────────────────────
+
+[tasks.run]
+description = "Run controller locally"
+depends = ["generate"]
+run = "go run ./cmd/main.go"
+

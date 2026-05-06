@@ -25,14 +25,6 @@ jobs:
 
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # ratchet:jdx/mise-action@v3
 
-      - uses: actions/cache@v4 # ratchet:exclude
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ hashFiles('go.sum') }}
-          restore-keys: go-
-
       - name: Build operator image
         run: |
           docker build -t pgrator:e2e .
@@ -99,7 +91,7 @@ jobs:
 
       - name: Run Chainsaw E2E tests
         run: |
-          mise run test:e2e
+          mise run test-e2e
 
       - name: Collect debug info on failure
         if: failure()

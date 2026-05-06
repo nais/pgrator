@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Run go fmt against code"
-#MISE depends=["fmt:root", "fmt:api"]
