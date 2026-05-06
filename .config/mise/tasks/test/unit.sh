@@ -10,4 +10,4 @@ declare -a output_flags
 if [[ "${GITHUB_ACTIONS}" == "true" ]]; then
   output_flags+=("--github-output")
 fi
-go tool ginkgo run -r --keep-going "${output_flags[@]}"
+go tool ginkgo run -r --keep-going --race --coverprofile=coverage.out "${output_flags[@]}"

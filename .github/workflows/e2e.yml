@@ -96,7 +96,7 @@ jobs:
 
       - name: Run Chainsaw E2E tests
         run: |
-          mise run e2e
+          mise run test:e2e
 
       - name: Collect debug info on failure
         if: failure()
