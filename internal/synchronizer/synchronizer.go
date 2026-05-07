@@ -355,6 +355,7 @@ func (s *Synchronizer[T, P]) removeResourceInfoMetric(obj T) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
+	logger := mgr.GetLogger().WithName(s.reconciler.Name())
 	opts := controller.Options{
 		ReconciliationTimeout: 60 * time.Second,
 	}
@@ -369,12 +370,28 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	for _, t := range s.reconciler.AdditionalTypes() {
+		if !s.isCRDAvailable(mgr, t) {
+			gvks, _, _ := s.scheme.ObjectKinds(t)
+			logger.Info("skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
+			continue
+		}
 		bldr = bldr.Watches(t,
 			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerManager)),
 			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
 		)
 	}
 	return bldr.Complete(s)
+}
+
+// isCRDAvailable checks whether the API server knows about the given type's GVK.
+func (s *Synchronizer[T, P]) isCRDAvailable(mgr ctrl.Manager, obj client.Object) bool {
+	gvks, _, err := s.scheme.ObjectKinds(obj)
+	if err != nil || len(gvks) == 0 {
+		return false
+	}
+	gvk := gvks[0]
+	_, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return !meta.IsNoMatchError(err)
 }
 
 func (s *Synchronizer[T, P]) UpdatingOwnership(actions []action.Action, relatedObjects reconciler.RelatedObjects) {
@@ -406,6 +423,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
 		if err != nil {
+			if meta.IsNoMatchError(err) {
+				continue
+			}
 			return nil, fmt.Errorf("unable to list %s: %w", t, err)
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
@@ -460,6 +480,9 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
 		if err != nil {
+			if meta.IsNoMatchError(err) {
+				continue
+			}
 			return nil, fmt.Errorf("unable to list %s: %w", t, err)
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
