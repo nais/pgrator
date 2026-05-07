@@ -32,7 +32,7 @@ spec:
                 namespace: zalando-team
               spec:
                 cluster:
-                  majorVersion: 17
+                  majorVersion: "17"
                   allowDeletion: true
                   resources:
                     diskSize: 10Gi

@@ -32,7 +32,7 @@ spec:
                 namespace: deletion-team
               spec:
                 cluster:
-                  majorVersion: 17
+                  majorVersion: "17"
                   allowDeletion: false
                   resources:
                     diskSize: 10Gi
