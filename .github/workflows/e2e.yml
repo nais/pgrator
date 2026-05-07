@@ -1,9 +1,6 @@
 name: E2E Tests
 
 on:
-  push:
-    paths-ignore:
-      - '*.md'
   pull_request:
     paths-ignore:
       - '*.md'
@@ -42,9 +39,6 @@ jobs:
 
       - name: Install CRDs
         run: |
-          # pgrator CRDs
-          kubectl apply -f config/crd/bases/
-
           # External CRDs needed by the operator (server-side apply for large CRDs)
           kubectl apply --server-side -f internal/controller/testdata/external-crds/
 
