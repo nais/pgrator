@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run golangci-lint linter"
+#USAGE flag "--fix" help="Automatically fix issues"
+set -euo pipefail
+
+mise run check:lint:root -- "$@"
+mise run check:lint:api -- "$@"

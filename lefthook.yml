@@ -5,9 +5,9 @@ pre-commit:
       run: mise run fmt
       stage_fixed: true
     lint:
-      run: mise run lint
+      run: mise run check:lint
     vet:
-      run: mise run vet
+      run: mise run check:vet
     generate:
       run: |
         mise run generate

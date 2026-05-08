@@ -11,13 +11,11 @@ All commands use [mise](https://mise.jdx.dev):
 ```sh
 mise run build          # Build binary
 mise run test           # Run tests (needs setup-envtest)
-mise run test-race      # Tests with race detector
-mise run lint           # golangci-lint
-mise run vet            # go vet
-mise run fmt-check      # Verify formatting
-mise run generate-check # Verify generated code is current
-mise run tidy-check     # Verify go.mod is tidy
-mise run all            # All of the above
+mise run check:lint     # golangci-lint
+mise run check:vet      # go vet
+mise run fmt            # Format code
+mise run generate       # Generate CRDs and DeepCopy
+mise run check          # All checks (lint + vet)
 ```
 
 ## Code Generation
