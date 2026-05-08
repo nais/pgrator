@@ -83,6 +83,10 @@ jobs:
             --timeout=120s \
             deployment/pgrator
 
+      - name: Create prerequisite namespaces
+        run: |
+          kubectl create namespace serviceaccounts
+
       - name: Run Chainsaw E2E tests
         run: |
           mise run test:e2e
