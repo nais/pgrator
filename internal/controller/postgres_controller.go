@@ -748,7 +748,7 @@ func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		result = append(result, meta_v1.Condition{
-			Type:               fmt.Sprintf("postgresql.cnpg.io/Cluster/%s", condition.Type),
+			Type:               fmt.Sprintf("postgresql.cnpg.io/Cluster%s", condition.Type),
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             reason,
