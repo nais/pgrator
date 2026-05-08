@@ -3,6 +3,7 @@ package synchronizer
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"time"
 
@@ -109,6 +110,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// Snapshot annotations before reconciliation to detect changes made by the reconciler
+	// (e.g., setting active-engine annotation). This is needed because metadata persistence
+	// must happen for both finalizer and annotation changes, not just finalizer changes.
+	originalAnnotations := maps.Clone(obj.GetAnnotations())
 
 	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
 	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
@@ -274,15 +280,19 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		result = deleteResult
 	}
 
-	if finalizerFunc(obj, finalizer) {
+	// Persist metadata changes when finalizer or annotations have been modified by the reconciler.
+	// Previously, this only ran when the finalizer changed, which meant annotations set during
+	// reconciliation (e.g., active-engine) were never persisted on subsequent reconciles.
+	metadataChanged := finalizerFunc(obj, finalizer) || !maps.Equal(originalAnnotations, obj.GetAnnotations())
+	if metadataChanged {
 		// Preserve conditions before Update, as the client will overwrite obj with server response
 		// which doesn't have our in-memory condition changes yet
 		conditions := obj.GetStatus().GetConditions()
 
 		err := s.client.Update(ctx, obj)
 		if err != nil {
-			logger.Error(err, "failed to update finalizer")
-			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
+			logger.Error(err, "failed to update metadata")
+			s.recorder.RecordErrorEvent(obj, "MetadataUpdate", err)
 			return ctrl.Result{}, err
 		}
 

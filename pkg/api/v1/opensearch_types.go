@@ -209,7 +209,7 @@ type OpenSearch struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of OpenSearch
 	// +required
@@ -217,7 +217,7 @@ type OpenSearch struct {
 
 	// status defines the observed state of OpenSearch
 	// +optional
-	Status *OpenSearchStatus `json:"status,omitempty,omitzero"`
+	Status *OpenSearchStatus `json:"status,omitempty"`
 }
 
 func (o *OpenSearch) GetCorrelationId() string {

@@ -108,7 +108,7 @@ type Postgres struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of Postgres
 	// +required
@@ -116,7 +116,7 @@ type Postgres struct {
 
 	// status defines the observed state of Postgres
 	// +optional
-	Status *PostgresStatus `json:"status,omitempty,omitzero"`
+	Status *PostgresStatus `json:"status,omitempty"`
 }
 
 func (p *Postgres) GetCorrelationId() string {
