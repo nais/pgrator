@@ -114,6 +114,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Snapshot annotations before reconciliation to detect changes made by the reconciler
 	// (e.g., setting active-engine annotation). This is needed because metadata persistence
 	// must happen for both finalizer and annotation changes, not just finalizer changes.
+	// NOTE: We save annotations here AND after reconciler.Update(), because the multiple
+	// Status().Update() calls between Update() and client.Update() overwrite obj with the
+	// server response, clobbering any in-memory annotation changes.
 	originalAnnotations := maps.Clone(obj.GetAnnotations())
 
 	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
@@ -174,6 +177,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizerFunc := controllerutil.AddFinalizer
 	var actions []action.Action
 	var deleteResult ctrl.Result
+	var desiredAnnotations map[string]string
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
@@ -219,6 +223,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 			return result, err
 		}
+		// Save desired annotations set by the reconciler. Subsequent Status().Update()
+		// calls overwrite obj with the server response, losing these in-memory changes.
+		// We restore them before persisting metadata.
+		desiredAnnotations = maps.Clone(obj.GetAnnotations())
 	}
 
 	obj.GetStatus().SetReconcilePhase("UpdatingOwnership")
@@ -281,8 +289,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Persist metadata changes when finalizer or annotations have been modified by the reconciler.
-	// Previously, this only ran when the finalizer changed, which meant annotations set during
-	// reconciliation (e.g., active-engine) were never persisted on subsequent reconciles.
+	// Restore desired annotations first — they may have been clobbered by Status().Update() calls
+	// between reconciler.Update() and here, which overwrite obj with the server response.
+	if desiredAnnotations != nil {
+		obj.SetAnnotations(desiredAnnotations)
+	}
 	metadataChanged := finalizerFunc(obj, finalizer) || !maps.Equal(originalAnnotations, obj.GetAnnotations())
 	if metadataChanged {
 		// Preserve conditions before Update, as the client will overwrite obj with server response
