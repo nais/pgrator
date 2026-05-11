@@ -34,3 +34,4 @@ doc/pgrator-overview-dashboard.json
 
 # Tilt
 tilt_modules/
+nvim.log

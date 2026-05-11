@@ -3,6 +3,7 @@ package resourcecreator
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
@@ -239,21 +240,10 @@ func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string
 		for _, c := range audit.StatementClasses {
 			classes = append(classes, string(c))
 		}
-		params["pgaudit.log"] = joinStatementClasses(classes)
+		params["pgaudit.log"] = strings.Join(classes, ",")
 	} else {
 		params["pgaudit.log"] = "ddl,role"
 	}
 
 	return params
-}
-
-func joinStatementClasses(classes []string) string {
-	result := ""
-	for i, c := range classes {
-		if i > 0 {
-			result += ","
-		}
-		result += c
-	}
-	return result
 }
