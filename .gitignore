@@ -31,3 +31,6 @@ go.work
 *~
 .DS_Store
 doc/pgrator-overview-dashboard.json
+
+# Tilt
+tilt_modules/
