@@ -24,6 +24,13 @@ const (
 	cnpgDatabaseUser = "app"
 
 	cnpgKSAName = "postgres-pod"
+
+	// PostgreSQL memory tuning ratios
+	sharedBuffersFraction      = 4  // 1/4 of memory (25%)
+	effectiveCacheSizeFraction = 4  // 3/4 of memory (75%), computed as mem*3/4
+	workMemFraction            = 64 // 1/64 of memory (~1.5%)
+	maintenanceWorkMemFraction = 8  // 1/8 of memory (12.5%)
+	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024 // 2GB cap
 )
 
 func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
@@ -84,7 +91,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		},
 
 		PostgresConfiguration: cnpgv1.PostgresConfiguration{
-			Parameters: makeCNPGPostgresParameters(postgres.Spec.Cluster.Audit),
+			Parameters: makeCNPGPostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
 		},
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
@@ -229,10 +236,28 @@ func MinimalCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespac
 	}
 }
 
-func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {
+func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resource.Quantity) map[string]string {
+	memBytes := memory.Value()
+
+	// PostgreSQL tuning parameters based on available memory
+	sharedBuffers := memBytes / sharedBuffersFraction
+	effectiveCacheSize := memBytes * 3 / effectiveCacheSizeFraction
+	workMem := memBytes / workMemFraction
+	maintenanceWorkMem := memBytes / maintenanceWorkMemFraction
+	if maintenanceWorkMem > maxMaintenanceWorkMemBytes {
+		maintenanceWorkMem = maxMaintenanceWorkMemBytes
+	}
+
 	params := map[string]string{
 		"shared_preload_libraries":   "pg_stat_statements,pgaudit",
 		"log_min_duration_statement": "1000",
+		"shared_buffers":             fmt.Sprintf("%dMB", sharedBuffers/(1024*1024)),
+		"effective_cache_size":       fmt.Sprintf("%dMB", effectiveCacheSize/(1024*1024)),
+		"work_mem":                   fmt.Sprintf("%dMB", workMem/(1024*1024)),
+		"maintenance_work_mem":       fmt.Sprintf("%dMB", maintenanceWorkMem/(1024*1024)),
+		"random_page_cost":           "1.1",
+		"effective_io_concurrency":   "200",
+		"huge_pages":                 "off",
 	}
 
 	if audit != nil && audit.Enabled {
