@@ -26,10 +26,10 @@ const (
 	cnpgKSAName = "postgres-pod"
 
 	// PostgreSQL memory tuning ratios
-	sharedBuffersFraction      = 4  // 1/4 of memory (25%)
-	effectiveCacheSizeFraction = 4  // 3/4 of memory (75%), computed as mem*3/4
-	workMemFraction            = 64 // 1/64 of memory (~1.5%)
-	maintenanceWorkMemFraction = 8  // 1/8 of memory (12.5%)
+	sharedBuffersFraction      = 4                      // 1/4 of memory (25%)
+	effectiveCacheSizeFraction = 4                      // 3/4 of memory (75%), computed as mem*3/4
+	workMemFraction            = 64                     // 1/64 of memory (~1.5%)
+	maintenanceWorkMemFraction = 8                      // 1/8 of memory (12.5%)
 	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024 // 2GB cap
 )
 
