@@ -393,7 +393,7 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	for _, t := range s.reconciler.AdditionalTypes() {
 		if !s.isCRDAvailable(mgr, t) {
 			gvks, _, _ := s.scheme.ObjectKinds(t)
-			logger.Info("skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
+			logger.Error(fmt.Errorf("CRD not available"), "skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
 			continue
 		}
 		bldr = bldr.Watches(t,
