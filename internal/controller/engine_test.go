@@ -151,6 +151,141 @@ func TestValidateEngineImmutability(t *testing.T) {
 	}
 }
 
+// TestEngineSelectionAndValidation tests the full engine resolution + validation
+// pipeline as experienced by real users. This is the backward-compat safety net.
+func TestEngineSelectionAndValidation(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotations  map[string]string
+		majorVersion string
+		wantErr      bool
+		errContains  string
+	}{
+		// Backward compatibility: existing users without annotations
+		{
+			name:         "no annotations with v16 defaults to zalando and succeeds",
+			annotations:  nil,
+			majorVersion: "16",
+		},
+		{
+			name:         "no annotations with v17 defaults to zalando and succeeds",
+			annotations:  nil,
+			majorVersion: "17",
+		},
+		{
+			name:         "empty annotations with v16 defaults to zalando and succeeds",
+			annotations:  map[string]string{},
+			majorVersion: "16",
+		},
+		{
+			name:         "empty annotations with v17 defaults to zalando and succeeds",
+			annotations:  map[string]string{},
+			majorVersion: "17",
+		},
+		// Existing user tries v18 without engine annotation (should fail)
+		{
+			name:         "no annotations with v18 defaults to zalando and is rejected",
+			annotations:  nil,
+			majorVersion: "18",
+			wantErr:      true,
+			errContains:  "zalando engine only supports majorVersion 16 or 17",
+		},
+		// Existing zalando user with active-engine set (post first reconcile)
+		{
+			name:         "active-engine zalando with v16 succeeds",
+			annotations:  map[string]string{api.ActiveEngineAnnotation: api.EngineZalando},
+			majorVersion: "16",
+		},
+		{
+			name:         "active-engine zalando with v17 succeeds",
+			annotations:  map[string]string{api.ActiveEngineAnnotation: api.EngineZalando},
+			majorVersion: "17",
+		},
+		{
+			name:         "active-engine zalando with v18 is rejected",
+			annotations:  map[string]string{api.ActiveEngineAnnotation: api.EngineZalando},
+			majorVersion: "18",
+			wantErr:      true,
+			errContains:  "zalando engine only supports majorVersion 16 or 17",
+		},
+		// New CNPG user
+		{
+			name:         "engine cnpg with v18 succeeds",
+			annotations:  map[string]string{api.EngineAnnotation: api.EngineCNPG},
+			majorVersion: "18",
+		},
+		{
+			name:         "engine cnpg with v17 is rejected",
+			annotations:  map[string]string{api.EngineAnnotation: api.EngineCNPG},
+			majorVersion: "17",
+			wantErr:      true,
+			errContains:  "cnpg engine requires majorVersion >= 18",
+		},
+		// Active-engine takes precedence: user annotation overridden
+		{
+			name:         "active-engine zalando overrides engine cnpg annotation",
+			annotations:  map[string]string{api.ActiveEngineAnnotation: api.EngineZalando, api.EngineAnnotation: api.EngineCNPG},
+			majorVersion: "17",
+		},
+		{
+			name:         "active-engine cnpg with v18 succeeds even without engine annotation",
+			annotations:  map[string]string{api.ActiveEngineAnnotation: api.EngineCNPG},
+			majorVersion: "18",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &data_nais_io_v1.Postgres{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: tt.annotations,
+				},
+				Spec: data_nais_io_v1.PostgresSpec{
+					Cluster: data_nais_io_v1.PostgresCluster{
+						MajorVersion: tt.majorVersion,
+					},
+				},
+			}
+
+			// Simulate the Prepare() validation pipeline
+			engine, err := getEngine(obj)
+			if err != nil {
+				if !tt.wantErr {
+					t.Fatalf("unexpected getEngine error: %v", err)
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if err := validateEngineImmutability(obj, engine); err != nil {
+				if !tt.wantErr {
+					t.Fatalf("unexpected immutability error: %v", err)
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if err := validateVersionForEngine(obj.Spec.Cluster.MajorVersion, engine); err != nil {
+				if !tt.wantErr {
+					t.Fatalf("unexpected version error: %v", err)
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if tt.wantErr {
+				t.Error("expected error but validation pipeline succeeded")
+			}
+		})
+	}
+}
+
 func TestValidateVersionForEngine(t *testing.T) {
 	tests := []struct {
 		name         string
