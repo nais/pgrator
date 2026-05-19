@@ -50,7 +50,7 @@ rules:
   resources: [networkpolicies]
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [monitoring.coreos.com]
-  resources: [prometheusrules]
+  resources: [prometheusrules, podmonitors]
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [rbac.authorization.k8s.io]
   resources: [rolebindings]
