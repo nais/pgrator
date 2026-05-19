@@ -91,7 +91,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		},
 
 		PostgresConfiguration: cnpgv1.PostgresConfiguration{
-			Parameters: makeCNPGPostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
+			Parameters: makeCNPGPostgresParameters(postgres.Spec.Cluster),
 		},
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
@@ -236,10 +236,11 @@ func MinimalCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespac
 	}
 }
 
-func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resource.Quantity) map[string]string {
-	memBytes := memory.Value()
+func makeCNPGPostgresParameters(cluster data_nais_io_v1.PostgresCluster) map[string]string {
+	memBytes := cluster.Resources.Memory.Value()
+	diskBytes := cluster.Resources.DiskSize.Value()
 
-	// PostgreSQL tuning parameters based on available memory
+	// PostgreSQL memory tuning parameters based on available memory
 	sharedBuffers := memBytes / sharedBuffersFraction
 	effectiveCacheSize := memBytes * 3 / effectiveCacheSizeFraction
 	workMem := memBytes / workMemFraction
@@ -248,24 +249,64 @@ func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory res
 		maintenanceWorkMem = maxMaintenanceWorkMemBytes
 	}
 
+	// WAL sizing: ~2% of disk, clamped between 1GB and 8GB
+	maxWalSize := diskBytes / 50
+	if maxWalSize < 1*1024*1024*1024 {
+		maxWalSize = 1 * 1024 * 1024 * 1024
+	}
+	if maxWalSize > 8*1024*1024*1024 {
+		maxWalSize = 8 * 1024 * 1024 * 1024
+	}
+
+	// wal_buffers: 1/32 of shared_buffers, clamped to 64MB (PostgreSQL max useful)
+	walBuffers := sharedBuffers / 32
+	if walBuffers < 1*1024*1024 {
+		walBuffers = 1 * 1024 * 1024
+	}
+	if walBuffers > 64*1024*1024 {
+		walBuffers = 64 * 1024 * 1024
+	}
+
 	params := map[string]string{
+		// Memory
+		"shared_buffers":       fmt.Sprintf("%dMB", sharedBuffers/(1024*1024)),
+		"effective_cache_size": fmt.Sprintf("%dMB", effectiveCacheSize/(1024*1024)),
+		"work_mem":             fmt.Sprintf("%dMB", workMem/(1024*1024)),
+		"maintenance_work_mem": fmt.Sprintf("%dMB", maintenanceWorkMem/(1024*1024)),
+		"huge_pages":           "off",
+
+		// WAL performance
+		"max_wal_size":    fmt.Sprintf("%dMB", maxWalSize/(1024*1024)),
+		"wal_compression": "zstd",
+		"wal_buffers":     fmt.Sprintf("%dMB", walBuffers/(1024*1024)),
+
+		// Checkpoint / background writer
+		"checkpoint_timeout":    "10min",
+		"bgwriter_lru_maxpages": "200",
+
+		// I/O tuning for SSD
+		"effective_io_concurrency": "200",
+		"random_page_cost":         "1.1",
+
+		// Monitoring
+		"track_io_timing":            "on",
 		"log_min_duration_statement": "1000",
-		"shared_buffers":             fmt.Sprintf("%dMB", sharedBuffers/(1024*1024)),
-		"effective_cache_size":       fmt.Sprintf("%dMB", effectiveCacheSize/(1024*1024)),
-		"work_mem":                   fmt.Sprintf("%dMB", workMem/(1024*1024)),
-		"maintenance_work_mem":       fmt.Sprintf("%dMB", maintenanceWorkMem/(1024*1024)),
-		"random_page_cost":           "1.1",
-		"effective_io_concurrency":   "200",
-		"huge_pages":                 "off",
+
 		// CNPG auto-manages shared_preload_libraries when it detects these prefixed parameters.
 		// Setting pg_stat_statements.track triggers loading of pg_stat_statements,
 		// and pgaudit.log (set below) triggers loading of pgaudit.
 		"pg_stat_statements.track": "all",
 	}
 
-	if audit != nil && audit.Enabled {
-		classes := make([]string, 0, len(audit.StatementClasses))
-		for _, c := range audit.StatementClasses {
+	// Group commit reduces sync-rep round trips in HA clusters
+	if cluster.HighAvailability {
+		params["commit_delay"] = "100"
+		params["commit_siblings"] = "10"
+	}
+
+	if cluster.Audit != nil && cluster.Audit.Enabled {
+		classes := make([]string, 0, len(cluster.Audit.StatementClasses))
+		for _, c := range cluster.Audit.StatementClasses {
 			classes = append(classes, string(c))
 		}
 		params["pgaudit.log"] = strings.Join(classes, ",")
