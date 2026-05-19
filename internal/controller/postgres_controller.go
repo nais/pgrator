@@ -357,7 +357,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		return nil, ctrl.Result{}, err
 	}
 
-	var actions []action.Action
+	actions := make([]action.Action, 0, 4)
 
 	cluster := resourcecreator.MinimalCNPGCluster(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(cluster, obj, cnpgClusterConditionGetter, r.Recorder))

@@ -12,6 +12,7 @@ concurrency:
 permissions:
   contents: read
   checks: write
+  pull-requests: write
 
 jobs:
   e2e:
@@ -89,7 +90,7 @@ jobs:
 
       - name: Run Chainsaw E2E tests
         run: |
-          chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml --report-format junit --report-name chainsaw-report
+          chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml --report-format XML --report-name chainsaw-report
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@c950f6fb443cb5af20a377fd0dfaa78838901040 # ratchet:EnricoMi/publish-unit-test-result-action@v2
