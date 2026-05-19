@@ -233,8 +233,8 @@ jobs:
             helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
           done
 
-  rollout:
-    name: Rollout
+  deploy:
+    name: Deploy
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/main'
     needs:
       - build
@@ -246,7 +246,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: nais/fasit-deploy@v2 # ratchet:exclude
+      - uses: nais/fasit-deploy@v4 # ratchet:exclude
         with:
           chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/pgrator
           version: ${{ needs.build.outputs.version }}
+          targets: |
+            [
+              { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
+              { "target": { "kind": "tenant" } }
+            ]
