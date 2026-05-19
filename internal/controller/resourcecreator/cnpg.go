@@ -249,7 +249,6 @@ func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory res
 	}
 
 	params := map[string]string{
-		"shared_preload_libraries":   "pg_stat_statements,pgaudit",
 		"log_min_duration_statement": "1000",
 		"shared_buffers":             fmt.Sprintf("%dMB", sharedBuffers/(1024*1024)),
 		"effective_cache_size":       fmt.Sprintf("%dMB", effectiveCacheSize/(1024*1024)),
@@ -258,6 +257,10 @@ func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory res
 		"random_page_cost":           "1.1",
 		"effective_io_concurrency":   "200",
 		"huge_pages":                 "off",
+		// CNPG auto-manages shared_preload_libraries when it detects these prefixed parameters.
+		// Setting pg_stat_statements.track triggers loading of pg_stat_statements,
+		// and pgaudit.log (set below) triggers loading of pgaudit.
+		"pg_stat_statements.track": "all",
 	}
 
 	if audit != nil && audit.Enabled {
