@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -43,6 +44,7 @@ func init() {
 	utilruntime.Must(pov1.AddToScheme(scheme))
 	utilruntime.Must(acid_zalan_do_v1.AddToScheme(scheme))
 	utilruntime.Must(aiven_v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(cnpgv1.AddToScheme(scheme))
 }
 
 // nolint:gocyclo

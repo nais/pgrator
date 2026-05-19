@@ -3,6 +3,7 @@ package synchronizer
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"time"
 
@@ -110,6 +111,14 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Snapshot annotations before reconciliation to detect changes made by the reconciler
+	// (e.g., setting active-engine annotation). This is needed because metadata persistence
+	// must happen for both finalizer and annotation changes, not just finalizer changes.
+	// NOTE: We save annotations here AND after reconciler.Update(), because the multiple
+	// Status().Update() calls between Update() and client.Update() overwrite obj with the
+	// server response, clobbering any in-memory annotation changes.
+	originalAnnotations := maps.Clone(obj.GetAnnotations())
+
 	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
 	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
 	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
@@ -168,6 +177,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizerFunc := controllerutil.AddFinalizer
 	var actions []action.Action
 	var deleteResult ctrl.Result
+	var desiredAnnotations map[string]string
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
@@ -213,6 +223,10 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 			return result, err
 		}
+		// Save desired annotations set by the reconciler. Subsequent Status().Update()
+		// calls overwrite obj with the server response, losing these in-memory changes.
+		// We restore them before persisting metadata.
+		desiredAnnotations = maps.Clone(obj.GetAnnotations())
 	}
 
 	obj.GetStatus().SetReconcilePhase("UpdatingOwnership")
@@ -274,15 +288,22 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		result = deleteResult
 	}
 
-	if finalizerFunc(obj, finalizer) {
+	// Persist metadata changes when finalizer or annotations have been modified by the reconciler.
+	// Restore desired annotations first — they may have been clobbered by Status().Update() calls
+	// between reconciler.Update() and here, which overwrite obj with the server response.
+	if desiredAnnotations != nil {
+		obj.SetAnnotations(desiredAnnotations)
+	}
+	metadataChanged := finalizerFunc(obj, finalizer) || !maps.Equal(originalAnnotations, obj.GetAnnotations())
+	if metadataChanged {
 		// Preserve conditions before Update, as the client will overwrite obj with server response
 		// which doesn't have our in-memory condition changes yet
 		conditions := obj.GetStatus().GetConditions()
 
 		err := s.client.Update(ctx, obj)
 		if err != nil {
-			logger.Error(err, "failed to update finalizer")
-			s.recorder.RecordErrorEvent(obj, "FinalizerUpdate", err)
+			logger.Error(err, "failed to update metadata")
+			s.recorder.RecordErrorEvent(obj, "MetadataUpdate", err)
 			return ctrl.Result{}, err
 		}
 
@@ -355,6 +376,7 @@ func (s *Synchronizer[T, P]) removeResourceInfoMetric(obj T) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
+	logger := mgr.GetLogger().WithName(s.reconciler.Name())
 	opts := controller.Options{
 		ReconciliationTimeout: 60 * time.Second,
 	}
@@ -369,12 +391,28 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	for _, t := range s.reconciler.AdditionalTypes() {
+		if !s.isCRDAvailable(mgr, t) {
+			gvks, _, _ := s.scheme.ObjectKinds(t)
+			logger.Info("skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
+			continue
+		}
 		bldr = bldr.Watches(t,
 			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerManager)),
 			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
 		)
 	}
 	return bldr.Complete(s)
+}
+
+// isCRDAvailable checks whether the API server knows about the given type's GVK.
+func (s *Synchronizer[T, P]) isCRDAvailable(mgr ctrl.Manager, obj client.Object) bool {
+	gvks, _, err := s.scheme.ObjectKinds(obj)
+	if err != nil || len(gvks) == 0 {
+		return false
+	}
+	gvk := gvks[0]
+	_, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return !meta.IsNoMatchError(err)
 }
 
 func (s *Synchronizer[T, P]) UpdatingOwnership(actions []action.Action, relatedObjects reconciler.RelatedObjects) {
@@ -406,6 +444,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
 		if err != nil {
+			if meta.IsNoMatchError(err) {
+				continue
+			}
 			return nil, fmt.Errorf("unable to list %s: %w", t, err)
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
@@ -460,6 +501,9 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler
 		list := reflect.New(t).Interface().(client.ObjectList)
 		err := s.client.List(ctx, list)
 		if err != nil {
+			if meta.IsNoMatchError(err) {
+				continue
+			}
 			return nil, fmt.Errorf("unable to list %s: %w", t, err)
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {

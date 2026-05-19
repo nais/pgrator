@@ -1,0 +1,12 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: ScheduledBackup
+  metadata:
+    name: test-db
+    namespace: pg-my-team
+  spec:
+    cluster:
+      name: test-db

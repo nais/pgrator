@@ -130,7 +130,7 @@ type Valkey struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of Valkey
 	// +required
@@ -138,7 +138,7 @@ type Valkey struct {
 
 	// status defines the observed state of Valkey
 	// +optional
-	Status *ValkeyStatus `json:"status,omitempty,omitzero"`
+	Status *ValkeyStatus `json:"status,omitempty"`
 }
 
 func (v *Valkey) GetCorrelationId() string {

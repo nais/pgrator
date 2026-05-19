@@ -1,0 +1,193 @@
+package resourcecreator
+
+import (
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/nais/pgrator/internal/config"
+	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+)
+
+var _ = Describe("CNPG Resource Creator", func() {
+	var (
+		postgres *data_nais_io_v1.Postgres
+		cfg      *config.Config
+	)
+
+	BeforeEach(func() {
+		postgres = &data_nais_io_v1.Postgres{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-db",
+				Namespace: "my-team",
+			},
+			Spec: data_nais_io_v1.PostgresSpec{
+				Cluster: data_nais_io_v1.PostgresCluster{
+					MajorVersion:     "16",
+					HighAvailability: false,
+					Resources: data_nais_io_v1.PostgresResources{
+						DiskSize: resource.MustParse("10Gi"),
+						Cpu:      resource.MustParse("500m"),
+						Memory:   resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+		cfg = &config.Config{
+			GoogleProjectID: "my-gcp-project",
+			CNPG: config.CNPG{
+				ImageCatalogName: "postgresql",
+				StorageClass:     "hyperdisk-balanced",
+				BackupBucket:     "my-backup-bucket",
+				BarmanPluginName: "barman-cloud.cloudnative-pg.io",
+			},
+		}
+	})
+
+	Describe("CreateCNPGClusterSpec", func() {
+		It("should create a valid cluster with default settings", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cluster).NotTo(BeNil())
+
+			Expect(cluster.Name).To(Equal("my-db"))
+			Expect(cluster.Namespace).To(Equal("pg-my-team"))
+			Expect(cluster.Spec.Instances).To(Equal(2))
+			Expect(cluster.Spec.MinSyncReplicas).To(Equal(0))
+			Expect(cluster.Spec.MaxSyncReplicas).To(Equal(0))
+		})
+
+		It("should set HA instances when HighAvailability is true", func() {
+			postgres.Spec.Cluster.HighAvailability = true
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.Instances).To(Equal(3))
+			Expect(cluster.Spec.MinSyncReplicas).To(Equal(1))
+			Expect(cluster.Spec.MaxSyncReplicas).To(Equal(1))
+		})
+
+		It("should use ImageCatalogRef with correct major version", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.ImageCatalogRef).NotTo(BeNil())
+			Expect(cluster.Spec.ImageCatalogRef.Major).To(Equal(16))
+			Expect(cluster.Spec.ImageCatalogRef.Name).To(Equal("postgresql"))
+			Expect(cluster.Spec.ImageCatalogRef.Kind).To(Equal("ClusterImageCatalog"))
+		})
+
+		It("should return error for invalid major version", func() {
+			postgres.Spec.Cluster.MajorVersion = "invalid"
+			_, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid major version"))
+		})
+
+		It("should set storage class when configured", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.StorageConfiguration.StorageClass).NotTo(BeNil())
+			Expect(*cluster.Spec.StorageConfiguration.StorageClass).To(Equal("hyperdisk-balanced"))
+		})
+
+		It("should leave storage class nil when not configured", func() {
+			cfg.CNPG.StorageClass = ""
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.StorageConfiguration.StorageClass).To(BeNil())
+		})
+
+		It("should set ServiceAccountName to reuse existing KSA", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.ServiceAccountName).To(Equal("postgres-pod"))
+			Expect(cluster.Spec.ServiceAccountTemplate).To(BeNil())
+		})
+
+		It("should configure barman-cloud plugin when backup bucket is set", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.Plugins).To(HaveLen(1))
+			Expect(cluster.Spec.Plugins[0].Name).To(Equal("barman-cloud.cloudnative-pg.io"))
+			Expect(*cluster.Spec.Plugins[0].IsWALArchiver).To(BeTrue())
+		})
+
+		It("should not configure plugins when backup bucket is empty", func() {
+			cfg.CNPG.BackupBucket = ""
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.Plugins).To(BeEmpty())
+		})
+
+		It("should set collation from spec", func() {
+			postgres.Spec.Database = &data_nais_io_v1.PostgresDatabase{
+				Collation: "nb_NO",
+			}
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCollate).To(Equal("nb_NO.UTF-8"))
+			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCType).To(Equal("nb_NO.UTF-8"))
+		})
+
+		It("should enforce minimum 2Gi disk", func() {
+			postgres.Spec.Cluster.Resources.DiskSize = resource.MustParse("500Mi")
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.StorageConfiguration.Size).To(Equal("2Gi"))
+		})
+
+		It("should disable superuser access", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.EnableSuperuserAccess).NotTo(BeNil())
+			Expect(*cluster.Spec.EnableSuperuserAccess).To(BeFalse())
+		})
+
+		It("should set node affinity for postgres nodes", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cluster.Spec.Affinity.NodeSelector).To(HaveKeyWithValue("nais.io/type", "postgres"))
+			Expect(*cluster.Spec.Affinity.EnablePodAntiAffinity).To(BeTrue())
+		})
+
+		It("should set memory limit to 4x request", func() {
+			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
+			Expect(err).NotTo(HaveOccurred())
+
+			memLimit := cluster.Spec.Resources.Limits.Memory()
+			Expect(memLimit.String()).To(Equal("4Gi"))
+		})
+	})
+
+	Describe("CreateCNPGScheduledBackup", func() {
+		It("should create a backup targeting the correct cluster", func() {
+			backup := CreateCNPGScheduledBackup(postgres, cfg, "my-db", "pg-my-team")
+			Expect(backup.Spec.Cluster.Name).To(Equal("my-db"))
+			Expect(backup.Spec.Method).To(Equal(cnpgv1.BackupMethodPlugin))
+			Expect(backup.Spec.PluginConfiguration.Name).To(Equal("barman-cloud.cloudnative-pg.io"))
+		})
+	})
+
+	Describe("CreateCNPGPooler", func() {
+		It("should create a pooler with PgBouncer in transaction mode", func() {
+			pooler := CreateCNPGPooler(postgres, "my-db", "pg-my-team")
+			Expect(pooler.Name).To(Equal("my-db-pooler"))
+			Expect(pooler.Namespace).To(Equal("pg-my-team"))
+			Expect(pooler.Spec.Cluster.Name).To(Equal("my-db"))
+			Expect(pooler.Spec.PgBouncer.PoolMode).To(Equal(cnpgv1.PgBouncerPoolModeTransaction))
+			Expect(*pooler.Spec.Instances).To(Equal(int32(2)))
+		})
+	})
+})

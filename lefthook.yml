@@ -1,0 +1,22 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: mise run fmt
+      stage_fixed: true
+    lint:
+      run: mise run check:lint
+    vet:
+      run: mise run check:vet
+    generate:
+      run: |
+        mise run generate
+        if ! git diff --exit-code --quiet; then
+          echo "Generated files are out of date. Please stage the changes."
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    test:
+      run: mise run test

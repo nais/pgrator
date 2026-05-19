@@ -1,0 +1,109 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - '*.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  e2e:
+    name: Chainsaw E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # ratchet:jdx/mise-action@v3
+
+      - name: Build operator image
+        run: |
+          docker build -t pgrator:e2e .
+
+      - name: Create kind cluster
+        run: |
+          mise run dev:setup-cluster
+
+      - name: Load image into kind
+        run: |
+          kind load docker-image pgrator:e2e --name pgrator
+
+      - name: Install CRDs
+        run: |
+          # External CRDs needed by the operator (server-side apply for large CRDs)
+          kubectl apply --server-side -f internal/controller/testdata/external-crds/
+
+          # Zalando CRD (generated programmatically, apply via Go)
+          go run ./tests/e2e/setup/install-zalando-crd.go
+
+      - name: Install cert-manager
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm install cert-manager jetstack/cert-manager \
+            --namespace cert-manager --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 120s
+
+      - name: Install Prometheus Operator CRDs
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm install prometheus-crds prometheus-community/prometheus-operator-crds
+
+      - name: Install pgrator via Helm
+        run: |
+          helm install pgrator ./charts/pgrator \
+            --namespace pgrator-system --create-namespace \
+            --set controllerManager.container.image.repository=pgrator \
+            --set controllerManager.container.image.tag=e2e \
+            --set controllerManager.container.imagePullPolicy=Never \
+            --set google.projectId=test-project \
+            --set aiven.project=test-project \
+            --set aiven.projectVPCID=test-vpc \
+            --set aiven.metricsDestinationEndpointID=test-endpoint \
+            --set fasit.tenant.name=test-tenant \
+            --set walGsBucket=test-bucket \
+            --set cnpg.backupBucket=test-cnpg-bucket \
+            --wait --timeout 120s
+
+      - name: Wait for operator readiness
+        run: |
+          kubectl wait --namespace pgrator-system \
+            --for=condition=available \
+            --timeout=120s \
+            deployment/pgrator
+
+      - name: Create prerequisite resources
+        run: |
+          kubectl create namespace serviceaccounts
+          # ClusterRole referenced by the RoleBinding the operator creates
+          kubectl create clusterrole postgres-pod-additional --verb=get,list --resource=pods
+
+      - name: Run Chainsaw E2E tests
+        run: |
+          chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml --report-format XML --report-name chainsaw-report
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@c950f6fb443cb5af20a377fd0dfaa78838901040 # ratchet:EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: chainsaw-report.xml
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          kubectl logs -n pgrator-system deployment/pgrator --tail=100 || true
+          echo "=== All pods ==="
+          kubectl get pods -A || true
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -50 || true

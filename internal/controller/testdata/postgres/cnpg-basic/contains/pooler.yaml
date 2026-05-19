@@ -1,0 +1,13 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Pooler
+  metadata:
+    name: test-db-pooler
+    namespace: pg-my-team
+  spec:
+    cluster:
+      name: test-db
+    type: rw

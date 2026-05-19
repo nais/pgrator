@@ -1,0 +1,96 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-engine-immutability
+spec:
+  description: Verify that once an engine is selected, it cannot be changed
+  steps:
+    - name: Create prerequisites
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: immutable-team
+                labels:
+                  google-cloud-project: test-project
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: pg-immutable-team
+    - name: Create Postgres with Zalando engine
+      try:
+        - apply:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+                namespace: immutable-team
+              spec:
+                cluster:
+                  majorVersion: "17"
+                  allowDeletion: true
+                  resources:
+                    diskSize: 10Gi
+                    memory: 1Gi
+                    cpu: 1
+    - name: Wait for active-engine annotation
+      try:
+        - assert:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+                namespace: immutable-team
+                annotations:
+                  postgres.nais.io/active-engine: zalando
+    - name: Try switching to CNPG engine
+      try:
+        - script:
+            content: |
+              kubectl annotate postgres.data.nais.io mydb -n immutable-team \
+                postgres.nais.io/engine=cnpg --overwrite
+            check:
+              ($error == null): true
+    - name: Trigger reconcile by modifying spec
+      try:
+        - script:
+            content: |
+              kubectl patch postgres.data.nais.io mydb -n immutable-team \
+                --type=merge -p '{"spec":{"cluster":{"resources":{"memory":"2Gi"}}}}'
+            check:
+              ($error == null): true
+    - name: Assert active-engine annotation unchanged
+      try:
+        - assert:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+                namespace: immutable-team
+                annotations:
+                  postgres.nais.io/active-engine: zalando
+    - name: Assert Zalando resources still exist
+      try:
+        - assert:
+            resource:
+              apiVersion: acid.zalan.do/v1
+              kind: postgresql
+              metadata:
+                name: mydb
+                namespace: pg-immutable-team
+    - name: Assert no CNPG Cluster was created
+      try:
+        - error:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb
+                namespace: pg-immutable-team

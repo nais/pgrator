@@ -1,0 +1,17 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: postgres-pod-additional
+    namespace: pg-my-team
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: postgres-pod-additional
+  subjects:
+    - kind: ServiceAccount
+      name: postgres-pod
+      namespace: pg-my-team

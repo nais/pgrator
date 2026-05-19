@@ -1,0 +1,73 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-deletion-protection
+spec:
+  description: Verify that deletion protection prevents removal of child resources
+  steps:
+    - name: Create prerequisites
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: deletion-team
+                labels:
+                  google-cloud-project: test-project
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: pg-deletion-team
+    - name: Create Postgres without allowDeletion
+      try:
+        - apply:
+            resource:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              metadata:
+                name: protected-db
+                namespace: deletion-team
+              spec:
+                cluster:
+                  majorVersion: "17"
+                  allowDeletion: false
+                  resources:
+                    diskSize: 10Gi
+                    memory: 1Gi
+                    cpu: 1
+    - name: Wait for Zalando postgresql to be created
+      try:
+        - assert:
+            resource:
+              apiVersion: acid.zalan.do/v1
+              kind: postgresql
+              metadata:
+                name: protected-db
+                namespace: pg-deletion-team
+    - name: Delete the Postgres CR
+      try:
+        - delete:
+            ref:
+              apiVersion: data.nais.io/v1
+              kind: Postgres
+              name: protected-db
+              namespace: deletion-team
+    - name: Assert child resources are orphaned (still exist)
+      try:
+        - assert:
+            resource:
+              apiVersion: acid.zalan.do/v1
+              kind: postgresql
+              metadata:
+                name: protected-db
+                namespace: pg-deletion-team
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: postgres-pod
+                namespace: pg-deletion-team

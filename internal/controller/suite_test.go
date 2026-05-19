@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
@@ -53,6 +54,14 @@ func TestControllers(t *testing.T) {
 
 	postgresReconcilerConfig := config.Config{
 		PrometheusRulesDisabled: true,
+		GoogleProjectID:         "test-gcp-project",
+		WalGsBucket:             "test-wal-bucket",
+		CNPG: config.CNPG{
+			ImageCatalogName: "postgresql",
+			StorageClass:     "ssd-storage",
+			BackupBucket:     "test-cnpg-backup-bucket",
+			BarmanPluginName: "barman-cloud.cloudnative-pg.io",
+		},
 	}
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
 
@@ -119,6 +128,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = aiven_v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = cnpgv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

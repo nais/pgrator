@@ -8,7 +8,7 @@
 
 | CRD          | API group         | What it creates                                                                                                                                           |
 |--------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Postgres`   | `data.nais.io/v1` | Zalando `postgresql` CR, NetworkPolicy, Google IAM resources (IAMPolicyMember, IAMServiceAccount), Kubernetes ServiceAccount, RoleBinding, PrometheusRule |
+| `Postgres`   | `data.nais.io/v1` | Zalando `postgresql` CR **or** CNPG `Cluster`/`ScheduledBackup`/`Pooler`, NetworkPolicy, Google IAM resources, Kubernetes ServiceAccount, RoleBinding, PrometheusRule |
 | `Valkey`     | `nais.io/v1`      | Aiven `Valkey` CR + `ServiceIntegration`                                                                                                                  |
 | `OpenSearch` | `nais.io/v1`      | Aiven `OpenSearch` CR + `ServiceIntegration`                                                                                                              |
 
@@ -23,7 +23,7 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Language           | Go 1.26                                                                               | `go.mod:3`, `Dockerfile:2`                                  |
 | Operator framework | `sigs.k8s.io/controller-runtime` v0.23.3                                              | `go.mod:28`                                                 |
 | Kubernetes API     | `k8s.io/api` v0.35.3                                                                  | `go.mod:23-26`                                              |
-| Postgres backend   | `github.com/zalando/postgres-operator` v1.15.1                                        | `go.mod:21`                                                 |
+| Postgres backend   | `github.com/zalando/postgres-operator` v1.15.1 + `github.com/cloudnative-pg/cloudnative-pg` | `go.mod:21`, `go.mod`                    |
 | Aiven backend      | Internal thirdparty types (`internal/thirdparty/aiven/v1alpha1`)                      | types hand-written; no direct module dep                    |
 | Google IAM backend | Internal thirdparty types (`internal/thirdparty/google/v1beta1`)                      | `internal/thirdparty/google/v1beta1/*.go`                   |
 | Monitoring         | `prometheus-operator/pkg/apis/monitoring` v0.90.1                                     | `go.mod:18`                                                 |
@@ -31,11 +31,13 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Logging            | `go.uber.org/zap` via `controller-runtime/log/zap`                                    | `cmd/main.go:58`                                            |
 | Testing            | Ginkgo v2 + Gomega + `controller-runtime/envtest`                                     | `go.mod:6,17`, `internal/controller/suite_test.go`          |
 | Linting            | golangci-lint 2.10.1                                                                  | `.config/mise/config.toml:7`, `.golangci.yml`               |
-| Code generation    | `controller-gen` (`sigs.k8s.io/controller-tools` v0.20.1)                             | `go.mod:29`, `generate/manifests.sh`, `generate/objects.sh` |
-| Task runner        | **mise**                                                                              | `.config/mise/config.toml`, `.config/mise/tasks/`           |
+| Code generation    | `controller-gen` (`sigs.k8s.io/controller-tools` v0.20.1)                             | `go.mod:29`, `.config/mise/config.toml`                     |
+| Task runner        | **mise**                                                                              | `.config/mise/config.toml`                                  |
 | Container          | Docker / Chainguard static base image                                                 | `Dockerfile`                                                |
 | Packaging          | Helm chart                                                                            | `charts/pgrator/`                                           |
-| CI/CD              | GitHub Actions                                                                        | `.github/workflows/main.yml`                                |
+| CI/CD              | GitHub Actions (`nais/actions` reusable workflow)                                      | `.github/workflows/main.yml`                                |
+| E2E testing        | [Chainsaw](https://github.com/kyverno/chainsaw) + kind                                | `.github/workflows/e2e.yml`, `tests/e2e/`                   |
+| Git hooks          | [Lefthook](https://github.com/evilmartians/lefthook)                                  | `lefthook.yml`                                              |
 | Deployment         | nais fasit (`nais/fasit-deploy`)                                                      | `.github/workflows/main.yml:249`                            |
 | Image registry     | Google Artifact Registry (`europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator`) | `charts/pgrator/values.yaml:12`                             |
 
@@ -57,7 +59,8 @@ pgrator/
 ├── internal/
 │   ├── config/            # Env-var based config struct
 │   ├── controller/        # Resource-specific reconcilers (Postgres, Valkey, OpenSearch)
-│   │   └── resourcecreator/  # Factories: builds child K8s/Aiven/GCP objects
+│   │   ├── resourcecreator/  # Factories: builds child K8s/Aiven/GCP/CNPG objects
+│   │   └── testdata/         # Golden test data (per-resource test cases)
 │   ├── synchronizer/      # Generic reconcile loop + action system
 │   │   ├── synchronizer.go   # Core Reconcile() implementation
 │   │   ├── reconciler/       # Reconciler interface (Prepare/Update/Delete)
@@ -66,6 +69,7 @@ pgrator/
 │   │   ├── ownership/        # Owner annotation management
 │   │   └── relatedobjectsmap/# Lookup map for related K8s objects
 │   ├── golden/            # Golden-file test harness
+│   ├── metrics/           # Custom Prometheus metrics (reconcile counts, errors, durations)
 │   ├── namegen/           # Stable short-name generator (hash-based)
 │   └── thirdparty/        # Hand-written Go types for external CRDs
 │       ├── aiven/v1alpha1/   # Aiven Valkey, ServiceIntegration, OpenSearch
@@ -74,11 +78,13 @@ pgrator/
 │   ├── crd/bases/         # Generated CRD YAML (committed, copied to Helm)
 │   └── webhook/           # Webhook manifests
 ├── charts/pgrator/        # Helm chart for production deployment
+├── tests/e2e/             # Chainsaw e2e test cases
 ├── doc/                   # Documentation templates + generated output (gitignored output/)
 ├── example/               # Example CRD manifests
-├── .config/mise/          # mise tool versions + task definitions
-│   └── tasks/             # All developer/CI tasks as shell scripts
-└── .github/workflows/     # CI: lint, test, build, chart, documentation, rollout
+├── .config/mise/          # mise configuration and tasks
+│   ├── config.toml        # Tool versions + all task definitions
+│   └── tasks/             # Specialized file tasks (docker, actions, generate:doc)
+└── .github/workflows/     # CI: build-deploy (reusable), e2e (chainsaw)
 ```
 
 ---
@@ -89,7 +95,7 @@ pgrator/
 - **Formatter**: `gofmt` + `goimports` (enforced via `golangci-lint` formatters section).
 - **Linter**: `golangci-lint` v2 with an explicit allow-list: `copyloopvar`, `dupl`, `errcheck`, `ginkgolinter`, `goconst`, `gocyclo`, `govet`, `ineffassign`, `lll`, `misspell`, `nakedret`, `prealloc`, `revive`, `staticcheck`, `unconvert`, `unparam`, `unused`.
 - Config: `.golangci.yml`. Run separately for root module and `pkg/api` (two Go modules).
-- CI also runs `ci:fmt` and `ci:generate` to verify nothing is out of date.
+- CI runs `fmt-check` and `generate-check` to verify nothing is out of date.
 
 ### Type checking
 - No separate type-checker beyond the Go compiler. `govet` + `staticcheck` cover static analysis.

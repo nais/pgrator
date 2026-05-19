@@ -25,6 +25,7 @@ type Config struct {
 
 	Aiven  Aiven
 	Tenant Tenant
+	CNPG   CNPG
 }
 
 type Aiven struct {
@@ -36,6 +37,17 @@ type Aiven struct {
 type Tenant struct {
 	Name string `env:"TENANT_NAME, required"`
 	// TODO: GoogleProjectID should be in here as well
+}
+
+type CNPG struct {
+	// ImageCatalogName is the name of the ClusterImageCatalog for CNPG version selection.
+	ImageCatalogName string `env:"CNPG_IMAGE_CATALOG_NAME, default=postgresql"`
+	// StorageClass is the storage class for CNPG persistent volumes.
+	StorageClass string `env:"CNPG_STORAGE_CLASS"`
+	// BackupBucket is the GCS bucket for barman-cloud backups.
+	BackupBucket string `env:"CNPG_BACKUP_BUCKET"`
+	// BarmanPluginName is the name of the barman-cloud CNPG plugin.
+	BarmanPluginName string `env:"CNPG_BARMAN_PLUGIN_NAME, default=barman-cloud.cloudnative-pg.io"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {
