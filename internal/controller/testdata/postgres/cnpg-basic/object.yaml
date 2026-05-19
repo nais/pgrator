@@ -5,10 +5,10 @@ metadata:
   name: test-db
   namespace: my-team
   annotations:
-    postgres.data.nais.io/engine: cnpg
+    postgres.nais.io/engine: cnpg
 spec:
   cluster:
-    majorVersion: "16"
+    majorVersion: "18"
     allowDeletion: true
     highAvailability: false
     resources:

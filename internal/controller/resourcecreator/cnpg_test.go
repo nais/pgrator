@@ -25,7 +25,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 			},
 			Spec: data_nais_io_v1.PostgresSpec{
 				Cluster: data_nais_io_v1.PostgresCluster{
-					MajorVersion:     "16",
+					MajorVersion:     "18",
 					HighAvailability: false,
 					Resources: data_nais_io_v1.PostgresResources{
 						DiskSize: resource.MustParse("10Gi"),
@@ -74,7 +74,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.ImageCatalogRef).NotTo(BeNil())
-			Expect(cluster.Spec.ImageCatalogRef.Major).To(Equal(16))
+			Expect(cluster.Spec.ImageCatalogRef.Major).To(Equal(18))
 			Expect(cluster.Spec.ImageCatalogRef.Name).To(Equal("postgresql"))
 			Expect(cluster.Spec.ImageCatalogRef.Kind).To(Equal("ClusterImageCatalog"))
 		})

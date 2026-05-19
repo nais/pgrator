@@ -34,7 +34,7 @@ spec:
                   postgres.nais.io/engine: cnpg
               spec:
                 cluster:
-                  majorVersion: "17"
+                  majorVersion: "18"
                   allowDeletion: true
                   resources:
                     diskSize: 10Gi

@@ -77,3 +77,54 @@ metadata:
 spec:
   policyName: protect-nais-opensearches
   validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: postgres-version-engine-constraints
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["data.nais.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["postgres"]
+  variables:
+    - name: effectiveEngine
+      expression: |
+        has(object.metadata.annotations) &&
+        'postgres.nais.io/active-engine' in object.metadata.annotations &&
+        object.metadata.annotations['postgres.nais.io/active-engine'] != ''
+        ? object.metadata.annotations['postgres.nais.io/active-engine']
+        : (has(object.metadata.annotations) &&
+           'postgres.nais.io/engine' in object.metadata.annotations &&
+           object.metadata.annotations['postgres.nais.io/engine'] != ''
+           ? object.metadata.annotations['postgres.nais.io/engine']
+           : 'zalando')
+  validations:
+    # Effective engine mirrors controller logic: active-engine > engine > default (zalando)
+    # CNPG engine requires majorVersion >= 18
+    - expression: |
+        variables.effectiveEngine != 'cnpg' ||
+        int(object.spec.cluster.majorVersion) >= 18
+      messageExpression: "'CNPG engine requires majorVersion >= 18, got ' + object.spec.cluster.majorVersion"
+      reason: Invalid
+    # Zalando engine only supports majorVersion 16 and 17
+    - expression: |
+        variables.effectiveEngine != 'zalando' ||
+        object.spec.cluster.majorVersion in ['16', '17']
+      messageExpression: "'Zalando engine only supports majorVersion 16 or 17, got ' + object.spec.cluster.majorVersion"
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: postgres-version-engine-constraints
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+spec:
+  policyName: postgres-version-engine-constraints
+  validationActions: [Deny]

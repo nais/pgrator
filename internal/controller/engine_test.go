@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nais/pgrator/pkg/api"
@@ -144,6 +145,82 @@ func TestValidateEngineImmutability(t *testing.T) {
 				t.Errorf("expected error, got nil")
 			}
 			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateVersionForEngine(t *testing.T) {
+	tests := []struct {
+		name         string
+		majorVersion string
+		engine       string
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name:         "cnpg with version 18 is valid",
+			majorVersion: "18",
+			engine:       api.EngineCNPG,
+		},
+		{
+			name:         "cnpg with version 19 is valid",
+			majorVersion: "19",
+			engine:       api.EngineCNPG,
+		},
+		{
+			name:         "cnpg with version 17 is rejected",
+			majorVersion: "17",
+			engine:       api.EngineCNPG,
+			wantErr:      true,
+			errContains:  "cnpg engine requires majorVersion >= 18",
+		},
+		{
+			name:         "cnpg with version 16 is rejected",
+			majorVersion: "16",
+			engine:       api.EngineCNPG,
+			wantErr:      true,
+			errContains:  "cnpg engine requires majorVersion >= 18",
+		},
+		{
+			name:         "zalando with version 16 is valid",
+			majorVersion: "16",
+			engine:       api.EngineZalando,
+		},
+		{
+			name:         "zalando with version 17 is valid",
+			majorVersion: "17",
+			engine:       api.EngineZalando,
+		},
+		{
+			name:         "zalando with version 18 is rejected",
+			majorVersion: "18",
+			engine:       api.EngineZalando,
+			wantErr:      true,
+			errContains:  "zalando engine only supports majorVersion 16 or 17",
+		},
+		{
+			name:         "cnpg with invalid version returns error",
+			majorVersion: "abc",
+			engine:       api.EngineCNPG,
+			wantErr:      true,
+			errContains:  "invalid major version",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateVersionForEngine(tt.majorVersion, tt.engine)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})

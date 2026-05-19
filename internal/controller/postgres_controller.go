@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
@@ -100,6 +101,10 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 	}
 
 	if err := validateEngineImmutability(obj, engine); err != nil {
+		return PreparedData{}, ctrl.Result{}, err
+	}
+
+	if err := validateVersionForEngine(obj.Spec.Cluster.MajorVersion, engine); err != nil {
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
@@ -534,6 +539,26 @@ func validateEngineImmutability(obj *data_nais_io_v1.Postgres, engine string) er
 	}
 	if activeEngine != engine {
 		return fmt.Errorf("engine change from %q to %q is not supported; annotation %s is immutable after provisioning", activeEngine, engine, api.EngineAnnotation)
+	}
+	return nil
+}
+
+// validateVersionForEngine checks that the major version is compatible with the selected engine.
+// CNPG requires majorVersion >= 18, Zalando only supports 16 and 17.
+func validateVersionForEngine(majorVersion string, engine string) error {
+	switch engine {
+	case api.EngineCNPG:
+		version, err := strconv.Atoi(majorVersion)
+		if err != nil {
+			return fmt.Errorf("invalid major version %q: %w", majorVersion, err)
+		}
+		if version < 18 {
+			return fmt.Errorf("cnpg engine requires majorVersion >= 18, got %q", majorVersion)
+		}
+	case api.EngineZalando:
+		if majorVersion != "16" && majorVersion != "17" {
+			return fmt.Errorf("zalando engine only supports majorVersion 16 or 17, got %q", majorVersion)
+		}
 	}
 	return nil
 }
