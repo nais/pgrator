@@ -1,18 +1,55 @@
 version: 2
 updates:
-  - package-ecosystem: "gomod"
+  - package-ecosystem: gomod
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: weekly
+      day: monday
     open-pull-requests-limit: 5
     groups:
       k8s:
         patterns:
-          - k8s.io/api*
-          - k8s.io/client-go
-          - sigs.k8s.io/controller-runtime
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      cnpg:
+        patterns:
+          - "github.com/cloudnative-pg/*"
+      golang-x:
+        patterns:
+          - "golang.org/x/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+        exclude-patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+          - "github.com/cloudnative-pg/*"
+          - "golang.org/x/*"
+
+  - package-ecosystem: gomod
+    directory: "/pkg/api"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      k8s:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      all-minor-patch:
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: weekly
+      day: monday
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
