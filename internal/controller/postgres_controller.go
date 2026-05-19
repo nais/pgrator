@@ -169,6 +169,9 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	}
 	obj.Annotations[api.ActiveEngineAnnotation] = preparedData.Engine
 
+	// Expose the active engine in the status subresource for observability.
+	obj.GetStatus().(*data_nais_io_v1.PostgresStatus).Engine = preparedData.Engine
+
 	switch preparedData.Engine {
 	case api.EngineCNPG:
 		return r.updateCNPG(obj, preparedData, relatedObjects)

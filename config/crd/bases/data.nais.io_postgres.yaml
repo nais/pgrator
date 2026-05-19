@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.engine
+      name: Engine
+      type: string
     - jsonPath: .spec.cluster.majorVersion
       name: Major Version
       type: string
@@ -244,6 +247,10 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               correlationID:
+                type: string
+              engine:
+                description: Engine is the active database engine determined by the
+                  controller (zalando or cnpg).
                 type: string
               observedGeneration:
                 format: int64
