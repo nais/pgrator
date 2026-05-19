@@ -53,7 +53,7 @@ func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	postgresReconcilerConfig := config.Config{
-		PrometheusRulesDisabled: true,
+		PrometheusRulesDisabled: false,
 		GoogleProjectID:         "test-gcp-project",
 		WalGsBucket:             "test-wal-bucket",
 		CNPG: config.CNPG{

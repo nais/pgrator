@@ -1,0 +1,18 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: monitoring.coreos.com/v1
+  kind: PodMonitor
+  metadata:
+    labels:
+      postgres.data.nais.io/name: test-db
+      prometheus: tenant
+    name: pg-test-db
+    namespace: pg-my-team
+  spec:
+    selector:
+      matchLabels:
+        cnpg.io/cluster: test-db
+    podMetricsEndpoints:
+      - port: metrics

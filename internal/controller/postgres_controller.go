@@ -156,7 +156,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&rbacv1.RoleBinding{},
 	}
 	if !r.Config.PrometheusRulesDisabled {
-		objects = append(objects, &monitoring_v1.PrometheusRule{})
+		objects = append(objects, &monitoring_v1.PrometheusRule{}, &monitoring_v1.PodMonitor{})
 	}
 	return objects
 }
@@ -217,6 +217,14 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		return nil, ctrl.Result{}, err
 	}
 	actions = append(actions, iamActions...)
+
+	if !r.Config.PrometheusRulesDisabled {
+		prometheusRule := resourcecreator.CreateCNPGPrometheusRuleSpec(obj, pgClusterName, pgNamespace)
+		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter, r.Recorder))
+
+		podMonitor := resourcecreator.CreateCNPGPodMonitor(obj, pgClusterName, pgNamespace)
+		actions = append(actions, action.CreateOrUpdate(podMonitor, obj, existsConditionGetter, r.Recorder))
+	}
 
 	return actions, ctrl.Result{}, nil
 }
@@ -378,6 +386,14 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	iamActions := r.deleteIAMActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, sharedActionFunc, relatedObjects)
 	actions = append(actions, iamActions...)
+
+	if !r.Config.PrometheusRulesDisabled {
+		prometheusRule := resourcecreator.MinimalPrometheusRule(obj, pgClusterName)
+		actions = append(actions, actionFunc(prometheusRule, obj, existsConditionGetter, r.Recorder))
+
+		podMonitor := resourcecreator.MinimalCNPGPodMonitor(obj, pgClusterName, pgNamespace)
+		actions = append(actions, actionFunc(podMonitor, obj, existsConditionGetter, r.Recorder))
+	}
 
 	return actions, ctrl.Result{}, nil
 }
