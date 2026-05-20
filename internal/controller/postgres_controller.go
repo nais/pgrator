@@ -100,19 +100,21 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
-	// Persist the engine choice early so other controllers (e.g. naiserator)
-	// can read it from the annotation even before Update() completes.
-	if obj.Annotations == nil {
-		obj.Annotations = make(map[string]string)
-	}
-	obj.Annotations[api.ActiveEngineAnnotation] = engine
-
 	if err := validateEngineImmutability(obj, engine); err != nil {
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
 	if err := validateVersionForEngine(obj.Spec.Cluster.MajorVersion, engine); err != nil {
 		return PreparedData{}, ctrl.Result{}, err
+	}
+
+	// Stamp active-engine so it's persisted on first reconcile. The synchronizer
+	// detects annotation changes between Prepare and the final persist step.
+	if obj.Annotations == nil {
+		obj.Annotations = make(map[string]string)
+	}
+	if obj.Annotations[api.ActiveEngineAnnotation] == "" {
+		obj.Annotations[api.ActiveEngineAnnotation] = engine
 	}
 
 	teamNamespace := &core_v1.Namespace{}
