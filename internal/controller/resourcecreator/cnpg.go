@@ -125,7 +125,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 
 		Affinity: cnpgv1.AffinityConfiguration{
 			NodeSelector: map[string]string{
-				"nais.io/type": "postgres",
+				"cloud.google.com/compute-class": "n4-machines",
 			},
 			EnablePodAntiAffinity: ptr.To(true),
 			TopologyKey:           "kubernetes.io/hostname",

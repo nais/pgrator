@@ -5,7 +5,7 @@ google:
 
 cnpg:
   imageCatalogName: "cloudnative-image-catalog"
-  storageClass: ""
+  storageClass: "hyperdisk-balanced"
   backupBucket: ""
   barmanPluginName: "barman-cloud.cloudnative-pg.io"
 

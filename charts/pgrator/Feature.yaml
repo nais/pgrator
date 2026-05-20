@@ -13,7 +13,11 @@ values:
     config:
       type: string
   postgresStorageClass:
-    description: Storage class for Postgres ("standard-rwo" (default) or "premium-rwo")
+    description: Storage class for Zalando Postgres ("standard-rwo" (default) or "premium-rwo")
+    config:
+      type: string
+  cloudnativeStorageClass:
+    description: Storage class for Cloudnative-PG ("hyperdisk-balanced" (default) or "hyperdisk-premium")
     config:
       type: string
   google.projectId:

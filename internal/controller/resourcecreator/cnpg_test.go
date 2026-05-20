@@ -158,7 +158,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(cluster.Spec.Affinity.NodeSelector).To(HaveKeyWithValue("nais.io/type", "postgres"))
+			Expect(cluster.Spec.Affinity.NodeSelector).To(HaveKeyWithValue("cloud.google.com/compute-class", "n4-machines"))
 			Expect(*cluster.Spec.Affinity.EnablePodAntiAffinity).To(BeTrue())
 		})
 

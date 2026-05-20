@@ -2,11 +2,13 @@ apiVersion: data.nais.io/v1
 kind: Postgres
 metadata:
   name: example
-  namespace: nais
+  namespace: basseng
+  annotations:
+    postgres.nais.io/engine: cnpg
 spec:
   cluster:
     allowDeletion: true
-    majorVersion: "17"
+    majorVersion: "18"
     resources:
       diskSize: "2Gi"
       cpu: "100m"
