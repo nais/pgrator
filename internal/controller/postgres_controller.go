@@ -100,6 +100,13 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
+	// Persist the engine choice early so other controllers (e.g. naiserator)
+	// can read it from the annotation even before Update() completes.
+	if obj.Annotations == nil {
+		obj.Annotations = make(map[string]string)
+	}
+	obj.Annotations[api.ActiveEngineAnnotation] = engine
+
 	if err := validateEngineImmutability(obj, engine); err != nil {
 		return PreparedData{}, ctrl.Result{}, err
 	}
