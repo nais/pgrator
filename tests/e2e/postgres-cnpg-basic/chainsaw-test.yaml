@@ -76,6 +76,32 @@ spec:
               metadata:
                 name: mydb
                 namespace: pg-cnpg-team
+    - name: Assert PodMonitor created
+      try:
+        - assert:
+            resource:
+              apiVersion: monitoring.coreos.com/v1
+              kind: PodMonitor
+              metadata:
+                name: mydb
+                namespace: pg-cnpg-team
+                labels:
+                  prometheus: tenant
+              spec:
+                selector:
+                  matchLabels:
+                    cnpg.io/cluster: mydb
+                podMetricsEndpoints:
+                  - port: metrics
+    - name: Assert PrometheusRule created
+      try:
+        - assert:
+            resource:
+              apiVersion: monitoring.coreos.com/v1
+              kind: PrometheusRule
+              metadata:
+                name: mydb
+                namespace: pg-cnpg-team
     - name: Assert engine annotation set
       try:
         - assert:
