@@ -91,11 +91,16 @@ type PostgresSpec struct {
 // PostgresStatus defines the observed state of Postgres.
 type PostgresStatus struct {
 	api.BaseStatus `json:",inline"`
+
+	// Engine is the active database engine determined by the controller (zalando or cnpg).
+	// +optional
+	Engine string `json:"engine,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:categories={nais}
+// +kubebuilder:printcolumn:name="Engine",type="string",JSONPath=".status.engine"
 // +kubebuilder:printcolumn:name="Major Version",type="string",JSONPath=".spec.cluster.majorVersion"
 // +kubebuilder:printcolumn:name="Disk Size",type="string",JSONPath=".spec.cluster.resources.diskSize"
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.cluster.resources.cpu"
