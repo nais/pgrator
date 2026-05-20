@@ -4,7 +4,7 @@ google:
   projectId: ""
 
 cnpg:
-  imageCatalogName: "postgresql"
+  imageCatalogName: "cloudnative-image-catalog"
   storageClass: ""
   backupBucket: ""
   barmanPluginName: "barman-cloud.cloudnative-pg.io"
