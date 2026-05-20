@@ -238,7 +238,7 @@ func MinimalCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespac
 
 func makeCNPGPostgresParameters(cluster data_nais_io_v1.PostgresCluster) map[string]string {
 	memBytes := cluster.Resources.Memory.Value()
-	diskBytes := cluster.Resources.DiskSize.Value()
+	diskBytes := enforceMinimum2GiDisk(cluster.Resources.DiskSize).Value()
 
 	// PostgreSQL memory tuning parameters based on available memory
 	sharedBuffers := memBytes / sharedBuffersFraction
