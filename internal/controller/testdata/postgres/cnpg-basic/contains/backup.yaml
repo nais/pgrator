@@ -6,7 +6,7 @@ object:
   kind: ScheduledBackup
   metadata:
     name: test-db
-    namespace: pg-my-team
+    namespace: my-team
   spec:
     cluster:
       name: test-db

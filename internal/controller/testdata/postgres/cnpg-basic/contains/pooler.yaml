@@ -6,7 +6,7 @@ object:
   kind: Pooler
   metadata:
     name: test-db-pooler
-    namespace: pg-my-team
+    namespace: my-team
   spec:
     cluster:
       name: test-db

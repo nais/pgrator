@@ -9,7 +9,7 @@ object:
       postgres.data.nais.io/name: test-db
       prometheus: tenant
     name: pg-test-db
-    namespace: pg-my-team
+    namespace: my-team
   spec:
     selector:
       matchLabels:

@@ -8,7 +8,7 @@ object:
     labels:
       postgres.data.nais.io/name: test-db
     name: test-db
-    namespace: pg-my-team
+    namespace: my-team
   spec:
     instances: 2
     imageCatalogRef:

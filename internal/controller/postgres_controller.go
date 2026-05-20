@@ -181,7 +181,7 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 }
 
 func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj, api.EngineCNPG)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -233,7 +233,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 }
 
 func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj, api.EngineZalando)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -368,7 +368,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		sharedActionFunc = action.NoOp
 	}
 
-	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj, api.EngineCNPG)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -409,7 +409,7 @@ func (r *PostgresReconciler) deleteZalando(obj *data_nais_io_v1.Postgres, prepar
 		sharedActionFunc = action.NoOp
 	}
 
-	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj)
+	pgClusterName, pgNamespace, err := getClusterNameAndNamespace(obj, api.EngineZalando)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -466,7 +466,7 @@ func (r *PostgresReconciler) deleteIAMActions(obj *data_nais_io_v1.Postgres, pre
 	return actions
 }
 
-func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, error) {
+func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres, engine string) (string, string, error) {
 	var err error
 	pgClusterName := obj.GetName()
 	if len(pgClusterName) > maxClusterNameLength {
@@ -474,6 +474,9 @@ func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres) (string, string, 
 		if err != nil {
 			return "", "", fmt.Errorf("failed to shorten PostgreSQL cluster name: %w", err)
 		}
+	}
+	if engine == api.EngineCNPG {
+		return pgClusterName, obj.GetNamespace(), nil
 	}
 	pgNamespace := fmt.Sprintf("pg-%s", obj.GetNamespace())
 	return pgClusterName, pgNamespace, nil
