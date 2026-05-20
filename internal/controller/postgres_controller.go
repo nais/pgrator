@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
@@ -704,10 +705,12 @@ func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.
 		},
 	}
 
-	reason := cluster.Status.Phase
-	if reason == "" {
-		reason = "Unknown"
+	message := cluster.Status.Phase
+	if message == "" {
+		message = "Unknown"
 	}
+
+	reason := reasonable(message)
 
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
@@ -716,8 +719,29 @@ func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             reason,
+			Message:            message,
 		})
 	}
 
 	return result
+}
+
+func reasonable(message string) string {
+	nextIsUpper := true
+	buf := make([]rune, 0, len(message))
+	for _, c := range message {
+		thisIsUpper := nextIsUpper
+		if c == ' ' {
+			nextIsUpper = true
+			continue
+		} else {
+			nextIsUpper = false
+		}
+		if thisIsUpper {
+			buf = append(buf, unicode.ToUpper(c))
+		} else {
+			buf = append(buf, unicode.ToLower(c))
+		}
+	}
+	return string(buf)
 }

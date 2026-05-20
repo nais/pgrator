@@ -388,6 +388,21 @@ var _ = Describe("Postgres Controller", func() {
 	})
 })
 
+var _ = Describe("reasonable", func() {
+	DescribeTable("converts space-separated string to PascalCase",
+		func(input, expected string) {
+			Expect(reasonable(input)).To(Equal(expected))
+		},
+		Entry("empty string", "", ""),
+		Entry("single word lowercase", "hello", "Hello"),
+		Entry("multiple words", "hello world", "HelloWorld"),
+		Entry("already uppercase", "HELLO WORLD", "HelloWorld"),
+		Entry("mixed case", "hElLo WoRlD", "HelloWorld"),
+		Entry("multiple spaces", "foo  bar", "FooBar"),
+		Entry("single uppercase word", "HELLO", "Hello"),
+	)
+})
+
 func ensureReconciled(key types.NamespacedName, controllerReconciler *synchronizer.Synchronizer[*data_nais_io_v1.Postgres, PreparedData]) {
 	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: key,

@@ -35,3 +35,6 @@ doc/pgrator-overview-dashboard.json
 # Tilt
 tilt_modules/
 nvim.log
+
+# Unwanted AI artifacts
+misc/coding-team
