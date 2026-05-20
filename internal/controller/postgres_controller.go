@@ -108,6 +108,15 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
+	// Stamp active-engine so it's persisted on first reconcile. The synchronizer
+	// detects annotation changes between Prepare and the final persist step.
+	if obj.Annotations == nil {
+		obj.Annotations = make(map[string]string)
+	}
+	if obj.Annotations[api.ActiveEngineAnnotation] == "" {
+		obj.Annotations[api.ActiveEngineAnnotation] = engine
+	}
+
 	teamNamespace := &core_v1.Namespace{}
 	err = reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, teamNamespace)
 	if err != nil {
