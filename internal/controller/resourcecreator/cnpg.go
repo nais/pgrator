@@ -129,6 +129,14 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 			},
 			EnablePodAntiAffinity: ptr.To(true),
 			TopologyKey:           "kubernetes.io/hostname",
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      "dedicated",
+					Operator: "Equal",
+					Value:    "postgres",
+					Effect:   "NoSchedule",
+				},
+			},
 		},
 
 		// Reuse the existing KSA created by the IAM actions, which already has
