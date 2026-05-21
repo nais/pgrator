@@ -58,7 +58,7 @@ func TestControllers(t *testing.T) {
 		WalGsBucket:             "test-wal-bucket",
 		CNPG: config.CNPG{
 			ImageCatalogName: "postgresql",
-			StorageClass:     "ssd-storage",
+			StorageClass:     "hyperdisk-balanced",
 			BackupBucket:     "test-cnpg-backup-bucket",
 			BarmanPluginName: "barman-cloud.cloudnative-pg.io",
 		},

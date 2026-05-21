@@ -64,7 +64,10 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		return nil, fmt.Errorf("invalid major version %q: %w", postgres.Spec.Cluster.MajorVersion, err)
 	}
 
-	diskSize := enforceMinimum2GiDisk(postgres.Spec.Cluster.Resources.DiskSize)
+	diskSize, err := enforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.CNPG.StorageClass)
+	if err != nil {
+		return nil, err
+	}
 
 	var storageClass *string
 	if cfg.CNPG.StorageClass != "" {

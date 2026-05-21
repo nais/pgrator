@@ -39,6 +39,17 @@ const (
 var defaultExtensions = []string{
 	"pgaudit",
 }
+var minimumDisksizePerStorageClass map[string]resource.Quantity
+
+func init() {
+	minimumDisksizePerStorageClass = map[string]resource.Quantity{
+		"hyperdisk-balanced": resource.MustParse("4Gi"),
+		"hyperdisk-premium":  resource.MustParse("4Gi"),
+		"standard-rwo":       resource.MustParse("2Gi"),
+		"premium-rwo":        resource.MustParse("2Gi"),
+		"":                   resource.MustParse("2Gi"), // Use 2Gi when unset
+	}
+}
 
 func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
 	objectMeta := CreateObjectMeta(postgres)
@@ -60,7 +71,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pg
 	}
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, pgClusterName string, pgNamespace string) (*acid_zalan_do_v1.Postgresql, error) {
 	cluster := MinimalCluster(postgres, pgClusterName, pgNamespace)
 
 	cpuLimit := postgres.Spec.Cluster.Resources.Cpu.DeepCopy()
@@ -104,6 +115,11 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 		collation = fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
 	}
 
+	diskSize, err := enforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.PostgresStorageClass)
+	if err != nil {
+		return nil, err
+	}
+
 	cluster.Spec = acid_zalan_do_v1.PostgresSpec{
 		EnableConnectionPooler:        ptr.To(true),
 		EnableReplicaConnectionPooler: ptr.To(false),
@@ -135,7 +151,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit),
 		},
 		Volume: acid_zalan_do_v1.Volume{
-			Size:         enforceMinimum2GiDisk(postgres.Spec.Cluster.Resources.DiskSize).String(),
+			Size:         diskSize.String(),
 			StorageClass: cfg.PostgresStorageClass,
 		},
 		Patroni: acid_zalan_do_v1.Patroni{
@@ -196,15 +212,17 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 		SpiloFSGroup:    ptr.To(fsGroup),
 	}
 
-	return cluster
+	return cluster, nil
 }
 
-func enforceMinimum2GiDisk(diskSize resource.Quantity) *resource.Quantity {
-	TwoGi := resource.MustParse("2Gi")
-	if diskSize.Cmp(TwoGi) < 0 {
-		return &TwoGi
+func enforceMinimumDisk(diskSize resource.Quantity, storageClass string) (*resource.Quantity, error) {
+	if minimum, ok := minimumDisksizePerStorageClass[storageClass]; ok {
+		if diskSize.Cmp(minimum) < 0 {
+			return &minimum, nil
+		}
+		return &diskSize, nil
 	}
-	return &diskSize
+	return nil, fmt.Errorf("no minimum disksize defined for storage class %q (this is a platform error)", storageClass)
 }
 
 func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {

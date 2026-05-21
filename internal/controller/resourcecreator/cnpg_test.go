@@ -138,12 +138,12 @@ var _ = Describe("CNPG Resource Creator", func() {
 			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCType).To(Equal("nb_NO.UTF-8"))
 		})
 
-		It("should enforce minimum 2Gi disk", func() {
+		It("should enforce minimum 4Gi disk for hyperdisk-balanced", func() {
 			postgres.Spec.Cluster.Resources.DiskSize = resource.MustParse("500Mi")
 			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(cluster.Spec.StorageConfiguration.Size).To(Equal("2Gi"))
+			Expect(cluster.Spec.StorageConfiguration.Size).To(Equal("4Gi"))
 		})
 
 		It("should disable superuser access", func() {

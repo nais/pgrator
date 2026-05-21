@@ -10,6 +10,6 @@ spec:
     allowDeletion: true
     majorVersion: "18"
     resources:
-      diskSize: "2Gi"
+      diskSize: "4Gi"
       cpu: "100m"
       memory: "1Gi"

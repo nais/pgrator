@@ -249,7 +249,11 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 	}
 
 	var actions []action.Action
-	cluster := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+	cluster, err := resourcecreator.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+
 	existingCluster := relatedObjects.GetMatching(cluster)
 	if existingCluster != nil {
 		actions = append(actions, action.Update(cluster, obj, postgresqlConditionGetter, r.Recorder))
