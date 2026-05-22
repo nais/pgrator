@@ -49,7 +49,7 @@ local_resource(
 # ---------------------------------------------------------------------------
 # 4. cert-manager
 # ---------------------------------------------------------------------------
-helm_repo("jetstack", "https://charts.jetstack.io")
+helm_repo("jetstack", "https://charts.jetstack.io", labels=["infra"])
 
 helm_resource(
     "cert-manager",
@@ -61,19 +61,20 @@ helm_resource(
         "--wait",
         "--timeout=120s",
     ],
-    resource_deps=["external-crds"],
+    resource_deps=["external-crds", "jetstack"],
     labels=["infra"],
 )
 
 # ---------------------------------------------------------------------------
 # 5. Prometheus Operator CRDs
 # ---------------------------------------------------------------------------
-helm_repo("prometheus-community", "https://prometheus-community.github.io/helm-charts")
+helm_repo("prometheus-community", "https://prometheus-community.github.io/helm-charts", labels=["infra"])
 
 helm_resource(
     "prometheus-crds",
     "prometheus-community/prometheus-operator-crds",
-    resource_deps=["external-crds"],
+    pod_readiness="ignore",
+    resource_deps=["external-crds", "prometheus-community"],
     labels=["infra"],
 )
 
