@@ -676,7 +676,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	return actions, nil
 }
 
-func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.Condition {
+func cnpgClusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	cluster := obj.(*cnpgv1.Cluster)
 
 	isReady := false
@@ -719,7 +719,7 @@ func cnpgClusterConditionGetter(obj client.Object, _ *runtime.Scheme) []meta_v1.
 	result := make([]meta_v1.Condition, 0, len(conditions))
 	for _, condition := range conditions {
 		result = append(result, meta_v1.Condition{
-			Type:               fmt.Sprintf("postgresql.cnpg.io/Cluster%s", condition.Type),
+			Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), condition.Type),
 			Status:             makeCondition(condition.Status),
 			ObservedGeneration: obj.GetGeneration(),
 			Reason:             reason,
