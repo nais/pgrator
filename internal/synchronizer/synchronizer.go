@@ -151,6 +151,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
 
+	prePrepareObj := obj.DeepCopyObject().(client.Object)
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
@@ -160,8 +161,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		// Persist annotation changes even on Prepare failure so that annotations
 		// stamped early (e.g. active-engine) are saved to the API server.
+		// Use MergePatch from the pre-Prepare snapshot to avoid accidentally
+		// persisting other object mutations made during Prepare().
 		if !maps.Equal(originalAnnotations, obj.GetAnnotations()) {
-			if updateErr := s.client.Update(ctx, obj); updateErr != nil {
+			patch := client.MergeFrom(prePrepareObj)
+			if updateErr := s.client.Patch(ctx, obj, patch); updateErr != nil {
 				logger.Error(updateErr, "failed to persist annotations after Prepare error")
 			}
 		}
