@@ -16,6 +16,7 @@ load("ext://helm_resource", "helm_resource", "helm_repo")
 # Settings
 # ---------------------------------------------------------------------------
 allow_k8s_contexts("kind-pgrator")
+update_settings(k8s_upsert_timeout_secs=120)
 
 # ---------------------------------------------------------------------------
 # 1. Build operator image
@@ -102,7 +103,6 @@ helm_resource(
         "--create-namespace",
         "--set=controllerManager.container.image.repository=pgrator",
         "--set=controllerManager.container.image.tag=latest",
-        "--set=controllerManager.container.imagePullPolicy=Never",
         "--set=google.projectId=test-project",
         "--set=aiven.project=test-project",
         "--set=aiven.projectVPCID=test-vpc",
