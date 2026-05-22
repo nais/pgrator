@@ -157,6 +157,15 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		s.recorder.RecordErrorEvent(obj, "Preparing", err)
 		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "Preparing")
 		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
+
+		// Persist annotation changes even on Prepare failure so that annotations
+		// stamped early (e.g. active-engine) are saved to the API server.
+		if !maps.Equal(originalAnnotations, obj.GetAnnotations()) {
+			if updateErr := s.client.Update(ctx, obj); updateErr != nil {
+				logger.Error(updateErr, "failed to persist annotations after Prepare error")
+			}
+		}
+
 		return result, err
 	}
 
