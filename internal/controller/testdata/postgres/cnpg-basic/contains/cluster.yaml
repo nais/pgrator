@@ -7,6 +7,7 @@ object:
   metadata:
     labels:
       postgres.data.nais.io/name: test-db
+      apiserver-access: enabled
     name: test-db
     namespace: my-team
   spec:

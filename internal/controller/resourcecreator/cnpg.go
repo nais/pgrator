@@ -37,6 +37,7 @@ func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespa
 	objectMeta := CreateObjectMeta(postgres)
 	objectMeta.Name = clusterName
 	objectMeta.Namespace = namespace
+	objectMeta.Labels["apiserver-access"] = "enabled"
 
 	return &cnpgv1.Cluster{
 		TypeMeta: metav1.TypeMeta{
