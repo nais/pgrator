@@ -39,6 +39,7 @@ mise run generate
 
 - Reconcilers return `[]action.Action` — never mutate K8s directly
 - Golden tests: add a directory under `internal/controller/testdata/{resource}/{case}/` with `object.yaml` and `contains/` or `consists_of/` expected YAML
+- Other tests should use Ginkgo
 - Use `Subset` matcher in golden tests to assert key fields without full object match
 - Exported fields in `PreparedData` structs use yaml tags for golden test support
 - Run `mise run generate` after modifying CRD types or RBAC markers
