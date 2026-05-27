@@ -79,5 +79,5 @@ spec:
               metadata:
                 name: mydb
                 namespace: cnpg-team
-                annotations:
-                  postgres.nais.io/active-engine: cnpg
+              status:
+                engine: cnpg

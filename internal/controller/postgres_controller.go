@@ -109,15 +109,6 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PreparedData{}, ctrl.Result{}, err
 	}
 
-	// Stamp active-engine so it's persisted on first reconcile. The synchronizer
-	// detects annotation changes between Prepare and the final persist step.
-	if obj.Annotations == nil {
-		obj.Annotations = make(map[string]string)
-	}
-	if obj.Annotations[api.ActiveEngineAnnotation] == "" {
-		obj.Annotations[api.ActiveEngineAnnotation] = engine
-	}
-
 	teamNamespace := &core_v1.Namespace{}
 	err = reader.Get(ctx, client.ObjectKey{Name: obj.Namespace}, teamNamespace)
 	if err != nil {
@@ -172,14 +163,8 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 }
 
 func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	// Persist the engine choice as an annotation so it becomes immutable.
+	// Persist the engine choice in status so it becomes immutable.
 	// This is saved to the API server on the first reconcile when the finalizer is added.
-	if obj.Annotations == nil {
-		obj.Annotations = make(map[string]string)
-	}
-	obj.Annotations[api.ActiveEngineAnnotation] = preparedData.Engine
-
-	// Expose the active engine in the status subresource for observability.
 	obj.GetStatus().(*data_nais_io_v1.PostgresStatus).Engine = preparedData.Engine
 
 	switch preparedData.Engine {
@@ -535,18 +520,18 @@ func strPtrDiffers(a *string, b *string) bool {
 // to detect requested changes (which are rejected by validateEngineImmutability).
 // Returns an error for unknown engine values.
 func getEngine(obj *data_nais_io_v1.Postgres) (string, error) {
-	if obj.Annotations == nil {
-		return api.EngineZalando, nil
+	if obj.Status != nil {
+		active := obj.Status.Engine
+		if slices.Contains(api.AllEngines, active) {
+			return active, nil
+		}
+		if active != "" {
+			return "", fmt.Errorf("unsupported engine %q in status (valid: %s)", active, strings.Join(api.AllEngines, ", "))
+		}
 	}
 
-	// If active-engine is set, use it as the authoritative engine.
-	if active, ok := obj.Annotations[api.ActiveEngineAnnotation]; ok && active != "" {
-		switch active {
-		case api.EngineZalando, api.EngineCNPG:
-			return active, nil
-		default:
-			return "", fmt.Errorf("unsupported active engine %q in annotation %s (valid: %s, %s)", active, api.ActiveEngineAnnotation, api.EngineZalando, api.EngineCNPG)
-		}
+	if obj.Annotations == nil {
+		return api.EngineZalando, nil
 	}
 
 	// First reconcile: use the user-facing annotation to determine engine.
@@ -554,25 +539,26 @@ func getEngine(obj *data_nais_io_v1.Postgres) (string, error) {
 	if !ok || engine == "" {
 		return api.EngineZalando, nil
 	}
-	switch engine {
-	case api.EngineZalando, api.EngineCNPG:
+	if slices.Contains(api.AllEngines, engine) {
 		return engine, nil
-	default:
-		return "", fmt.Errorf("unsupported engine %q in annotation %s (valid: %s, %s)", engine, api.EngineAnnotation, api.EngineZalando, api.EngineCNPG)
 	}
+
+	return "", fmt.Errorf("unsupported engine %q in annotation %s (valid: %s, %s)", engine, api.EngineAnnotation, api.EngineZalando, api.EngineCNPG)
 }
 
 // validateEngineImmutability checks that the engine hasn't been changed after initial provisioning.
 // Returns an error if engine change is detected.
 func validateEngineImmutability(obj *data_nais_io_v1.Postgres, engine string) error {
-	if obj.Annotations == nil {
+	if obj.Status == nil {
 		return nil
 	}
-	activeEngine, ok := obj.Annotations[api.ActiveEngineAnnotation]
-	if !ok || activeEngine == "" {
+
+	activeEngine := obj.Status.Engine
+	if activeEngine == "" {
 		// First reconcile — no active engine yet, allow any choice.
 		return nil
 	}
+
 	if activeEngine != engine {
 		return fmt.Errorf("engine change from %q to %q is not supported; annotation %s is immutable after provisioning", activeEngine, engine, api.EngineAnnotation)
 	}

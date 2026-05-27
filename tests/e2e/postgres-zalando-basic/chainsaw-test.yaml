@@ -74,5 +74,5 @@ spec:
               metadata:
                 name: mydb
                 namespace: zalando-team
-                annotations:
-                  postgres.nais.io/active-engine: zalando
+              status:
+                engine: zalando

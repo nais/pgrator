@@ -34,8 +34,8 @@ var _ = Describe("Prepare", func() {
 		}
 	})
 
-	DescribeTable("stamps active-engine annotation",
-		func(annotations map[string]string, majorVersion, wantEngine, wantAnnotation string) {
+	DescribeTable("stamps engine in status",
+		func(annotations map[string]string, majorVersion, wantEngine string) {
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(teamNamespace.DeepCopy()).
@@ -65,47 +65,10 @@ var _ = Describe("Prepare", func() {
 			prep, _, err := reconciler.Prepare(context.Background(), fakeClient, obj)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(prep.Engine).To(Equal(wantEngine))
-			Expect(obj.Annotations[api.ActiveEngineAnnotation]).To(Equal(wantAnnotation))
 		},
-		Entry("no annotations stamps zalando", nil, "16", api.EngineZalando, api.EngineZalando),
-		Entry("empty annotations stamps zalando", map[string]string{}, "17", api.EngineZalando, api.EngineZalando),
-		Entry("explicit cnpg engine stamps cnpg", map[string]string{api.EngineAnnotation: api.EngineCNPG}, "18", api.EngineCNPG, api.EngineCNPG),
-		Entry("explicit zalando engine stamps zalando", map[string]string{api.EngineAnnotation: api.EngineZalando}, "16", api.EngineZalando, api.EngineZalando),
-		Entry("existing active-engine preserved", map[string]string{api.ActiveEngineAnnotation: api.EngineCNPG}, "18", api.EngineCNPG, api.EngineCNPG),
-		Entry("pre-cnpg resource without any engine annotation gets zalando stamped", map[string]string{"some-other-annotation": "value"}, "16", api.EngineZalando, api.EngineZalando),
+		Entry("no annotations selects zalando", nil, "16", api.EngineZalando),
+		Entry("empty annotations selects zalando", map[string]string{}, "17", api.EngineZalando),
+		Entry("explicit cnpg engine selects cnpg", map[string]string{api.EngineAnnotation: api.EngineCNPG}, "18", api.EngineCNPG),
+		Entry("explicit zalando engine selects zalando", map[string]string{api.EngineAnnotation: api.EngineZalando}, "16", api.EngineZalando),
 	)
-
-	It("initializes nil annotations map and stamps active-engine", func() {
-		fakeClient := fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithObjects(teamNamespace).
-			Build()
-
-		reconciler := &PostgresReconciler{
-			Config: &config.Config{},
-		}
-
-		obj := &data_nais_io_v1.Postgres{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "legacy-db",
-				Namespace: "my-team",
-			},
-			Spec: data_nais_io_v1.PostgresSpec{
-				Cluster: data_nais_io_v1.PostgresCluster{
-					MajorVersion: "16",
-					Resources: data_nais_io_v1.PostgresResources{
-						DiskSize: resource.MustParse("10Gi"),
-						Memory:   resource.MustParse("1Gi"),
-					},
-				},
-			},
-		}
-
-		Expect(obj.Annotations).To(BeNil(), "precondition: annotations should be nil")
-
-		_, _, err := reconciler.Prepare(context.Background(), fakeClient, obj)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(obj.Annotations).NotTo(BeNil())
-		Expect(obj.Annotations[api.ActiveEngineAnnotation]).To(Equal(api.EngineZalando))
-	})
 })

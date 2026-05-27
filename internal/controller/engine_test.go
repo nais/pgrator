@@ -8,67 +8,74 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("getEngine", func() {
-	DescribeTable("resolves engine from annotations",
-		func(annotations map[string]string, wantEngine string, wantErr bool) {
-			obj := &data_nais_io_v1.Postgres{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: annotations,
-				},
-			}
-			got, err := getEngine(obj)
-			if wantErr {
-				Expect(err).To(HaveOccurred())
-			} else {
-				Expect(err).NotTo(HaveOccurred())
-				Expect(got).To(Equal(wantEngine))
-			}
-		},
-		Entry("no annotations defaults to zalando", nil, api.EngineZalando, false),
-		Entry("empty annotation defaults to zalando", engineAnnotations("", ""), api.EngineZalando, false),
-		Entry("explicit zalando", engineAnnotations("", "zalando"), api.EngineZalando, false),
-		Entry("explicit cnpg", engineAnnotations("", "cnpg"), api.EngineCNPG, false),
-		Entry("unknown value returns error", engineAnnotations("", "cockroachdb"), "", true),
-		Entry("empty string value defaults to zalando", map[string]string{api.EngineAnnotation: ""}, api.EngineZalando, false),
-		Entry("active-engine takes precedence over engine annotation",
-			engineAnnotations(api.EngineCNPG, api.EngineZalando),
-			api.EngineCNPG, false),
-		Entry("active-engine used even if engine annotation is removed",
-			engineAnnotations(api.EngineCNPG, ""),
-			api.EngineCNPG, false),
-		Entry("invalid active-engine returns error",
-			engineAnnotations("invalid", ""),
-			"", true),
-	)
-})
+var _ = Describe("Engine", func() {
+	When("Engine is not set in Status", func() {
+		DescribeTable("getEngine resolves engine from annotations",
+			func(annotations map[string]string, wantEngine string, wantErr bool) {
+				obj := &data_nais_io_v1.Postgres{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: annotations,
+					},
+				}
+				got, err := getEngine(obj)
+				if wantErr {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+					Expect(got).To(Equal(wantEngine))
+				}
+			},
+			Entry("no annotations defaults to zalando", nil, api.EngineZalando, false),
+			Entry("empty annotation defaults to zalando", engineAnnotation(""), api.EngineZalando, false),
+			Entry("explicit zalando", engineAnnotation("zalando"), api.EngineZalando, false),
+			Entry("explicit cnpg", engineAnnotation("cnpg"), api.EngineCNPG, false),
+			Entry("unknown value returns error", engineAnnotation("cockroachdb"), "", true),
+		)
+	})
 
-var _ = Describe("validateEngineImmutability", func() {
-	DescribeTable("validates engine immutability",
-		func(annotations map[string]string, engine string, wantErr bool) {
-			obj := &data_nais_io_v1.Postgres{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: annotations,
-				},
-			}
-			err := validateEngineImmutability(obj, engine)
-			if wantErr {
-				Expect(err).To(HaveOccurred())
-			} else {
+	When("Engine is set in Status", func() {
+		DescribeTable("getEngine always uses status",
+			func(annotations map[string]string) {
+				obj := &data_nais_io_v1.Postgres{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: annotations,
+					},
+					Status: &data_nais_io_v1.PostgresStatus{
+						Engine: api.EngineCNPG,
+					},
+				}
+				got, err := getEngine(obj)
 				Expect(err).NotTo(HaveOccurred())
-			}
-		},
-		Entry("no active-engine annotation allows any engine (first reconcile)", nil, api.EngineCNPG, false),
-		Entry("matching engine is allowed",
-			engineAnnotations(api.EngineZalando, ""), api.EngineZalando, false),
-		Entry("cnpg to cnpg is allowed",
-			engineAnnotations(api.EngineCNPG, ""), api.EngineCNPG, false),
-		Entry("zalando to cnpg is rejected",
-			engineAnnotations(api.EngineZalando, ""), api.EngineCNPG, true),
-		Entry("cnpg to zalando is rejected",
-			engineAnnotations(api.EngineCNPG, ""), api.EngineZalando, true),
-		Entry("empty active-engine allows first choice",
-			map[string]string{api.ActiveEngineAnnotation: ""}, api.EngineCNPG, false),
-	)
+				Expect(got).To(Equal(api.EngineCNPG))
+			},
+			Entry("no annotations", nil),
+			Entry("empty annotation", engineAnnotation("")),
+			Entry("explicit zalando", engineAnnotation("zalando")),
+			Entry("explicit cnpg", engineAnnotation("cnpg")),
+			Entry("unknown value in annotation", engineAnnotation("cockroachdb")),
+		)
+
+		DescribeTable("validateEngineImmutability validates engine immutability",
+			func(activeEngine, selectedEngine string, wantErr bool) {
+				obj := &data_nais_io_v1.Postgres{
+					Status: &data_nais_io_v1.PostgresStatus{
+						Engine: activeEngine,
+					},
+				}
+				err := validateEngineImmutability(obj, selectedEngine)
+				if wantErr {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+				}
+			},
+			Entry("no active engine allows any engine (first reconcile)", "", api.EngineCNPG, false),
+			Entry("zalando to zalando is allowed", api.EngineZalando, api.EngineZalando, false),
+			Entry("cnpg to cnpg is allowed", api.EngineCNPG, api.EngineCNPG, false),
+			Entry("zalando to cnpg is rejected", api.EngineZalando, api.EngineCNPG, true),
+			Entry("cnpg to zalando is rejected", api.EngineCNPG, api.EngineZalando, true),
+		)
+	})
 })
 
 var _ = Describe("validateVersionForEngine", func() {
@@ -99,7 +106,7 @@ var _ = Describe("validateVersionForEngine", func() {
 // This is the backward-compat safety net.
 var _ = Describe("engine selection and validation pipeline", func() {
 	DescribeTable("full pipeline",
-		func(annotations map[string]string, majorVersion string, wantErr bool, errContains string) {
+		func(annotations map[string]string, status *data_nais_io_v1.PostgresStatus, majorVersion string, wantErr bool, errContains string) {
 			obj := &data_nais_io_v1.Postgres{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: annotations,
@@ -109,6 +116,7 @@ var _ = Describe("engine selection and validation pipeline", func() {
 						MajorVersion: majorVersion,
 					},
 				},
+				Status: status,
 			}
 
 			engine, err := getEngine(obj)
@@ -141,38 +149,41 @@ var _ = Describe("engine selection and validation pipeline", func() {
 			Expect(wantErr).To(BeFalse(), "expected error but validation pipeline succeeded")
 		},
 		// Backward compatibility: existing users without annotations
-		Entry("no annotations with v16 defaults to zalando and succeeds", nil, "16", false, ""),
-		Entry("no annotations with v17 defaults to zalando and succeeds", nil, "17", false, ""),
-		Entry("empty annotations with v16 defaults to zalando and succeeds", engineAnnotations("", ""), "16", false, ""),
-		Entry("empty annotations with v17 defaults to zalando and succeeds", engineAnnotations("", ""), "17", false, ""),
+		Entry("no annotations and no status with v16 defaults to zalando and succeeds", nil, nil, "16", false, ""),
+		Entry("no annotations and no status with v17 defaults to zalando and succeeds", nil, nil, "17", false, ""),
+		Entry("empty annotations and no status with v16 defaults to zalando and succeeds", engineAnnotation(""), nil, "16", false, ""),
+		Entry("empty annotations and no status with v17 defaults to zalando and succeeds", engineAnnotation(""), nil, "17", false, ""),
 		// Existing user tries v18 without engine annotation (should fail)
-		Entry("no annotations with v18 defaults to zalando and is rejected",
-			nil, "18", true, "zalando engine only supports majorVersion 16 or 17"),
+		Entry("no annotations and no status with v18 defaults to zalando and is rejected",
+			nil, nil, "18", true, "zalando engine only supports majorVersion 16 or 17"),
 		// Existing zalando user with active-engine set (post first reconcile)
-		Entry("active-engine zalando with v16 succeeds",
-			engineAnnotations(api.EngineZalando, ""), "16", false, ""),
-		Entry("active-engine zalando with v17 succeeds",
-			engineAnnotations(api.EngineZalando, ""), "17", false, ""),
-		Entry("active-engine zalando with v18 is rejected",
-			engineAnnotations(api.EngineZalando, ""), "18", true, "zalando engine only supports majorVersion 16 or 17"),
+		Entry("zalando in status with v16 succeeds",
+			engineAnnotation(""), engineStatus(api.EngineZalando), "16", false, ""),
+		Entry("zalando in status with v17 succeeds",
+			engineAnnotation(""), engineStatus(api.EngineZalando), "17", false, ""),
+		Entry("zalando in status with v18 is rejected",
+			engineAnnotation(""), engineStatus(api.EngineZalando), "18", true, "zalando engine only supports majorVersion 16 or 17"),
 		// New CNPG user
 		Entry("engine cnpg with v18 succeeds",
-			engineAnnotations("", api.EngineCNPG), "18", false, ""),
+			engineAnnotation(api.EngineCNPG), nil, "18", false, ""),
 		Entry("engine cnpg with v17 is rejected",
-			engineAnnotations("", api.EngineCNPG), "17", true, "cnpg engine requires majorVersion >= 18"),
+			engineAnnotation(api.EngineCNPG), nil, "17", true, "cnpg engine requires majorVersion >= 18"),
 		// Active-engine takes precedence: user annotation overridden
-		Entry("active-engine zalando overrides engine cnpg annotation",
-			engineAnnotations(api.EngineZalando, api.EngineCNPG), "17", false, ""),
-		Entry("active-engine cnpg with v18 succeeds even without engine annotation",
-			engineAnnotations(api.EngineCNPG, ""), "18", false, ""),
+		Entry("zalando in status overrides engine cnpg annotation",
+			engineAnnotation(api.EngineCNPG), engineStatus(api.EngineZalando), "17", false, ""),
+		Entry("cnpg in status with v18 succeeds even without engine annotation",
+			engineAnnotation(""), engineStatus(api.EngineCNPG), "18", false, ""),
 	)
 })
 
-func engineAnnotations(activeEngine, engine string) map[string]string {
-	annotations := make(map[string]string)
-	if activeEngine != "" {
-		annotations[api.ActiveEngineAnnotation] = activeEngine
+func engineStatus(engine string) *data_nais_io_v1.PostgresStatus {
+	return &data_nais_io_v1.PostgresStatus{
+		Engine: engine,
 	}
+}
+
+func engineAnnotation(engine string) map[string]string {
+	annotations := make(map[string]string)
 	if engine != "" {
 		annotations[api.EngineAnnotation] = engine
 	}

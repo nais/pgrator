@@ -95,10 +95,9 @@ spec:
   variables:
     - name: effectiveEngine
       expression: |
-        has(object.metadata.annotations) &&
-        'postgres.nais.io/active-engine' in object.metadata.annotations &&
-        object.metadata.annotations['postgres.nais.io/active-engine'] != ''
-        ? object.metadata.annotations['postgres.nais.io/active-engine']
+        has(object.status) &&
+        object.status.engine != ''
+        ? object.status.engine
         : (has(object.metadata.annotations) &&
            'postgres.nais.io/engine' in object.metadata.annotations &&
            object.metadata.annotations['postgres.nais.io/engine'] != ''

@@ -21,7 +21,7 @@ spec:
               kind: Namespace
               metadata:
                 name: pg-immutable-team
-    - name: Create Postgres with Zalando engine
+    - name: Create Postgres without explicit engine, selecting Zalando by default
       try:
         - apply:
             resource:
@@ -38,7 +38,7 @@ spec:
                     diskSize: 10Gi
                     memory: 1Gi
                     cpu: 1
-    - name: Wait for active-engine annotation
+    - name: Wait for engine set in status
       try:
         - assert:
             resource:
@@ -47,8 +47,8 @@ spec:
               metadata:
                 name: mydb
                 namespace: immutable-team
-                annotations:
-                  postgres.nais.io/active-engine: zalando
+              status:
+                engine: zalando
     - name: Try switching to CNPG engine
       try:
         - script:
@@ -65,7 +65,7 @@ spec:
                 --type=merge -p '{"spec":{"cluster":{"resources":{"memory":"2Gi"}}}}'
             check:
               ($error == null): true
-    - name: Assert active-engine annotation unchanged
+    - name: Assert engine in status unchanged
       try:
         - assert:
             resource:
@@ -74,8 +74,8 @@ spec:
               metadata:
                 name: mydb
                 namespace: immutable-team
-                annotations:
-                  postgres.nais.io/active-engine: zalando
+              status:
+                engine: zalando
     - name: Assert Zalando resources still exist
       try:
         - assert:
