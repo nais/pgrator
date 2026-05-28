@@ -276,13 +276,15 @@ func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory res
 	}
 
 	if audit != nil && audit.Enabled {
-		classes := make([]string, 0, len(audit.StatementClasses))
-		for _, c := range audit.StatementClasses {
-			classes = append(classes, string(c))
+		if len(audit.StatementClasses) > 0 {
+			classes := make([]string, 0, len(audit.StatementClasses))
+			for _, c := range audit.StatementClasses {
+				classes = append(classes, string(c))
+			}
+			params["pgaudit.log"] = strings.Join(classes, ",")
+		} else {
+			params["pgaudit.log"] = "write,ddl,role"
 		}
-		params["pgaudit.log"] = strings.Join(classes, ",")
-	} else {
-		params["pgaudit.log"] = "ddl,role"
 	}
 
 	return params
