@@ -111,6 +111,12 @@ spec:
         int(object.spec.cluster.majorVersion) >= 18
       messageExpression: "'CNPG engine requires majorVersion >= 18, got ' + object.spec.cluster.majorVersion"
       reason: Invalid
+    - expression: |
+        variables.effectiveEngine != 'cnpg' ||
+        !has(object.spec.database) ||
+        !has(object.spec.database.collation)
+      message: CNPG engine does not support collation, use collation in queries instead
+      reason: Invalid
     # Zalando engine only supports majorVersion 16 and 17
     - expression: |
         variables.effectiveEngine != 'zalando' ||
