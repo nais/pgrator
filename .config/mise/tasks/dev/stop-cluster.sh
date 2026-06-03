@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Create a kind cluster for local development"
+# [MISE] description="Stop the kind cluster started with dev:setup-cluster"
+# [MISE] wait_for=["test:e2e"]
 set -euo pipefail
 
 CLUSTER_NAME="pgrator"
