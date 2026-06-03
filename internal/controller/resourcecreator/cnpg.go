@@ -75,11 +75,6 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		storageClass = ptr.To(cfg.CNPG.StorageClass)
 	}
 
-	collation := "en_US.UTF-8"
-	if postgres.Spec.Database != nil && postgres.Spec.Database.Collation != "" {
-		collation = fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
-	}
-
 	cluster.Spec = cnpgv1.ClusterSpec{
 		Instances:       instances,
 		MinSyncReplicas: minSyncReplicas,
@@ -100,11 +95,8 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
 			InitDB: &cnpgv1.BootstrapInitDB{
-				Database:      cnpgDatabaseName,
-				Owner:         cnpgDatabaseUser,
-				LocaleCollate: collation,
-				LocaleCType:   collation,
-				Encoding:      "UTF8",
+				Database: cnpgDatabaseName,
+				Owner:    cnpgDatabaseUser,
 			},
 		},
 
