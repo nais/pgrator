@@ -127,15 +127,15 @@ var _ = Describe("CNPG Resource Creator", func() {
 			Expect(cluster.Spec.Plugins).To(BeEmpty())
 		})
 
-		It("should set collation from spec", func() {
+		It("should not set collation from spec", func() {
 			postgres.Spec.Database = &data_nais_io_v1.PostgresDatabase{
 				Collation: "nb_NO",
 			}
 			cluster, err := CreateCNPGClusterSpec(postgres, cfg, "my-db", "pg-my-team")
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCollate).To(Equal("nb_NO.UTF-8"))
-			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCType).To(Equal("nb_NO.UTF-8"))
+			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCollate).To(BeEmpty())
+			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCType).To(BeEmpty())
 		})
 
 		It("should enforce minimum 4Gi disk for hyperdisk-balanced", func() {
