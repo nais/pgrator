@@ -207,7 +207,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(pooler, obj, existsConditionGetter, r.Recorder))
 	}
 
-	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
+	netpol := resourcecreator.CreateCNPGNetworkPolicy(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	iamActions, err := r.iamActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
@@ -246,7 +246,7 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 		actions = append(actions, action.Create(cluster, obj, postgresqlConditionGetter, r.Recorder))
 	}
 
-	netpol := resourcecreator.CreatePostgresNetworkPolicySpec(obj, pgClusterName, pgNamespace)
+	netpol := resourcecreator.CreateZalandoNetworkPolicy(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	iamActions, err := r.iamActions(obj, preparedData, pgNamespace, r.Config.WalGsBucket, relatedObjects)

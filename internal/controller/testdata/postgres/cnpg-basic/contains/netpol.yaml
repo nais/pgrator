@@ -9,3 +9,34 @@ object:
       postgres.data.nais.io/name: test-db
     name: test-db
     namespace: my-team
+  spec:
+    podSelector:
+      matchLabels:
+        cnpg.io/cluster: test-db
+    policyTypes:
+      - Egress
+      - Ingress
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                cnpg.io/cluster: test-db
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                cnpg.io/cluster: test-db
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: cloudnative-pg
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus

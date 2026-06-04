@@ -20,23 +20,41 @@ func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgN
 	}
 }
 
-func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
+func CreateCNPGNetworkPolicy(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
 	netpol := MinimalNetpol(postgres, pgClusterName, pgNamespace)
+	operatorName := "cloudnative-pg"
+	clusterMatchLabels := map[string]string{
+		"cnpg.io/cluster": pgClusterName,
+	}
 
+	spec := createNetworkPolicySpec(clusterMatchLabels, operatorName)
+	netpol.Spec = spec
+	return netpol
+}
+
+func CreateZalandoNetworkPolicy(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
+	netpol := MinimalNetpol(postgres, pgClusterName, pgNamespace)
+	operatorName := "postgres-operator"
+	clusterMatchLabels := map[string]string{
+		"cluster-name": pgClusterName,
+	}
+
+	spec := createNetworkPolicySpec(clusterMatchLabels, operatorName)
+	netpol.Spec = spec
+	return netpol
+}
+
+func createNetworkPolicySpec(clusterMatchLabels map[string]string, operatorName string) networking_v1.NetworkPolicySpec {
 	spec := networking_v1.NetworkPolicySpec{
 		PodSelector: meta_v1.LabelSelector{
-			MatchLabels: map[string]string{
-				"cluster-name": pgClusterName,
-			},
+			MatchLabels: clusterMatchLabels,
 		},
 		Egress: []networking_v1.NetworkPolicyEgressRule{
 			{
 				To: []networking_v1.NetworkPolicyPeer{
 					{
 						PodSelector: &meta_v1.LabelSelector{
-							MatchLabels: map[string]string{
-								"cluster-name": pgClusterName,
-							},
+							MatchLabels: clusterMatchLabels,
 						},
 					},
 				},
@@ -47,9 +65,7 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 				From: []networking_v1.NetworkPolicyPeer{
 					{
 						PodSelector: &meta_v1.LabelSelector{
-							MatchLabels: map[string]string{
-								"cluster-name": pgClusterName,
-							},
+							MatchLabels: clusterMatchLabels,
 						},
 					},
 				},
@@ -64,7 +80,7 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 						},
 						PodSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
-								"app.kubernetes.io/name": "postgres-operator",
+								"app.kubernetes.io/name": operatorName,
 							},
 						},
 					},
@@ -86,28 +102,11 @@ func CreatePostgresNetworkPolicySpec(postgres *data_nais_io_v1.Postgres, pgClust
 					},
 				},
 			},
-			{
-				From: []networking_v1.NetworkPolicyPeer{
-					{
-						NamespaceSelector: &meta_v1.LabelSelector{
-							MatchLabels: map[string]string{
-								"kubernetes.io/metadata.name": postgres.GetNamespace(),
-							},
-						},
-						PodSelector: &meta_v1.LabelSelector{
-							MatchLabels: map[string]string{
-								"cluster-name": pgClusterName,
-							},
-						},
-					},
-				},
-			},
 		},
 		PolicyTypes: []networking_v1.PolicyType{
 			networking_v1.PolicyTypeEgress,
 			networking_v1.PolicyTypeIngress,
 		},
 	}
-	netpol.Spec = spec
-	return netpol
+	return spec
 }

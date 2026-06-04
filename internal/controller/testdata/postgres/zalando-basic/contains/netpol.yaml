@@ -13,3 +13,30 @@ object:
     podSelector:
       matchLabels:
         cluster-name: test-db
+    policyTypes:
+      - Egress
+      - Ingress
+    egress:
+    - to:
+      - podSelector:
+          matchLabels:
+            cluster-name: test-db
+    ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            cluster-name: test-db
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: nais-system
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: postgres-operator
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: nais-system
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
