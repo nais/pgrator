@@ -3,4 +3,4 @@
 set -euo pipefail
 
 mise run dev:setup-cluster
-tilt up
+tilt up --legacy=true
