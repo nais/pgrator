@@ -1,0 +1,15 @@
+apiVersion: data.nais.io/v1
+kind: Postgres
+metadata:
+  name: zalando-example
+  namespace: basseng
+  annotations:
+    postgres.nais.io/engine: zalando
+spec:
+  cluster:
+    allowDeletion: true
+    majorVersion: "17"
+    resources:
+      diskSize: "4Gi"
+      cpu: "100m"
+      memory: "1Gi"
