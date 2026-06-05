@@ -1,13 +1,14 @@
-package resourcecreator
+package netpol
 
 import (
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
-	objectMeta := CreateObjectMeta(postgres)
+func Minimal(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = pgClusterName
 	objectMeta.Namespace = pgNamespace
 
@@ -20,8 +21,8 @@ func MinimalNetpol(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgN
 	}
 }
 
-func CreateCNPGNetworkPolicy(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
-	netpol := MinimalNetpol(postgres, pgClusterName, pgNamespace)
+func CreateCNPG(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
+	netpol := Minimal(postgres, pgClusterName, pgNamespace)
 	operatorName := "cloudnative-pg"
 	clusterMatchLabels := map[string]string{
 		"cnpg.io/cluster": pgClusterName,
@@ -32,8 +33,8 @@ func CreateCNPGNetworkPolicy(postgres *data_nais_io_v1.Postgres, pgClusterName s
 	return netpol
 }
 
-func CreateZalandoNetworkPolicy(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
-	netpol := MinimalNetpol(postgres, pgClusterName, pgNamespace)
+func CreateZalando(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
+	netpol := Minimal(postgres, pgClusterName, pgNamespace)
 	operatorName := "postgres-operator"
 	clusterMatchLabels := map[string]string{
 		"cluster-name": pgClusterName,

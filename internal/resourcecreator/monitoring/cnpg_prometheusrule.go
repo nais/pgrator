@@ -1,4 +1,4 @@
-package resourcecreator
+package monitoring
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func CreateCNPGPrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName, pgNamespace string) *monitoring_v1.PrometheusRule {
+func CreateCNPGPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName, pgNamespace string) *monitoring_v1.PrometheusRule {
 	prometheusRule := MinimalPrometheusRule(postgres, pgClusterName)
 	alertNamespace := prometheusRule.GetNamespace()
 

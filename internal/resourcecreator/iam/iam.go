@@ -1,4 +1,4 @@
-package resourcecreator
+package iam
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ const (
 	LogWriterRole        = "roles/logging.logWriter"
 )
 
-func CreateMinimalIAMPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func MinimalPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	return &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMPolicyMember",
@@ -27,7 +27,7 @@ func CreateMinimalIAMPolicyMember(name, namespace string) *iam_cnrm_cloud_google
 	}
 }
 
-func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
+func CreateServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
 	iamServiceAccount := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMServiceAccount",
@@ -45,8 +45,8 @@ func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_
 	return iamServiceAccount
 }
 
-func CreateWorkloadIdentityIAMPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(name, teamNamespace)
+func WorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := MinimalPolicyMember(name, teamNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
 		Role:   WorkloadIdentityRole,
@@ -59,8 +59,8 @@ func CreateWorkloadIdentityIAMPolicyMember(name, teamNamespace, pgNamespace, clu
 	return iamPolicyMember
 }
 
-func CreateStorageBucketIAMPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(name, namespace)
+func StorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := MinimalPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   StorageBucketRole,
@@ -74,8 +74,8 @@ func CreateStorageBucketIAMPolicyMember(name, namespace, teamGoogleProjectID, GS
 	return iamPolicyMember
 }
 
-func CreateLogsWriterIAMPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := CreateMinimalIAMPolicyMember(name, namespace)
+func LogsWriterPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	iamPolicyMember := MinimalPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
 		Role:   LogWriterRole,

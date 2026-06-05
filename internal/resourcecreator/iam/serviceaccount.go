@@ -1,4 +1,4 @@
-package resourcecreator
+package iam
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func CreateKubernetesServiceAccount(name, pgNamespace, teamGoogleProjectID, GSAName string) *core_v1.ServiceAccount {
+func KubernetesServiceAccount(name, pgNamespace, teamGoogleProjectID, GSAName string) *core_v1.ServiceAccount {
 	objectMeta := meta_v1.ObjectMeta{
 		Name:      name,
 		Namespace: pgNamespace,

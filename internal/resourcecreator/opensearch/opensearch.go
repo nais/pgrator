@@ -1,4 +1,4 @@
-package resourcecreator
+package opensearch
 
 import (
 	"fmt"
@@ -16,14 +16,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// AivenOpenSearchServiceName returns the namespaced Aiven service name for an OpenSearch instance.
+// ServiceName returns the namespaced Aiven service name for an OpenSearch instance.
 // Format: opensearch-{teamSlug}-{instanceName}
-func AivenOpenSearchServiceName(opensearch *v1.OpenSearch) string {
+func ServiceName(opensearch *v1.OpenSearch) string {
 	return "opensearch-" + opensearch.GetNamespace() + "-" + opensearch.GetName()
 }
 
-// CreateOpenSearchObjectMeta creates a standard ObjectMeta for OpenSearch-owned resources
-func CreateOpenSearchObjectMeta(opensearch *v1.OpenSearch) metav1.ObjectMeta {
+// ObjectMeta creates a standard ObjectMeta for OpenSearch-owned resources
+func ObjectMeta(opensearch *v1.OpenSearch) metav1.ObjectMeta {
 	labels := map[string]string{}
 	maps.Copy(labels, opensearch.GetLabels())
 
@@ -37,16 +37,16 @@ func CreateOpenSearchObjectMeta(opensearch *v1.OpenSearch) metav1.ObjectMeta {
 	}
 
 	return metav1.ObjectMeta{
-		Name:        AivenOpenSearchServiceName(opensearch),
+		Name:        ServiceName(opensearch),
 		Namespace:   opensearch.GetNamespace(),
 		Labels:      labels,
 		Annotations: annotations,
 	}
 }
 
-// MinimalAivenOpenSearch creates a minimal Aiven OpenSearch object for use in delete operations
-func MinimalAivenOpenSearch(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSearch {
-	objectMeta := CreateOpenSearchObjectMeta(opensearch)
+// Minimal creates a minimal Aiven OpenSearch object for use in delete operations
+func Minimal(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSearch {
+	objectMeta := ObjectMeta(opensearch)
 
 	return &aiven_v1alpha1.OpenSearch{
 		TypeMeta: metav1.TypeMeta{
@@ -57,14 +57,14 @@ func MinimalAivenOpenSearch(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSearc
 	}
 }
 
-// CreateAivenOpenSearchSpec creates an Aiven OpenSearch resource from a nais.io OpenSearch spec
-func CreateAivenOpenSearchSpec(
+// CreateSpec creates an Aiven OpenSearch resource from a nais.io OpenSearch spec
+func CreateSpec(
 	scheme *runtime.Scheme,
 	opensearch *v1.OpenSearch,
 	aiven config.Aiven,
 	tenant config.Tenant,
 ) (*aiven_v1alpha1.OpenSearch, error) {
-	aivenOpenSearch := MinimalAivenOpenSearch(opensearch)
+	aivenOpenSearch := Minimal(opensearch)
 
 	plan, err := opensearch.AivenPlan()
 	if err != nil {
@@ -131,9 +131,9 @@ func aivenOpenSearchSettings(opensearch *v1.OpenSearch) *aiven_v1alpha1.OpenSear
 	return &settings
 }
 
-// MinimalOpenSearchServiceIntegration creates a minimal ServiceIntegration object for use in delete operations
-func MinimalOpenSearchServiceIntegration(opensearch *v1.OpenSearch) *aiven_v1alpha1.ServiceIntegration {
-	objectMeta := CreateOpenSearchObjectMeta(opensearch)
+// MinimalServiceIntegration creates a minimal ServiceIntegration object for use in delete operations
+func MinimalServiceIntegration(opensearch *v1.OpenSearch) *aiven_v1alpha1.ServiceIntegration {
+	objectMeta := ObjectMeta(opensearch)
 
 	return &aiven_v1alpha1.ServiceIntegration{
 		TypeMeta: metav1.TypeMeta{
@@ -144,14 +144,14 @@ func MinimalOpenSearchServiceIntegration(opensearch *v1.OpenSearch) *aiven_v1alp
 	}
 }
 
-// CreateOpenSearchServiceIntegrationSpec creates a ServiceIntegration for metrics/logs integration
-func CreateOpenSearchServiceIntegrationSpec(scheme *runtime.Scheme, opensearch *v1.OpenSearch, cfg config.Aiven) (*aiven_v1alpha1.ServiceIntegration, error) {
-	integration := MinimalOpenSearchServiceIntegration(opensearch)
+// CreateServiceIntegrationSpec creates a ServiceIntegration for metrics/logs integration
+func CreateServiceIntegrationSpec(scheme *runtime.Scheme, opensearch *v1.OpenSearch, cfg config.Aiven) (*aiven_v1alpha1.ServiceIntegration, error) {
+	integration := MinimalServiceIntegration(opensearch)
 
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{
 		Project:               cfg.Project,
 		IntegrationType:       "prometheus",
-		SourceServiceName:     AivenOpenSearchServiceName(opensearch),
+		SourceServiceName:     ServiceName(opensearch),
 		DestinationEndpointID: cfg.MetricsDestinationEndpointID,
 	}
 

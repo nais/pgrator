@@ -1,4 +1,4 @@
-package resourcecreator
+package opensearch
 
 import (
 	. "github.com/onsi/ginkgo/v2"
@@ -9,40 +9,40 @@ import (
 )
 
 var _ = Describe("OpenSearch Resource Creator", func() {
-	Describe("AivenOpenSearchServiceName", func() {
+	Describe("ServiceName", func() {
 		It("should return namespaced name in format opensearch-{team}-{name}", func() {
-			opensearch := &v1.OpenSearch{
+			obj := &v1.OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-opensearch",
 					Namespace: "my-team",
 				},
 			}
 
-			result := AivenOpenSearchServiceName(opensearch)
+			result := ServiceName(obj)
 			Expect(result).To(Equal("opensearch-my-team-my-opensearch"))
 		})
 
 		It("should handle different team and instance names", func() {
-			opensearch := &v1.OpenSearch{
+			obj := &v1.OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "search",
 					Namespace: "production",
 				},
 			}
 
-			result := AivenOpenSearchServiceName(opensearch)
+			result := ServiceName(obj)
 			Expect(result).To(Equal("opensearch-production-search"))
 		})
 
 		It("should handle names with hyphens", func() {
-			opensearch := &v1.OpenSearch{
+			obj := &v1.OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-app-search",
 					Namespace: "my-awesome-team",
 				},
 			}
 
-			result := AivenOpenSearchServiceName(opensearch)
+			result := ServiceName(obj)
 			Expect(result).To(Equal("opensearch-my-awesome-team-my-app-search"))
 		})
 	})

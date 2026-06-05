@@ -1,9 +1,10 @@
-package resourcecreator
+package monitoring
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,7 +13,7 @@ import (
 )
 
 func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName string) *monitoring_v1.PrometheusRule {
-	objectMeta := CreateObjectMeta(postgres)
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("pg-%s", pgClusterName)
 
 	return &monitoring_v1.PrometheusRule{
@@ -24,7 +25,7 @@ func MinimalPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName str
 	}
 }
 
-func CreatePrometheusRuleSpec(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *monitoring_v1.PrometheusRule {
+func CreateZalandoPrometheusRule(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *monitoring_v1.PrometheusRule {
 	prometheusRule := MinimalPrometheusRule(postgres, pgClusterName)
 	alertNamespace := prometheusRule.GetNamespace()
 

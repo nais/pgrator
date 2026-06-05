@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	opensearch "github.com/nais/pgrator/internal/resourcecreator/opensearch"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -80,13 +80,13 @@ func (r *OpenSearchReconciler) AdditionalTypes() []client.Object {
 func (r *OpenSearchReconciler) Update(obj *v1.OpenSearch, _ OpenSearchPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
-	aivenOpenSearch, err := resourcecreator.CreateAivenOpenSearchSpec(r.Scheme, obj, r.Aiven, r.Tenant)
+	aivenOpenSearch, err := opensearch.CreateSpec(r.Scheme, obj, r.Aiven, r.Tenant)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Aiven OpenSearch spec: %w", err)
 	}
 	actions = append(actions, action.CreateOrUpdate(aivenOpenSearch, obj, aivenOpenSearchConditionGetter, r.Recorder))
 
-	serviceIntegration, err := resourcecreator.CreateOpenSearchServiceIntegrationSpec(r.Scheme, obj, r.Aiven)
+	serviceIntegration, err := opensearch.CreateServiceIntegrationSpec(r.Scheme, obj, r.Aiven)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating ServiceIntegration spec: %w", err)
 	}
@@ -121,7 +121,7 @@ func (r *OpenSearchReconciler) Delete(obj *v1.OpenSearch, _ OpenSearchPreparedDa
 		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
 	}
 
-	aivenOpenSearch := resourcecreator.MinimalAivenOpenSearch(obj)
+	aivenOpenSearch := opensearch.Minimal(obj)
 	existing := relatedObjects.GetMatching(aivenOpenSearch)
 	if existing == nil {
 		return nil, ctrl.Result{}, nil
@@ -143,7 +143,7 @@ func (r *OpenSearchReconciler) Delete(obj *v1.OpenSearch, _ OpenSearchPreparedDa
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	serviceIntegration := resourcecreator.MinimalOpenSearchServiceIntegration(obj)
+	serviceIntegration := opensearch.MinimalServiceIntegration(obj)
 	actions := []action.Action{
 		action.DeleteIfExists(serviceIntegration, obj, openSearchServiceIntegrationConditionGetter, r.Recorder),
 		action.DeleteIfExists(aivenOpenSearch, obj, aivenOpenSearchConditionGetter, r.Recorder),

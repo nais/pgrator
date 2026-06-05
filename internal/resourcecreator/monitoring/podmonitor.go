@@ -1,16 +1,17 @@
-package resourcecreator
+package monitoring
 
 import (
 	"fmt"
 
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
-func MinimalCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
-	objectMeta := CreateObjectMeta(postgres)
+func MinimalPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("pg-%s", pgClusterName)
 	objectMeta.Namespace = namespace
 
@@ -23,8 +24,8 @@ func MinimalCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, na
 	}
 }
 
-func CreateCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
-	podMonitor := MinimalCNPGPodMonitor(postgres, pgClusterName, namespace)
+func CreatePodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
+	podMonitor := MinimalPodMonitor(postgres, pgClusterName, namespace)
 
 	// Label with prometheus=tenant so the tenant Prometheus instance scrapes these
 	// metrics, making them available to application developers (not only the platform team).

@@ -1,4 +1,4 @@
-package resourcecreator
+package monitoring
 
 import (
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
@@ -31,9 +31,9 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		}
 	})
 
-	Describe("CreateCNPGPrometheusRuleSpec", func() {
+	Describe("CreateCNPGPrometheusRule", func() {
 		It("should create a PrometheusRule with CNPG-specific alerts", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 
 			Expect(rule.Kind).To(Equal("PrometheusRule"))
 			Expect(rule.Name).To(Equal("pg-my-cluster"))
@@ -42,7 +42,7 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		})
 
 		It("should include replication lag alert", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			rules := rule.Spec.Groups[0].Rules
 
 			replicationAlert := findAlert(rules, "PostgresReplicationLagHigh")
@@ -52,7 +52,7 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		})
 
 		It("should include WAL archiving alert", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			rules := rule.Spec.Groups[0].Rules
 
 			walAlert := findAlert(rules, "PostgresWALArchivingFailed")
@@ -61,7 +61,7 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		})
 
 		It("should include backup staleness alert", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			rules := rule.Spec.Groups[0].Rules
 
 			backupAlert := findAlert(rules, "PostgresBackupStale")
@@ -70,7 +70,7 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		})
 
 		It("should include connection saturation alert", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			rules := rule.Spec.Groups[0].Rules
 
 			connAlert := findAlert(rules, "PostgresConnectionSaturation")
@@ -79,12 +79,12 @@ var _ = Describe("CNPG PrometheusRule", func() {
 		})
 
 		It("should include all 10 alerts", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			Expect(rule.Spec.Groups[0].Rules).To(HaveLen(10))
 		})
 
 		It("should use correct namespace filter for CNPG metrics", func() {
-			rule := CreateCNPGPrometheusRuleSpec(postgres, "my-cluster", "pg-my-team")
+			rule := CreateCNPGPrometheusRule(postgres, "my-cluster", "pg-my-team")
 			rules := rule.Spec.Groups[0].Rules
 
 			replicationAlert := findAlert(rules, "PostgresReplicationLagHigh")

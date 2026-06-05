@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	opensearchrc "github.com/nais/pgrator/internal/resourcecreator/opensearch"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -65,7 +65,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Project).To(Equal("test-project"))
@@ -98,7 +98,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
@@ -120,7 +120,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Plan).To(Equal("business-8"))
@@ -144,7 +144,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
@@ -175,7 +175,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
@@ -201,7 +201,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Plan).To(Equal("hobbyist"))
@@ -227,7 +227,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+			result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Labels["team"]).To(Equal("labeled-team"))
@@ -260,7 +260,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				MetricsDestinationEndpointID: "metrics-service",
 			}
 
-			result, err := resourcecreator.CreateOpenSearchServiceIntegrationSpec(scheme.Scheme, opensearch, cfg)
+			result, err := opensearchrc.CreateServiceIntegrationSpec(scheme.Scheme, opensearch, cfg)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Name).To(Equal("opensearch-my-team-my-opensearch"))
@@ -504,7 +504,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalAivenOpenSearch(opensearch)
+			result := opensearchrc.Minimal(opensearch)
 
 			Expect(result.Name).To(Equal("opensearch-test-ns-test-opensearch"))
 			Expect(result.Namespace).To(Equal("test-ns"))
@@ -522,7 +522,7 @@ var _ = Describe("OpenSearch Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalOpenSearchServiceIntegration(opensearch)
+			result := opensearchrc.MinimalServiceIntegration(opensearch)
 
 			Expect(result.Name).To(Equal("opensearch-test-ns-test-opensearch"))
 			Expect(result.Namespace).To(Equal("test-ns"))
@@ -602,7 +602,7 @@ var _ = Describe("OpenSearch Controller", func() {
 					},
 				}
 
-				result, err := resourcecreator.CreateAivenOpenSearchSpec(scheme.Scheme, opensearch, aiven, tenant)
+				result, err := opensearchrc.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(result.Spec.Plan).To(Equal(tc.expectedPlan))
