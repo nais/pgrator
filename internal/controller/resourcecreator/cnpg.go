@@ -31,7 +31,16 @@ const (
 	workMemFraction            = 64                     // 1/64 of memory (~1.5%)
 	maintenanceWorkMemFraction = 8                      // 1/8 of memory (12.5%)
 	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024 // 2GB cap
+
+	computeClass = "n4-machines"
 )
+
+var dedicatedPostgresToleration = corev1.Toleration{
+	Key:      "dedicated",
+	Operator: "Equal",
+	Value:    "postgres",
+	Effect:   "NoSchedule",
+}
 
 func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
 	objectMeta := CreateObjectMeta(postgres)
@@ -121,17 +130,12 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 
 		Affinity: cnpgv1.AffinityConfiguration{
 			NodeSelector: map[string]string{
-				"cloud.google.com/compute-class": "n4-machines",
+				"cloud.google.com/compute-class": computeClass,
 			},
 			EnablePodAntiAffinity: ptr.To(true),
 			TopologyKey:           "kubernetes.io/hostname",
 			Tolerations: []corev1.Toleration{
-				{
-					Key:      "dedicated",
-					Operator: "Equal",
-					Value:    "postgres",
-					Effect:   "NoSchedule",
-				},
+				dedicatedPostgresToleration,
 			},
 		},
 
@@ -219,6 +223,53 @@ func CreateCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace
 			},
 			Type:      cnpgv1.PoolerTypeRW,
 			Instances: ptr.To(cnpgDefaultPoolerInstances),
+			Template: &cnpgv1.PodTemplateSpec{
+				ObjectMeta: cnpgv1.Metadata{
+					Labels: map[string]string{
+						"apiserver-access": "enabled",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "pgbouncer",
+							Resources: corev1.ResourceRequirements{
+								Limits: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceMemory: resource.MustParse("100Mi"),
+								},
+								Requests: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("50Mi"),
+								},
+							},
+						},
+					},
+					NodeSelector: map[string]string{
+						"cloud.google.com/compute-class": computeClass,
+					},
+					Affinity: &corev1.Affinity{
+						PodAntiAffinity: &corev1.PodAntiAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+								{
+									LabelSelector: &metav1.LabelSelector{
+										MatchExpressions: []metav1.LabelSelectorRequirement{
+											{
+												Key:      "cnpg.io/podRole",
+												Operator: metav1.LabelSelectorOpIn,
+												Values:   []string{"pooler"},
+											},
+										},
+									},
+									TopologyKey: "kubernetes.io/hostname",
+								},
+							},
+						},
+					},
+					Tolerations: []corev1.Toleration{
+						dedicatedPostgresToleration,
+					},
+				},
+			},
 			PgBouncer: &cnpgv1.PgBouncerSpec{
 				PoolMode: cnpgv1.PgBouncerPoolModeTransaction,
 			},

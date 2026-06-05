@@ -11,3 +11,26 @@ object:
     cluster:
       name: test-db
     type: rw
+    template:
+      metadata:
+        labels:
+          apiserver-access: enabled
+      spec:
+        containers:
+          # This name MUST be "pgbouncer"
+          - name: pgbouncer
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: cnpg.io/podRole
+                      operator: In
+                      values:
+                        - pooler
+                topologyKey: "kubernetes.io/hostname"
+        tolerations:
+          - effect: NoSchedule
+            key: dedicated
+            operator: Equal
+            value: postgres
