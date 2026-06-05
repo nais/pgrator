@@ -4,11 +4,11 @@ Kubernetes operator for the [nais](https://nais.io) platform that manages **Post
 
 ## Managed resources
 
-| CRD | API group | Backend | Creates |
-|-----|-----------|---------|---------|
-| `Postgres` | `data.nais.io/v1` | [Zalando postgres-operator](https://github.com/zalando/postgres-operator) or [CloudNativePG](https://cloudnative-pg.io) | Postgres cluster, NetworkPolicy, IAM resources, ServiceAccount, RoleBinding, PrometheusRule |
-| `Valkey` | `nais.io/v1` | [Aiven](https://aiven.io) | Aiven Valkey instance + ServiceIntegration (metrics) |
-| `OpenSearch` | `nais.io/v1` | [Aiven](https://aiven.io) | Aiven OpenSearch instance + ServiceIntegration (metrics) |
+| CRD          | API group         | Backend                                                                                                                 | Creates                                                                                     |
+|--------------|-------------------|-------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| `Postgres`   | `data.nais.io/v1` | [Zalando postgres-operator](https://github.com/zalando/postgres-operator) or [CloudNativePG](https://cloudnative-pg.io) | Postgres cluster, NetworkPolicy, IAM resources, ServiceAccount, RoleBinding, PrometheusRule |
+| `Valkey`     | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven Valkey instance + ServiceIntegration (metrics)                                        |
+| `OpenSearch` | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven OpenSearch instance + ServiceIntegration (metrics)                                    |
 
 ## Getting started
 
@@ -31,30 +31,12 @@ mise run all
 mise run test
 
 # Run only linting
-mise run lint
+mise run check:lint
 ```
 
 ### Available tasks
 
-| Task | Description |
-|------|-------------|
-| `mise run all` | Run all checks, tests, and build |
-| `mise run test` | Run tests (requires envtest binaries) |
-| `mise run test-race` | Run tests with race detector |
-| `mise run test-e2e` | Run Chainsaw e2e tests (requires a running cluster) |
-| `mise run lint` | Run golangci-lint |
-| `mise run vet` | Run go vet |
-| `mise run check` | Run govulncheck |
-| `mise run fmt` | Format code |
-| `mise run fmt-check` | Check formatting |
-| `mise run generate` | Generate CRDs, RBAC, and DeepCopy methods |
-| `mise run generate-check` | Verify generated code is up to date |
-| `mise run tidy-check` | Verify go.mod is tidy |
-| `mise run build` | Build manager binary |
-| `mise run helm-lint` | Lint Helm charts |
-| `mise run docker` | Build Docker image |
-| `mise run run` | Run controller locally |
-| `mise run generate:doc` | Generate documentation for nais/doc |
+Use `mise tasks` to get a list of available tasks, with descriptions
 
 ### Git hooks
 
@@ -81,7 +63,7 @@ Engine selection is immutable after creation. The operator detects existing reso
 
 CI uses the centralized [`nais/actions`](https://github.com/nais/actions) reusable workflow (`mise-build-deploy-fasit.yaml`), which runs all mise tasks in parallel, builds and pushes the Docker image and Helm chart, and deploys via Fasit.
 
-E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw).
+E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
 
 ## Contributing
 
@@ -93,6 +75,17 @@ E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [C
 4. **Test locally** — `mise run test` runs the full Ginkgo test suite with envtest (a real API server + etcd, no cluster needed).
 5. **Commit** — lefthook pre-commit hooks run fmt, lint, vet, and generate-check automatically.
 6. **Push** — pre-push hook runs tests. CI runs the full matrix in parallel.
+
+### Running operator in local cluster
+
+- `mise run dev:setup-cluster` to start a local cluster.
+- `mise run dev:tilt` to use [tilt](https://tilt.dev) to install dependencies into the cluster, and build and install the operator.
+- `mise run test:e2e` to run E2E tests in the local cluster.
+- `mise run dev:stop-cluster` to stop the cluster.
+
+The cluster uses [kind](https://kind.sigs.k8s.io) by default, but can be changed to any cluster engine supported by [ctlptl](https://github.com/tilt-dev/ctlptl#current).
+To select a different engine, create a [local mise config](https://mise.jdx.dev/configuration.html#mise-toml), overriding the env-variable `DEV_CLUSTER_ENGINE` with a ctlptl product name.
+
 
 ### Adding a new golden test case
 
@@ -118,7 +111,8 @@ Each expected file in `contains/` or `consists_of/` specifies:
 
 ```sh
 mise run test          # Integration tests (envtest — no cluster required)
-mise run test-e2e      # E2E tests (requires kind cluster with operator deployed)
+mise run test:e2e      # E2E tests (requires running mise run dev:tilt in a separate terminal)
+mise run test:ci       # Starts a cluster, runs E2E tests
 ```
 
 ### Code generation

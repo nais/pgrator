@@ -3,7 +3,7 @@
 set -euo pipefail
 
 CLUSTER_NAME="pgrator"
-CONTEXT_NAME="kind-${CLUSTER_NAME}"
+CONTEXT_NAME="${DEV_CLUSTER_ENGINE}-${CLUSTER_NAME}"
 
 if ctlptl get cluster "${CONTEXT_NAME}" 2>/dev/null; then
   echo "Kind cluster '${CLUSTER_NAME}' already exists"
@@ -11,11 +11,11 @@ if ctlptl get cluster "${CONTEXT_NAME}" 2>/dev/null; then
     echo "Cluster exists but is not reachable, recreating..."
     ctlptl
     ctlptl delete cluster "${CONTEXT_NAME}"
-    ctlptl create cluster kind --name "${CONTEXT_NAME}" --registry=ctlptl-registry
+    ctlptl create cluster "${DEV_CLUSTER_ENGINE}" --name "${CONTEXT_NAME}" --registry=ctlptl-registry
   }
 else
-  echo "Creating kind cluster '${CLUSTER_NAME}'..."
-  ctlptl create cluster kind --name "${CONTEXT_NAME}" --registry=ctlptl-registry
+  echo "Creating ${DEV_CLUSTER_ENGINE} cluster '${CLUSTER_NAME}'..."
+  ctlptl create cluster "${DEV_CLUSTER_ENGINE}" --name "${CONTEXT_NAME}" --registry=ctlptl-registry
 fi
 
 echo "Cluster ready. Context: ${CONTEXT_NAME}"

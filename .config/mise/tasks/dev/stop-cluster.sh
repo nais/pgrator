@@ -4,13 +4,13 @@
 set -euo pipefail
 
 CLUSTER_NAME="pgrator"
-CONTEXT_NAME="kind-${CLUSTER_NAME}"
+CONTEXT_NAME="${DEV_CLUSTER_ENGINE}-${CLUSTER_NAME}"
 
 if ctlptl get cluster "${CONTEXT_NAME}" 2>/dev/null; then
-  echo "Kind cluster '${CLUSTER_NAME}' exists, stopping"
+  echo "${DEV_CLUSTER_ENGINE} cluster '${CLUSTER_NAME}' exists, stopping"
   ctlptl delete cluster "${CONTEXT_NAME}"
 else
-  echo "No kind cluster '${CLUSTER_NAME}' exists"
+  echo "No ${DEV_CLUSTER_ENGINE} cluster '${CLUSTER_NAME}' exists"
 fi
 
 echo "Cluster '${CLUSTER_NAME}' stopped."

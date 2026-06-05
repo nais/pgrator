@@ -2,6 +2,7 @@
 _.source = ".config/mise/extract_env.sh"
 PGRATOR_IMAGE = "europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest"
 PGRATOR_TTL_IMAGE = "ttl.sh/pgrator:1h"
+DEV_CLUSTER_ENGINE = "kind"
 
 [tools]
 golangci-lint = "2.10.1"

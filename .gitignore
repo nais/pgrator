@@ -39,3 +39,4 @@ nvim.log
 # Unwanted artifacts
 misc/coding-team
 chainsaw-report.xml
+mise.local.toml

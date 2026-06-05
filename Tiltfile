@@ -12,10 +12,13 @@
 
 load("ext://helm_resource", "helm_resource", "helm_repo")
 
+DEV_CLUSTER_ENGINE = os.getenv("DEV_CLUSTER_ENGINE", "kind")
+CONTEXT_NAME = DEV_CLUSTER_ENGINE + "-pgrator"
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
-allow_k8s_contexts("kind-pgrator")
+allow_k8s_contexts(CONTEXT_NAME)
 update_settings(k8s_upsert_timeout_secs=120)
 
 # ---------------------------------------------------------------------------
