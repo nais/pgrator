@@ -113,18 +113,22 @@ helm_resource(
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
-    resource_deps=["cert-manager", "prometheus-crds", "prerequisites", "zalando-crd"],
+    resource_deps=["cert-manager", "prometheus-crds", "prerequisites", "zalando-crd", "external-crds"],
     labels=["app"],
 )
 
 # ---------------------------------------------------------------------------
 # 8. E2E tests (manual trigger)
 # ---------------------------------------------------------------------------
+running_ci = config. tilt_subcommand == "ci"
+chainsaw_cmd = "chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml"
+if running_ci:
+    chainsaw_cmd += " --report-format XML --report-name chainsaw-report"
 local_resource(
     "e2e-tests",
-    cmd="chainsaw test --test-dir tests/e2e/ --config .chainsaw.yaml",
+    cmd=chainsaw_cmd,
     deps=["tests/e2e", ".chainsaw.yaml"],
     resource_deps=["pgrator"],
-    auto_init=False,
+    auto_init=running_ci,
     labels=["test"],
 )

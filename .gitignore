@@ -36,5 +36,6 @@ doc/pgrator-overview-dashboard.json
 tilt_modules/
 nvim.log
 
-# Unwanted AI artifacts
+# Unwanted artifacts
 misc/coding-team
+chainsaw-report.xml

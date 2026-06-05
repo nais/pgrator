@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # [MISE] description="Stop the kind cluster started with dev:setup-cluster"
-# [MISE] wait_for=["test:e2e"]
+# [MISE] wait_for=["test:e2e", "test:ci"]
 set -euo pipefail
 
 CLUSTER_NAME="pgrator"
