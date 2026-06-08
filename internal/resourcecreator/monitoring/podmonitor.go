@@ -10,7 +10,7 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func MinimalPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
+func MinimalCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
 	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("pg-%s", pgClusterName)
 	objectMeta.Namespace = namespace
@@ -24,8 +24,8 @@ func MinimalPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namesp
 	}
 }
 
-func CreatePodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
-	podMonitor := MinimalPodMonitor(postgres, pgClusterName, namespace)
+func CreateCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
+	podMonitor := MinimalCNPGPodMonitor(postgres, pgClusterName, namespace)
 
 	// Label with prometheus=tenant so the tenant Prometheus instance scrapes these
 	// metrics, making them available to application developers (not only the platform team).

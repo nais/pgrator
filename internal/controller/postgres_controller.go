@@ -224,7 +224,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		prometheusRule := rcmonitoring.CreateCNPGPrometheusRule(obj, pgClusterName, pgNamespace)
 		actions = append(actions, action.CreateOrUpdate(prometheusRule, obj, existsConditionGetter, r.Recorder))
 
-		podMonitor := rcmonitoring.CreatePodMonitor(obj, pgClusterName, pgNamespace)
+		podMonitor := rcmonitoring.CreateCNPGPodMonitor(obj, pgClusterName, pgNamespace)
 		actions = append(actions, action.CreateOrUpdate(podMonitor, obj, existsConditionGetter, r.Recorder))
 	}
 
@@ -397,7 +397,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		prometheusRule := rcmonitoring.MinimalPrometheusRule(obj, pgClusterName)
 		actions = append(actions, actionFunc(prometheusRule, obj, existsConditionGetter, r.Recorder))
 
-		podMonitor := rcmonitoring.MinimalPodMonitor(obj, pgClusterName, pgNamespace)
+		podMonitor := rcmonitoring.MinimalCNPGPodMonitor(obj, pgClusterName, pgNamespace)
 		actions = append(actions, actionFunc(podMonitor, obj, existsConditionGetter, r.Recorder))
 	}
 
