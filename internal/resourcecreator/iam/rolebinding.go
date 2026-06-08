@@ -5,7 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func RoleBinding(name, ksaName, clusterRoleName, namespace string) *v1.RoleBinding {
+func CreateRoleBinding(name, ksaName, clusterRoleName, namespace string) *v1.RoleBinding {
 	return &v1.RoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",

@@ -45,7 +45,7 @@ func CreateServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1b
 	return iamServiceAccount
 }
 
-func WorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := MinimalPolicyMember(name, teamNamespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
@@ -59,7 +59,7 @@ func WorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogl
 	return iamPolicyMember
 }
 
-func StorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := MinimalPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
@@ -74,7 +74,7 @@ func StorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bu
 	return iamPolicyMember
 }
 
-func LogsWriterPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateLogsWriterPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := MinimalPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),

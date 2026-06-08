@@ -444,24 +444,24 @@ func (r *PostgresReconciler) deleteIAMActions(obj *data_nais_io_v1.Postgres, pre
 
 	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 
-	workloadIdentityPolicy := rciam.WorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	if existing := relatedObjects.GetMatching(workloadIdentityPolicy); existing != nil {
 		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
 	}
 
 	if bucket != "" {
-		storageBucketPolicy := rciam.StorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
 		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
 			actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
 		}
 	}
 
-	logsWriterPolicy := rciam.LogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
+	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	if existing := relatedObjects.GetMatching(logsWriterPolicy); existing != nil {
 		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := rciam.KubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
+	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	if existing := relatedObjects.GetMatching(kubernetesSA); existing != nil {
 		actions = append(actions, sharedActionFunc(existing, obj, existsConditionGetter, r.Recorder))
 	}
@@ -595,7 +595,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 
 	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
 
-	workloadIdentityPolicy := rciam.WorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy == nil {
 		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
@@ -610,7 +610,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	if backupBucket != "" {
-		storageBucketPolicy := rciam.StorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
@@ -625,7 +625,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		}
 	}
 
-	logsWriterPolicy := rciam.LogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
+	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy == nil {
 		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
@@ -647,7 +647,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
 	}
 
-	kubernetesSA := rciam.KubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
+	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
 	existingKubernetesSA := relatedObjects.GetMatching(kubernetesSA)
 	if existingKubernetesSA != nil {
 		actions = append(actions, action.Update(kubernetesSA, obj, existsConditionGetter, r.Recorder))
@@ -655,7 +655,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(kubernetesSA, obj, existsConditionGetter, r.Recorder))
 	}
 
-	postgresPodRoleBinding := rciam.RoleBinding(RoleBindingName, KSAName, ClusterRoleName, pgNamespace)
+	postgresPodRoleBinding := rciam.CreateRoleBinding(RoleBindingName, KSAName, ClusterRoleName, pgNamespace)
 	existingPRB := relatedObjects.GetMatching(postgresPodRoleBinding)
 	if existingPRB != nil {
 		actions = append(actions, action.Update(postgresPodRoleBinding, obj, existsConditionGetter, r.Recorder))
