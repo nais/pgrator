@@ -639,7 +639,7 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Claim(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	gsa := rciam.CreateServiceAccount(GSAName, obj.GetNamespace())
+	gsa := rciam.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
 	existingGsa := relatedObjects.GetMatching(gsa)
 	if existingGsa != nil {
 		actions = append(actions, action.Claim(gsa, obj, iamConditionGetter, r.Recorder))

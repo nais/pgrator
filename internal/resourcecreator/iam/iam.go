@@ -27,7 +27,7 @@ func MinimalPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1be
 	}
 }
 
-func CreateServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
+func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
 	iamServiceAccount := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "IAMServiceAccount",
