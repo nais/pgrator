@@ -52,15 +52,6 @@ spec:
               metadata:
                 name: mydb-pooler
                 namespace: cnpg-team
-    - name: Assert ServiceAccount created
-      try:
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: ServiceAccount
-              metadata:
-                name: postgres-pod
-                namespace: cnpg-team
     - name: Assert NetworkPolicy created
       try:
         - assert:

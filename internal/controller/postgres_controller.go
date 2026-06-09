@@ -214,7 +214,8 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cnpgNetpol := rcnetpol.CreateCNPG(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(cnpgNetpol, obj, existsConditionGetter, r.Recorder))
 
-	iamActions, err := r.iamActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
+	// TODO: Set up IAM
+	iamActions, err := r.cnpgIAMActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -253,7 +254,7 @@ func (r *PostgresReconciler) updateZalando(obj *data_nais_io_v1.Postgres, prepar
 	zalandoNetpol := rcnetpol.CreateZalando(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(zalandoNetpol, obj, existsConditionGetter, r.Recorder))
 
-	iamActions, err := r.iamActions(obj, preparedData, pgNamespace, r.Config.WalGsBucket, relatedObjects)
+	iamActions, err := r.zalandoIAMActions(obj, preparedData, pgNamespace, r.Config.WalGsBucket, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -589,8 +590,8 @@ func validateVersionForEngine(majorVersion string, engine string) error {
 	return nil
 }
 
-// iamActions returns the shared IAM actions used by both Zalando and CNPG codepaths.
-func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
+// zalandoIAMActions returns the IAM actions used by Zalando
+func (r *PostgresReconciler) zalandoIAMActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
 	var actions []action.Action
 
 	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
@@ -664,6 +665,12 @@ func (r *PostgresReconciler) iamActions(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	return actions, nil
+}
+
+// cnpgIAMActions returns the IAM actions used by CNPG
+func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
+	// TODO: Implement IAM
+	return nil, nil
 }
 
 func cnpgClusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
