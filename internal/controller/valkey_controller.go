@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	rcvalkey "github.com/nais/pgrator/internal/resourcecreator/valkey"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -81,13 +81,13 @@ func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
 func (r *ValkeyReconciler) Update(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 
-	aivenValkey, err := resourcecreator.CreateAivenValkeySpec(r.Scheme, obj, r.Aiven, r.Tenant)
+	aivenValkey, err := rcvalkey.CreateSpec(r.Scheme, obj, r.Aiven, r.Tenant)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Aiven Valkey spec: %w", err)
 	}
 	actions = append(actions, action.CreateOrUpdate(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder))
 
-	serviceIntegration, err := resourcecreator.CreateServiceIntegrationSpec(r.Scheme, obj, r.Aiven)
+	serviceIntegration, err := rcvalkey.CreateServiceIntegrationSpec(r.Scheme, obj, r.Aiven)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating ServiceIntegration spec: %w", err)
 	}
@@ -122,7 +122,7 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 		return nil, ctrl.Result{}, fmt.Errorf("refusing to delete resource: %s", reason)
 	}
 
-	aivenValkey := resourcecreator.MinimalAivenValkey(obj)
+	aivenValkey := rcvalkey.Minimal(obj)
 	existing := relatedObjects.GetMatching(aivenValkey)
 	if existing == nil {
 		return nil, ctrl.Result{}, nil
@@ -144,7 +144,7 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	serviceIntegration := resourcecreator.MinimalServiceIntegration(obj)
+	serviceIntegration := rcvalkey.MinimalServiceIntegration(obj)
 	actions := []action.Action{
 		action.DeleteIfExists(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder),
 		action.DeleteIfExists(aivenValkey, obj, aivenValkeyConditionGetter, r.Recorder),

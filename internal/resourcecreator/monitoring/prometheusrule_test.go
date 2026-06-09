@@ -1,4 +1,4 @@
-package resourcecreator
+package monitoring
 
 import (
 	. "github.com/onsi/ginkgo/v2"

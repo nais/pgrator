@@ -1,4 +1,4 @@
-package resourcecreator
+package iam
 
 import (
 	"fmt"

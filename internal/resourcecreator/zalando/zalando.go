@@ -1,21 +1,20 @@
-package resourcecreator
+package zalando
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
 
 const (
-	cpuLimitFactor    = 10
-	memoryLimitFactor = 4
+	cpuLimitFactor = int64(10)
 
 	maintenanceDuration = 1
 
@@ -39,20 +38,9 @@ const (
 var defaultExtensions = []string{
 	"pgaudit",
 }
-var minimumDisksizePerStorageClass map[string]resource.Quantity
-
-func init() {
-	minimumDisksizePerStorageClass = map[string]resource.Quantity{
-		"hyperdisk-balanced": resource.MustParse("4Gi"),
-		"hyperdisk-premium":  resource.MustParse("4Gi"),
-		"standard-rwo":       resource.MustParse("2Gi"),
-		"premium-rwo":        resource.MustParse("2Gi"),
-		"":                   resource.MustParse("2Gi"), // Use 2Gi when unset
-	}
-}
 
 func MinimalCluster(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *acid_zalan_do_v1.Postgresql {
-	objectMeta := CreateObjectMeta(postgres)
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = pgClusterName
 	objectMeta.Namespace = pgNamespace
 	objectMeta.Labels["apiserver-access"] = "enabled"
@@ -78,7 +66,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 	cpuLimit.Mul(cpuLimitFactor)
 
 	memoryLimit := postgres.Spec.Cluster.Resources.Memory.DeepCopy()
-	memoryLimit.Mul(memoryLimitFactor)
+	memoryLimit.Mul(resourcecreator.MemoryLimitFactor)
 
 	numberOfInstances := defaultNumInstances
 	if postgres.Spec.Cluster.HighAvailability {
@@ -115,7 +103,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 		collation = fmt.Sprintf("%s.UTF-8", postgres.Spec.Database.Collation)
 	}
 
-	diskSize, err := enforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.PostgresStorageClass)
+	diskSize, err := resourcecreator.EnforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.PostgresStorageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -213,16 +201,6 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, p
 	}
 
 	return cluster, nil
-}
-
-func enforceMinimumDisk(diskSize resource.Quantity, storageClass string) (*resource.Quantity, error) {
-	if minimum, ok := minimumDisksizePerStorageClass[storageClass]; ok {
-		if diskSize.Cmp(minimum) < 0 {
-			return &minimum, nil
-		}
-		return &diskSize, nil
-	}
-	return nil, fmt.Errorf("no minimum disksize defined for storage class %q (this is a platform error)", storageClass)
 }
 
 func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit) map[string]string {

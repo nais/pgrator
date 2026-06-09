@@ -1,8 +1,9 @@
-package resourcecreator
+package monitoring
 
 import (
 	"fmt"
 
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -10,7 +11,7 @@ import (
 )
 
 func MinimalCNPGPodMonitor(postgres *data_nais_io_v1.Postgres, pgClusterName, namespace string) *monitoring_v1.PodMonitor {
-	objectMeta := CreateObjectMeta(postgres)
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("pg-%s", pgClusterName)
 	objectMeta.Namespace = namespace
 

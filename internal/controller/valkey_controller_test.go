@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/controller/resourcecreator"
+	rcvalkey "github.com/nais/pgrator/internal/resourcecreator/valkey"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -60,7 +60,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Project).To(Equal("test-project"))
@@ -89,7 +89,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
@@ -110,7 +110,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.UserConfig).NotTo(BeNil())
@@ -136,7 +136,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Spec.Plan).To(Equal("business-14"))
@@ -164,7 +164,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Labels["team"]).To(Equal("labeled-team"))
@@ -195,7 +195,7 @@ var _ = Describe("Valkey Controller", func() {
 				MetricsDestinationEndpointID: "metrics-service",
 			}
 
-			result, err := resourcecreator.CreateServiceIntegrationSpec(scheme.Scheme, valkey, cfg)
+			result, err := rcvalkey.CreateServiceIntegrationSpec(scheme.Scheme, valkey, cfg)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(result.Name).To(Equal("valkey-my-team-my-valkey"))
@@ -435,7 +435,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalAivenValkey(valkey)
+			result := rcvalkey.Minimal(valkey)
 
 			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey"))
 			Expect(result.Namespace).To(Equal("test-ns"))
@@ -453,7 +453,7 @@ var _ = Describe("Valkey Controller", func() {
 				},
 			}
 
-			result := resourcecreator.MinimalServiceIntegration(valkey)
+			result := rcvalkey.MinimalServiceIntegration(valkey)
 
 			Expect(result.Name).To(Equal("valkey-test-ns-test-valkey"))
 			Expect(result.Namespace).To(Equal("test-ns"))
@@ -495,7 +495,7 @@ var _ = Describe("Valkey Controller", func() {
 					},
 				}
 
-				result, err := resourcecreator.CreateAivenValkeySpec(scheme.Scheme, valkey, aiven, tenant)
+				result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(result.Spec.UserConfig).NotTo(BeNil())

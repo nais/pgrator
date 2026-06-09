@@ -1,4 +1,4 @@
-package resourcecreator
+package monitoring
 
 import (
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
@@ -30,7 +30,7 @@ var _ = Describe("PodMonitor", func() {
 		}
 	})
 
-	Describe("CreateCNPGPodMonitor", func() {
+	Describe("CreatePodMonitor", func() {
 		It("should create a PodMonitor with correct metadata", func() {
 			pm := CreateCNPGPodMonitor(postgres, "my-cluster", "pg-my-team")
 
@@ -60,7 +60,7 @@ var _ = Describe("PodMonitor", func() {
 		})
 	})
 
-	Describe("MinimalCNPGPodMonitor", func() {
+	Describe("MinimalPodMonitor", func() {
 		It("should create a minimal PodMonitor for deletion", func() {
 			pm := MinimalCNPGPodMonitor(postgres, "my-cluster", "pg-my-team")
 

@@ -1,4 +1,4 @@
-package resourcecreator
+package cnpg
 
 import (
 	"testing"
@@ -10,8 +10,8 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-func TestResourceCreator(t *testing.T) {
+func TestCNPGResourceCreator(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Resource Creator Suite")
+	RunSpecs(t, "CNPG Resource Creator Suite")
 }

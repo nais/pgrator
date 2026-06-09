@@ -1,4 +1,4 @@
-package resourcecreator
+package valkey
 
 import (
 	"fmt"
@@ -15,14 +15,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// AivenValkeyServiceName returns the namespaced Aiven service name for a Valkey instance.
+// ServiceName returns the namespaced Aiven service name for a Valkey instance.
 // Format: valkey-{teamSlug}-{instanceName}
-func AivenValkeyServiceName(valkey *v1.Valkey) string {
+func ServiceName(valkey *v1.Valkey) string {
 	return "valkey-" + valkey.GetNamespace() + "-" + valkey.GetName()
 }
 
-// CreateValkeyObjectMeta creates a standard ObjectMeta for Valkey-owned resources
-func CreateValkeyObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
+// ObjectMeta creates a standard ObjectMeta for Valkey-owned resources
+func ObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
 	labels := map[string]string{}
 	maps.Copy(labels, valkey.GetLabels())
 
@@ -36,16 +36,16 @@ func CreateValkeyObjectMeta(valkey *v1.Valkey) metav1.ObjectMeta {
 	}
 
 	return metav1.ObjectMeta{
-		Name:        AivenValkeyServiceName(valkey),
+		Name:        ServiceName(valkey),
 		Namespace:   valkey.GetNamespace(),
 		Labels:      labels,
 		Annotations: annotations,
 	}
 }
 
-// MinimalAivenValkey creates a minimal Aiven Valkey object for use in delete operations
-func MinimalAivenValkey(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
-	objectMeta := CreateValkeyObjectMeta(valkey)
+// Minimal creates a minimal Aiven Valkey object for use in delete operations
+func Minimal(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
+	objectMeta := ObjectMeta(valkey)
 
 	return &aiven_v1alpha1.Valkey{
 		TypeMeta: metav1.TypeMeta{
@@ -56,14 +56,14 @@ func MinimalAivenValkey(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
 	}
 }
 
-// CreateAivenValkeySpec creates an Aiven Valkey resource from a nais.io Valkey spec
-func CreateAivenValkeySpec(
+// CreateSpec creates an Aiven Valkey resource from a nais.io Valkey spec
+func CreateSpec(
 	scheme *runtime.Scheme,
 	valkey *v1.Valkey,
 	aiven config.Aiven,
 	tenant config.Tenant,
 ) (*aiven_v1alpha1.Valkey, error) {
-	aivenValkey := MinimalAivenValkey(valkey)
+	aivenValkey := Minimal(valkey)
 
 	plan, err := valkey.AivenPlan()
 	if err != nil {
@@ -119,7 +119,7 @@ func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
 
 // MinimalServiceIntegration creates a minimal ServiceIntegration object for use in delete operations
 func MinimalServiceIntegration(valkey *v1.Valkey) *aiven_v1alpha1.ServiceIntegration {
-	objectMeta := CreateValkeyObjectMeta(valkey)
+	objectMeta := ObjectMeta(valkey)
 
 	return &aiven_v1alpha1.ServiceIntegration{
 		TypeMeta: metav1.TypeMeta{
@@ -137,7 +137,7 @@ func CreateServiceIntegrationSpec(scheme *runtime.Scheme, valkey *v1.Valkey, cfg
 	integration.Spec = aiven_v1alpha1.ServiceIntegrationSpec{
 		Project:               cfg.Project,
 		IntegrationType:       "prometheus",
-		SourceServiceName:     AivenValkeyServiceName(valkey),
+		SourceServiceName:     ServiceName(valkey),
 		DestinationEndpointID: cfg.MetricsDestinationEndpointID,
 	}
 

@@ -1,4 +1,4 @@
-package resourcecreator
+package cnpg
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/resourcecreator"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -42,8 +43,8 @@ var dedicatedPostgresToleration = corev1.Toleration{
 	Effect:   "NoSchedule",
 }
 
-func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
-	objectMeta := CreateObjectMeta(postgres)
+func MinimalCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = clusterName
 	objectMeta.Namespace = namespace
 	objectMeta.Labels["apiserver-access"] = "enabled"
@@ -57,8 +58,8 @@ func MinimalCNPGCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespa
 	}
 }
 
-func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) (*cnpgv1.Cluster, error) {
-	cluster := MinimalCNPGCluster(postgres, clusterName, namespace)
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) (*cnpgv1.Cluster, error) {
+	cluster := MinimalCluster(postgres, clusterName, namespace)
 
 	instances := cnpgDefaultInstances
 	minSyncReplicas := 0
@@ -74,7 +75,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		return nil, fmt.Errorf("invalid major version %q: %w", postgres.Spec.Cluster.MajorVersion, err)
 	}
 
-	diskSize, err := enforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.CNPG.StorageClass)
+	diskSize, err := resourcecreator.EnforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.CNPG.StorageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 		},
 
 		PostgresConfiguration: cnpgv1.PostgresConfiguration{
-			Parameters: makeCNPGPostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
+			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
 		},
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
@@ -122,7 +123,7 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 			Limits: corev1.ResourceList{
 				corev1.ResourceMemory: func() resource.Quantity {
 					mem := postgres.Spec.Cluster.Resources.Memory.DeepCopy()
-					mem.Mul(memoryLimitFactor)
+					mem.Mul(resourcecreator.MemoryLimitFactor)
 					return mem
 				}(),
 			},
@@ -163,8 +164,8 @@ func CreateCNPGClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 	return cluster, nil
 }
 
-func CreateCNPGScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.ScheduledBackup {
-	objectMeta := CreateObjectMeta(postgres)
+func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.ScheduledBackup {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = clusterName
 	objectMeta.Namespace = namespace
 
@@ -192,8 +193,8 @@ func CreateCNPGScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.C
 	return backup
 }
 
-func MinimalCNPGScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.ScheduledBackup {
-	objectMeta := CreateObjectMeta(postgres)
+func MinimalScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.ScheduledBackup {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = clusterName
 	objectMeta.Namespace = namespace
 
@@ -206,8 +207,8 @@ func MinimalCNPGScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName,
 	}
 }
 
-func CreateCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
-	objectMeta := CreateObjectMeta(postgres)
+func CreatePooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("%s-pooler", clusterName)
 	objectMeta.Namespace = namespace
 
@@ -277,8 +278,8 @@ func CreateCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace
 	}
 }
 
-func MinimalCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
-	objectMeta := CreateObjectMeta(postgres)
+func MinimalPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
+	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = fmt.Sprintf("%s-pooler", clusterName)
 	objectMeta.Namespace = namespace
 
@@ -291,7 +292,7 @@ func MinimalCNPGPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespac
 	}
 }
 
-func makeCNPGPostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resource.Quantity) map[string]string {
+func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resource.Quantity) map[string]string {
 	memBytes := memory.Value()
 
 	// PostgreSQL tuning parameters based on available memory

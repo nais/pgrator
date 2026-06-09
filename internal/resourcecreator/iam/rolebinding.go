@@ -1,4 +1,4 @@
-package resourcecreator
+package iam
 
 import (
 	v1 "k8s.io/api/rbac/v1"
