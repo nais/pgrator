@@ -182,6 +182,10 @@ var _ = BeforeSuite(func() {
 		testEnv.BinaryAssetsDirectory = envTestBinaryDir
 	}
 
+	// Explicitly set advertise-address to avoid reading /proc/net/route, which
+	// may be restricted in some sandbox environments.
+	testEnv.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
+
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
