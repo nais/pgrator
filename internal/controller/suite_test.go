@@ -94,13 +94,42 @@ func TestControllers(t *testing.T) {
 	valkeyTestDataDir := filepath.Join(testDataDir, "valkey")
 	opensearchTestDataDir := filepath.Join(testDataDir, "opensearch")
 
-	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir)
+	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir,
+		postgresReconcilerConfig,
+		func(cfg config.Config) { *postgresReconciler.Config = cfg },
+	)
 	postgresGolden.DefineTests()
 
-	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir)
+	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir,
+		config.Config{
+			Aiven: config.Aiven{
+				Project:                      "test-project",
+				ProjectVPCID:                 "test-vpc-id",
+				MetricsDestinationEndpointID: "test-metrics-service",
+			},
+			Tenant: config.Tenant{Name: "test-tenant"},
+		},
+		func(cfg config.Config) {
+			valkeyReconciler.Aiven = cfg.Aiven
+			valkeyReconciler.Tenant = cfg.Tenant
+		},
+	)
 	valkeyGolden.DefineTests()
 
-	opensearchGolden = golden.NewGolden(t, opensearchReconciler, opensearchTestDataDir)
+	opensearchGolden = golden.NewGolden(t, opensearchReconciler, opensearchTestDataDir,
+		config.Config{
+			Aiven: config.Aiven{
+				Project:                      "test-project",
+				ProjectVPCID:                 "test-vpc-id",
+				MetricsDestinationEndpointID: "test-metrics-service",
+			},
+			Tenant: config.Tenant{Name: "test-tenant"},
+		},
+		func(cfg config.Config) {
+			opensearchReconciler.Aiven = cfg.Aiven
+			opensearchReconciler.Tenant = cfg.Tenant
+		},
+	)
 	opensearchGolden.DefineTests()
 
 	RunSpecs(t, "Controller Suite")

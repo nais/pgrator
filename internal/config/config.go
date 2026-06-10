@@ -10,44 +10,44 @@ import (
 )
 
 type Config struct {
-	MetricsCertPath string `env:"METRICS_CERT_PATH"`
+	MetricsCertPath string `env:"METRICS_CERT_PATH" yaml:"metricsCertPath"`
 
-	GoogleProjectID string `env:"GOOGLE_PROJECT_ID"`
+	GoogleProjectID string `env:"GOOGLE_PROJECT_ID" yaml:"googleProjectID"`
 
-	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS"`
-	PostgresImage        string `env:"POSTGRES_IMAGE"`
+	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS" yaml:"postgresStorageClass"`
+	PostgresImage        string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
 
-	DryRun                  bool   `env:"DRY_RUN"`
-	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED"`
-	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED"`
-	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS"`
-	WalGsBucket             string `env:"WAL_GS_BUCKET"`
+	DryRun                  bool   `env:"DRY_RUN" yaml:"dryRun"`
+	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
+	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
+	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
+	WalGsBucket             string `env:"WAL_GS_BUCKET" yaml:"walGsBucket"`
 
-	Aiven  Aiven
-	Tenant Tenant
-	CNPG   CNPG
+	Aiven  Aiven  `yaml:"aiven"`
+	Tenant Tenant `yaml:"tenant"`
+	CNPG   CNPG   `yaml:"cnpg"`
 }
 
 type Aiven struct {
-	Project                      string `env:"AIVEN_PROJECT, required"`
-	ProjectVPCID                 string `env:"AIVEN_PROJECT_VPC_ID, required"`
-	MetricsDestinationEndpointID string `env:"AIVEN_METRICS_DESTINATION_ENDPOINT_ID, required"`
+	Project                      string `env:"AIVEN_PROJECT, required" yaml:"project"`
+	ProjectVPCID                 string `env:"AIVEN_PROJECT_VPC_ID, required" yaml:"projectVPCID"`
+	MetricsDestinationEndpointID string `env:"AIVEN_METRICS_DESTINATION_ENDPOINT_ID, required" yaml:"metricsDestinationEndpointID"`
 }
 
 type Tenant struct {
-	Name string `env:"TENANT_NAME, required"`
+	Name string `env:"TENANT_NAME, required" yaml:"name"`
 	// TODO: GoogleProjectID should be in here as well
 }
 
 type CNPG struct {
 	// ImageCatalogName is the name of the ClusterImageCatalog for CNPG version selection.
-	ImageCatalogName string `env:"CNPG_IMAGE_CATALOG_NAME, default=postgresql"`
+	ImageCatalogName string `env:"CNPG_IMAGE_CATALOG_NAME, default=postgresql" yaml:"imageCatalogName"`
 	// StorageClass is the storage class for CNPG persistent volumes.
-	StorageClass string `env:"CNPG_STORAGE_CLASS"`
+	StorageClass string `env:"CNPG_STORAGE_CLASS" yaml:"storageClass"`
 	// BackupBucket is the GCS bucket for barman-cloud backups.
-	BackupBucket string `env:"CNPG_BACKUP_BUCKET"`
+	BackupBucket string `env:"CNPG_BACKUP_BUCKET" yaml:"backupBucket"`
 	// BarmanPluginName is the name of the barman-cloud CNPG plugin.
-	BarmanPluginName string `env:"CNPG_BARMAN_PLUGIN_NAME, default=barman-cloud.cloudnative-pg.io"`
+	BarmanPluginName string `env:"CNPG_BARMAN_PLUGIN_NAME, default=barman-cloud.cloudnative-pg.io" yaml:"barmanPluginName"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

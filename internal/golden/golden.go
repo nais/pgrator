@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	"github.com/nais/pgrator/pkg/api"
@@ -22,6 +23,9 @@ import (
 type Golden[T api.NaisObject, P any] struct {
 	reconciler reconciler.Reconciler[T, P]
 	testCases  []*TestData[T, P]
+	defaultCfg config.Config
+	applyCfg   func(config.Config)
+	configs    map[string]config.Config // keyed by test case Name
 }
 
 type compareKey struct {
@@ -34,13 +38,16 @@ type compareKey struct {
 func NewGolden[T interface {
 	api.NaisObject
 	*O
-}, P any, O any](t *testing.T, r reconciler.Reconciler[T, P], testDataDir string) *Golden[T, P] {
+}, P any, O any](t *testing.T, r reconciler.Reconciler[T, P], testDataDir string,
+	defaultCfg config.Config, applyCfg func(config.Config),
+) *Golden[T, P] {
 	gomega := NewGomegaWithT(t)
 
 	files, err := os.ReadDir(testDataDir)
 	gomega.Expect(err).NotTo(HaveOccurred())
 
 	testCases := make([]*TestData[T, P], 0, len(files))
+	configs := make(map[string]config.Config)
 	for _, file := range files {
 		if !file.IsDir() || strings.Contains(file.Name(), "external-crds") {
 			continue
@@ -66,6 +73,21 @@ func NewGolden[T interface {
 			gomega.Expect(err).NotTo(HaveOccurred())
 		}
 
+		configPath := filepath.Join(path, "config.yaml")
+		configData, configErr := readFile(configPath)
+		if configErr == nil {
+			// File exists: copy default and unmarshal on top (absent fields keep defaults)
+			// Value copy is safe as long as config structs contain only value types (no pointers, slices, or maps).
+			cfg := defaultCfg
+			err = yaml.UnmarshalStrict(configData, &cfg)
+			gomega.Expect(err).NotTo(HaveOccurred())
+			configs[name] = cfg
+		} else if os.IsNotExist(configErr) {
+			configs[name] = defaultCfg
+		} else {
+			gomega.Expect(configErr).NotTo(HaveOccurred())
+		}
+
 		err = testData.loadExpectedData(path)
 		gomega.Expect(err).NotTo(HaveOccurred())
 
@@ -75,6 +97,9 @@ func NewGolden[T interface {
 	return &Golden[T, P]{
 		reconciler: r,
 		testCases:  testCases,
+		defaultCfg: defaultCfg,
+		applyCfg:   applyCfg,
+		configs:    configs,
 	}
 }
 
@@ -91,6 +116,7 @@ func (g *Golden[T, P]) DefineTests() {
 				var compareActions map[compareKey]action.Action
 
 				BeforeAll(func() {
+					g.applyCfg(g.configs[testCase.Name])
 					actions, _, err := g.reconciler.Update(testCase.Object, testCase.PreparedData, testCase.RelatedObjects)
 					Expect(err).NotTo(HaveOccurred())
 
