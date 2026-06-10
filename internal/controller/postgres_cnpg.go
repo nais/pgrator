@@ -4,15 +4,19 @@ import (
 	"fmt"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/nais/pgrator/internal/namegen"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/monitoring"
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -24,6 +28,11 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	var actions []action.Action
+
+	ksaName, err := namegen.ShortName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("unable to shorten name: %w", err)
+	}
 
 	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
 	if err != nil {
@@ -53,7 +62,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	actions = append(actions, action.CreateOrUpdate(cnpgNetpol, obj, existsConditionGetter, r.Recorder))
 
 	// TODO: Set up IAM
-	iamActions, err := r.cnpgIAMActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
+	iamActions, err := r.cnpgIAMActions(obj, ksaName, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -112,9 +121,44 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 }
 
 // cnpgIAMActions returns the IAM actions used by CNPG
-func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
+func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaName string, _preparedData PreparedData, pgNamespace, _backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
 	// TODO: Implement IAM
-	return nil, nil
+	// TODO: Create Bucket user bindingpolicything
+	var actions []action.Action
+
+	iamServiceAccountName, err := namegen.ShortName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	if err != nil {
+		return nil, fmt.Errorf("unable to shorten name: %w", err)
+	}
+
+	gsa := rciam.CreateIAMServiceAccount(iamServiceAccountName, pgNamespace)
+	existingGsa := relatedObjects.GetMatching(gsa)
+	if existingGsa != nil {
+		actions = append(actions, action.Update(gsa, obj, iamConditionGetter, r.Recorder))
+	} else {
+		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
+	}
+
+	workloadIdentityPolicyName, err := namegen.ShortName(fmt.Sprintf("cnpg-wi-user-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	if err != nil {
+		return nil, fmt.Errorf("unable to shorten name: %w", err)
+	}
+
+	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, iamServiceAccountName, ksaName)
+	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
+	if existingWorkloadIdentityPolicy == nil {
+		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
+		}
+	} else {
+		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	return actions, nil
 }
 
 func cnpgClusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
