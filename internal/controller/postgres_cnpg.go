@@ -11,7 +11,7 @@ import (
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
+	"github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"

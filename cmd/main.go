@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/sethvargo/go-envconfig"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
@@ -26,7 +27,6 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
 	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
