@@ -11,7 +11,7 @@ import (
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
-	"github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,9 +30,8 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	var actions []action.Action
 
 	ksaName := namegen.MustShortenName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-
-
 	gsaName := namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+
 	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
 
 	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
@@ -46,8 +45,8 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		actions = append(actions, action.Create(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
 	}
 
-	if r.Config.CNPG.BackupBucket != "" {
-		backup := rccnpg.CreateScheduledBackup(obj, r.Config, pgClusterName, pgNamespace)
+	if storageBucketName != "" {
+		backup := rccnpg.CreateScheduledBackup(obj, pgClusterName, pgNamespace)
 		actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
 	}
 
@@ -62,8 +61,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cnpgNetpol := rcnetpol.CreateCNPG(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(cnpgNetpol, obj, existsConditionGetter, r.Recorder))
 
-	// TODO: Set up IAM
-	iamActions, err := r.cnpgIAMActions(obj, ksaName, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, relatedObjects)
+	iamActions, err := r.cnpgIAMActions(obj, ksaName, preparedData, pgNamespace, storageBucketName, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -80,6 +78,14 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	return actions, ctrl.Result{}, nil
 }
 
+func (r *PostgresReconciler) makeStorageBucketName(obj *data_nais_io_v1.Postgres, pgClusterName string) string {
+	storageBucketName := ""
+	if r.Config.CNPG.WalBucketPrefix != "" {
+		storageBucketName = namegen.MustShortenName(fmt.Sprintf("%s-%s-%s", r.Config.CNPG.WalBucketPrefix, obj.GetNamespace(), pgClusterName), validation.DNS1035LabelMaxLength)
+	}
+	return storageBucketName
+}
+
 func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedData PreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actionFunc := action.DeleteIfExists
 	sharedActionFunc := action.Unclaim
@@ -92,6 +98,8 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
+
+	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
 
 	actions := make([]action.Action, 0, 4)
 
@@ -107,7 +115,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cnpgNetpol := rcnetpol.Minimal(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(cnpgNetpol, obj, existsConditionGetter, r.Recorder))
 
-	iamActions := r.deleteIAMActions(obj, preparedData, pgNamespace, r.Config.CNPG.BackupBucket, sharedActionFunc, relatedObjects)
+	iamActions := r.deleteIAMActions(obj, preparedData, pgNamespace, storageBucketName, sharedActionFunc, relatedObjects)
 	actions = append(actions, iamActions...)
 
 	if !r.Config.PrometheusRulesDisabled {
@@ -122,9 +130,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 }
 
 // cnpgIAMActions returns the IAM actions used by CNPG
-func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaName string, _preparedData PreparedData, pgNamespace, _backupBucket string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
-	// TODO: Implement IAM
-	// TODO: Create Bucket user bindingpolicything
+func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaName string, preparedData PreparedData, pgNamespace, storageBucketName string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
 	var actions []action.Action
 
 	iamServiceAccountName := namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
@@ -151,6 +157,22 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 		}
 	} else {
 		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+	}
+
+	storageBucketPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+
+	storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, iamServiceAccountName, storageBucketName)
+	existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+	if existingStorageBucketPolicy == nil {
+		actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+	} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		} else {
+			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
+		}
+	} else {
+		actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	return actions, nil

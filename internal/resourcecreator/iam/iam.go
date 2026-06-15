@@ -3,7 +3,7 @@ package iam
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
