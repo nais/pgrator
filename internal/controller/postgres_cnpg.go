@@ -29,12 +29,13 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	var actions []action.Action
 
-	ksaName, err := namegen.ShortName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("unable to shorten name: %w", err)
-	}
+	ksaName := namegen.MustShortenName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
-	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace)
+
+	gsaName := namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
+
+	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -126,10 +127,7 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 	// TODO: Create Bucket user bindingpolicything
 	var actions []action.Action
 
-	iamServiceAccountName, err := namegen.ShortName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-	if err != nil {
-		return nil, fmt.Errorf("unable to shorten name: %w", err)
-	}
+	iamServiceAccountName := namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
 	gsa := rciam.CreateIAMServiceAccount(iamServiceAccountName, pgNamespace)
 	existingGsa := relatedObjects.GetMatching(gsa)
@@ -139,10 +137,7 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
 	}
 
-	workloadIdentityPolicyName, err := namegen.ShortName(fmt.Sprintf("cnpg-wi-user-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-	if err != nil {
-		return nil, fmt.Errorf("unable to shorten name: %w", err)
-	}
+	workloadIdentityPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wi-user-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
 	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, iamServiceAccountName, ksaName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
