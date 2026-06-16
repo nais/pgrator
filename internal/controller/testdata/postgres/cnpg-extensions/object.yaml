@@ -1,0 +1,18 @@
+---
+apiVersion: data.nais.io/v1
+kind: Postgres
+metadata:
+  name: test-db
+  namespace: my-team
+  annotations:
+    postgres.nais.io/engine: cnpg
+spec:
+  cluster:
+    majorVersion: "18"
+    resources:
+      diskSize: 10Gi
+      memory: 1Gi
+      cpu: 500m
+  database:
+    extensions:
+      - name: postgis

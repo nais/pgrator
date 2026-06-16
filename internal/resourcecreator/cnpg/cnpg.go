@@ -85,6 +85,11 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 		storageClass = ptr.To(cfg.CNPG.StorageClass)
 	}
 
+	var postgresExtensions []cnpgv1.ExtensionConfiguration
+	if postgres.Spec.Database != nil {
+		postgresExtensions = makePostgresExtensions(postgres.Spec.Database.Extensions)
+	}
+
 	cluster.Spec = cnpgv1.ClusterSpec{
 		Instances:       instances,
 		MinSyncReplicas: minSyncReplicas,
@@ -101,6 +106,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 
 		PostgresConfiguration: cnpgv1.PostgresConfiguration{
 			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
+			Extensions: postgresExtensions,
 		},
 
 		Bootstrap: &cnpgv1.BootstrapConfiguration{
@@ -162,6 +168,16 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 	}
 
 	return cluster, nil
+}
+
+func makePostgresExtensions(extensions []data_nais_io_v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
+	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
+	for _, extension := range extensions {
+		res = append(res, cnpgv1.ExtensionConfiguration{
+			Name: extension.Name,
+		})
+	}
+	return res
 }
 
 func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.ScheduledBackup {
