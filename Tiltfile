@@ -20,7 +20,7 @@ CONTEXT_NAME = DEV_CLUSTER_ENGINE + "-pgrator"
 # Settings
 # ---------------------------------------------------------------------------
 allow_k8s_contexts(CONTEXT_NAME)
-update_settings(k8s_upsert_timeout_secs=300)
+update_settings(k8s_upsert_timeout_secs=120)
 
 # ---------------------------------------------------------------------------
 # 1. Build operator image
@@ -65,7 +65,7 @@ helm_resource(
         "--set=crds.enabled=true",
         "--timeout=120s",
     ],
-    resource_deps=["external-crds", "jetstack"],
+    resource_deps=["jetstack"],
     labels=["infra"],
 )
 
@@ -78,7 +78,7 @@ helm_resource(
     "prometheus-crds",
     "prometheus-community/prometheus-operator-crds",
     pod_readiness="ignore",
-    resource_deps=["external-crds", "prometheus-community"],
+    resource_deps=["prometheus-community"],
     labels=["infra"],
 )
 
