@@ -12,22 +12,10 @@ values:
     displayName: Image tag
     config:
       type: string
-  postgresStorageClass:
-    description: Storage class for Zalando Postgres ("standard-rwo" (default) or "premium-rwo")
-    config:
-      type: string
-  cloudnativeStorageClass:
-    description: Storage class for Cloudnative-PG ("hyperdisk-balanced" (default) or "hyperdisk-premium")
-    config:
-      type: string
   google.projectId:
     displayName: Google project ID
     computed:
       template: '"{{.Env.project_id}}"'
-  walGsBucket:
-    displayName: WAL GCS bucket name
-    computed:
-      template: '"{{.Env.postgres_backup_bucket_name}}"'
   resyncIAMPermissions:
     displayName: Resync IAM permissions
     description: Enable resyncing of IAM permissions by recreating IAMPolicyMember resources
@@ -45,3 +33,18 @@ values:
     displayName: Aiven metrics destination endpoint ID
     computed:
       template: '{{(splitList "/" .Env.aiven_prometheus_endpoint_id | last) | quote}}'
+  # CNPG settings
+  cnpg.walBucketPrefix:
+    displayName: Prefix to use for WAL storage buckets
+    computes:
+      # Max length 27 characters, to allow for 36 character uid for a total of 63 characters
+      template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}-'
+  # Zalando settings
+  postgresStorageClass:
+    description: Storage class for Zalando Postgres ("standard-rwo" (default) or "premium-rwo")
+    config:
+      type: string
+  walGsBucket:
+    displayName: WAL GCS bucket name
+    computed:
+      template: '"{{.Env.postgres_backup_bucket_name}}"'
