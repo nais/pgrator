@@ -17,6 +17,7 @@ const (
 	clusterName         = "my-db"
 	namespace           = "my-team"
 	walBucketPrefix     = "my-backup-bucket"
+	ksaName             = "ksa-name"
 	gsaName             = "gsa-name"
 	teamGoogleProjectID = "team-google-project-id"
 	storageBucketName   = "storage-bucket-name"
@@ -58,7 +59,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 	Describe("CreateClusterSpec", func() {
 		It("should create a valid cluster with default settings", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cluster).NotTo(BeNil())
 
@@ -71,7 +72,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should set HA instances when HighAvailability is true", func() {
 			postgres.Spec.Cluster.HighAvailability = true
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Instances).To(Equal(3))
@@ -80,7 +81,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should use ImageCatalogRef with correct major version", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.ImageCatalogRef).NotTo(BeNil())
@@ -91,13 +92,13 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should return error for invalid major version", func() {
 			postgres.Spec.Cluster.MajorVersion = "invalid"
-			_, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			_, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid major version"))
 		})
 
 		It("should set storage class when configured", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.StorageClass).NotTo(BeNil())
@@ -106,26 +107,26 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should leave storage class nil when not configured", func() {
 			cfg.CNPG.StorageClass = ""
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.StorageClass).To(BeNil())
 		})
 
 		It("should set ServiceAccountTemplate with google service account annotation", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.ServiceAccountName).To(BeEmpty())
 			Expect(cluster.Spec.ServiceAccountTemplate).NotTo(BeNil())
-			Expect(cluster.Spec.ServiceAccountTemplate.Metadata.Name).To(Equal(clusterName))
+			Expect(cluster.Spec.ServiceAccountTemplate.Metadata.Name).To(Equal(ksaName))
 			Expect(cluster.Spec.ServiceAccountTemplate.Metadata.Annotations["iam.gke.io/gcp-service-account"]).To(ContainSubstring(gsaName))
 			Expect(cluster.Spec.ServiceAccountTemplate.Metadata.Annotations["iam.gke.io/gcp-service-account"]).To(ContainSubstring(teamGoogleProjectID))
 			Expect(cluster.Spec.ServiceAccountTemplate.Metadata.Annotations["iam.gke.io/gcp-service-account"]).To(HaveSuffix("iam.gserviceaccount.com"))
 		})
 
 		It("should configure barman-cloud plugin when bucketname is given", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Plugins).To(HaveLen(1))
@@ -134,7 +135,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should not configure plugins when bucketname is empty", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, "")
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Plugins).To(BeEmpty())
@@ -144,7 +145,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 			postgres.Spec.Database = &data_nais_io_v1.PostgresDatabase{
 				Collation: "nb_NO",
 			}
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Bootstrap.InitDB.LocaleCollate).To(BeEmpty())
@@ -153,14 +154,14 @@ var _ = Describe("CNPG Resource Creator", func() {
 
 		It("should enforce minimum 4Gi disk for hyperdisk-balanced", func() {
 			postgres.Spec.Cluster.Resources.DiskSize = resource.MustParse("500Mi")
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.StorageConfiguration.Size).To(Equal("4Gi"))
 		})
 
 		It("should disable superuser access", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.EnableSuperuserAccess).NotTo(BeNil())
@@ -168,7 +169,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should set node affinity for postgres nodes", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(cluster.Spec.Affinity.NodeSelector).To(HaveKeyWithValue("cloud.google.com/compute-class", "n4-machines"))
@@ -176,7 +177,7 @@ var _ = Describe("CNPG Resource Creator", func() {
 		})
 
 		It("should set memory limit to 4x request", func() {
-			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName)
+			cluster, err := CreateClusterSpec(postgres, cfg, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName)
 			Expect(err).NotTo(HaveOccurred())
 
 			memLimit := cluster.Spec.Resources.Limits.Memory()

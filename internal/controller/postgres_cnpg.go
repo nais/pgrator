@@ -34,7 +34,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
 
-	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
+	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, ksaName, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -61,7 +61,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cnpgNetpol := rcnetpol.CreateCNPG(obj, pgClusterName, pgNamespace)
 	actions = append(actions, action.CreateOrUpdate(cnpgNetpol, obj, existsConditionGetter, r.Recorder))
 
-	iamActions, err := r.cnpgIAMActions(obj, ksaName, preparedData, pgNamespace, storageBucketName, relatedObjects)
+	iamActions, err := r.cnpgIAMActions(obj, ksaName, gsaName, preparedData, pgNamespace, storageBucketName, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -130,12 +130,10 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 }
 
 // cnpgIAMActions returns the IAM actions used by CNPG
-func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaName string, preparedData PreparedData, pgNamespace, storageBucketName string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
+func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaName, gsaName string, preparedData PreparedData, pgNamespace, storageBucketName string, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
 	var actions []action.Action
 
-	iamServiceAccountName := namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-
-	gsa := rciam.CreateIAMServiceAccount(iamServiceAccountName, pgNamespace)
+	gsa := rciam.CreateIAMServiceAccount(gsaName, pgNamespace)
 	existingGsa := relatedObjects.GetMatching(gsa)
 	if existingGsa != nil {
 		actions = append(actions, action.Update(gsa, obj, iamConditionGetter, r.Recorder))
@@ -145,7 +143,7 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 
 	workloadIdentityPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wi-user-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
-	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, iamServiceAccountName, ksaName)
+	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, gsaName, ksaName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy == nil {
 		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
@@ -161,7 +159,7 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 
 	storageBucketPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
-	storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, iamServiceAccountName, storageBucketName)
+	storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
 	existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 	if existingStorageBucketPolicy == nil {
 		actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))

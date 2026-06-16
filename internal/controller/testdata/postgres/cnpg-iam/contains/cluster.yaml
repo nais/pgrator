@@ -22,6 +22,6 @@ object:
       storageClass: hyperdisk-balanced
     serviceAccountTemplate:
       metadata:
-        name: test-db
+        name: cnpg-sa-test-db-d47cad9d
         annotations:
           iam.gke.io/gcp-service-account: "cnpg-test-db-020a67ba@test-gcp-project.iam.gserviceaccount.com"

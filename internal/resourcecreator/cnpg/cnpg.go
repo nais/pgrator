@@ -55,7 +55,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace s
 	}
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName string) (*cnpgv1.Cluster, error) {
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName string) (*cnpgv1.Cluster, error) {
 	cluster := MinimalCluster(postgres, clusterName, namespace)
 
 	instances := cnpgDefaultInstances
@@ -145,7 +145,7 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 
 		ServiceAccountTemplate: &cnpgv1.ServiceAccountTemplate{
 			Metadata: cnpgv1.Metadata{
-				Name: clusterName,
+				Name: ksaName,
 				Annotations: map[string]string{
 					"iam.gke.io/gcp-service-account": fmt.Sprintf("%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
 				},
