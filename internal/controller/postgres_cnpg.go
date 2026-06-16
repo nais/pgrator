@@ -157,20 +157,22 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
-	storageBucketPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	if storageBucketName != "" {
+		storageBucketPolicyName := namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 
-	storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
-	existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
-	if existingStorageBucketPolicy == nil {
-		actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
-	} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
-		if r.Config.ResyncIAMPermissions {
-			actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
+		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
+		if existingStorageBucketPolicy == nil {
+			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
+			if r.Config.ResyncIAMPermissions {
+				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			} else {
+				return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
+			}
 		} else {
-			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
+			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 		}
-	} else {
-		actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
 	}
 
 	return actions, nil
