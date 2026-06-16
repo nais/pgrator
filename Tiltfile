@@ -62,7 +62,6 @@ helm_resource(
     flags=[
         "--create-namespace",
         "--set=crds.enabled=true",
-        "--wait",
         "--timeout=120s",
     ],
     resource_deps=["external-crds", "jetstack"],
