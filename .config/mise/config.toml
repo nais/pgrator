@@ -26,3 +26,10 @@ go = """
 helm = "latest"
 yq = "4.50.1"
 ctlptl = "latest"
+
+[tasks."generate:external-crds"]
+description = "Generate external CRDs"
+run = [
+    {"task"="generate:cnrm-crds"},
+    {"task"="generate:other-crds"},
+]

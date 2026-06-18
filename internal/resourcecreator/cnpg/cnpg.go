@@ -16,15 +16,11 @@ import (
 )
 
 const (
-	cnpgDefaultInstances = 2
-	cnpgHAInstances      = 3
-
+	cnpgDefaultInstances       = 2
+	cnpgHAInstances            = 3
 	cnpgDefaultPoolerInstances = int32(2)
-
-	cnpgDatabaseName = "app"
-	cnpgDatabaseUser = "app"
-
-	cnpgKSAName = "postgres-pod"
+	cnpgDatabaseName           = "app"
+	cnpgDatabaseUser           = "app"
 
 	// PostgreSQL memory tuning ratios
 	sharedBuffersFraction      = 4                      // 1/4 of memory (25%)
@@ -33,7 +29,8 @@ const (
 	maintenanceWorkMemFraction = 8                      // 1/8 of memory (12.5%)
 	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024 // 2GB cap
 
-	computeClass = "n4-machines"
+	computeClass     = "n4-machines"
+	barmanPluginName = "barman-cloud.cloudnative-pg.io"
 )
 
 var dedicatedPostgresToleration = corev1.Toleration{
@@ -58,7 +55,7 @@ func MinimalCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace s
 	}
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) (*cnpgv1.Cluster, error) {
+func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, ksaName, gsaName, teamGoogleProjectID, storageBucketName string) (*cnpgv1.Cluster, error) {
 	cluster := MinimalCluster(postgres, clusterName, namespace)
 
 	instances := cnpgDefaultInstances
@@ -146,22 +143,27 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 			},
 		},
 
-		// Reuse the existing KSA created by the IAM actions, which already has
-		// workload identity bindings to the correct GCP service account.
-		ServiceAccountName: cnpgKSAName,
+		ServiceAccountTemplate: &cnpgv1.ServiceAccountTemplate{
+			Metadata: cnpgv1.Metadata{
+				Name: ksaName,
+				Annotations: map[string]string{
+					"iam.gke.io/gcp-service-account": fmt.Sprintf("%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
+				},
+			},
+		},
 
 		EnableSuperuserAccess: ptr.To(false),
 	}
 
 	// Configure barman-cloud plugin for WAL archiving and backups
-	if cfg.CNPG.BackupBucket != "" {
+	if storageBucketName != "" {
 		cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
 			{
-				Name:          cfg.CNPG.BarmanPluginName,
+				Name:          barmanPluginName,
 				Enabled:       ptr.To(true),
 				IsWALArchiver: ptr.To(true),
 				Parameters: map[string]string{
-					"barmanObjectName": clusterName,
+					"barmanObjectName": storageBucketName,
 				},
 			},
 		}
@@ -180,7 +182,7 @@ func makePostgresExtensions(extensions []data_nais_io_v1.PostgresExtension) []cn
 	return res
 }
 
-func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace string) *cnpgv1.ScheduledBackup {
+func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.ScheduledBackup {
 	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = clusterName
 	objectMeta.Namespace = namespace
@@ -201,7 +203,7 @@ func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, cfg *config.Confi
 			Target:               cnpgv1.BackupTargetStandby,
 			Method:               cnpgv1.BackupMethodPlugin,
 			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
-				Name: cfg.CNPG.BarmanPluginName,
+				Name: barmanPluginName,
 			},
 		},
 	}

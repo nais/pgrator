@@ -14,7 +14,7 @@ import (
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/v1beta1"
+	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
@@ -59,8 +59,7 @@ func TestControllers(t *testing.T) {
 		CNPG: config.CNPG{
 			ImageCatalogName: "postgresql",
 			StorageClass:     "hyperdisk-balanced",
-			BackupBucket:     "test-cnpg-backup-bucket",
-			BarmanPluginName: "barman-cloud.cloudnative-pg.io",
+			WalBucketPrefix:  "test-cnpg-backup-bucket",
 		},
 	}
 	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
@@ -181,6 +180,10 @@ var _ = BeforeSuite(func() {
 	if envTestBinaryDir != "" {
 		testEnv.BinaryAssetsDirectory = envTestBinaryDir
 	}
+
+	// Explicitly set advertise-address to avoid reading /proc/net/route, which
+	// may be restricted in some sandbox environments.
+	testEnv.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
 
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()

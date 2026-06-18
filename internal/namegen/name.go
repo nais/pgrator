@@ -25,6 +25,14 @@ func ShortName(basename string, maxlen int) (string, error) {
 	return formatName(basename, hashStr, maxlen), nil
 }
 
+func MustShortenName(basename string, maxlen int) string {
+	res, err := ShortName(basename, maxlen)
+	if err != nil {
+		panic(fmt.Errorf("failed to shorten name: %w", err))
+	}
+	return res
+}
+
 func formatName(basename, suffix string, maxlen int) string {
 	if len(basename) > maxlen {
 		basename = basename[:maxlen]

@@ -52,15 +52,6 @@ spec:
               metadata:
                 name: mydb-pooler
                 namespace: cnpg-team
-    - name: Assert ServiceAccount created
-      try:
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: ServiceAccount
-              metadata:
-                name: postgres-pod
-                namespace: cnpg-team
     - name: Assert NetworkPolicy created
       try:
         - assert:
@@ -81,3 +72,23 @@ spec:
                 namespace: cnpg-team
               status:
                 engine: cnpg
+    - name: Assert IAMServiceAccount created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMServiceAccount
+              metadata:
+                name: cnpg-mydb-b60fcdec
+                namespace: cnpg-team
+    - name: Assert IAMPolicyMember workload identity created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMPolicyMember
+              metadata:
+                name: cnpg-wi-user-mydb-243afc71
+                namespace: cnpg-team
+              spec:
+                role: roles/iam.workloadIdentityUser

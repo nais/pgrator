@@ -521,7 +521,7 @@ spec:
                         MB. The value is the hard limit, the soft limit is 1/4 of the
                         hard limit. When setting the limit, be mindful of the available
                         memory in the selected service plan.
-                      maximum: 512
+                      maximum: 262144
                       minimum: 32
                       type: integer
                     valkey_ssl:
@@ -532,6 +532,11 @@ spec:
                       maximum: 2073600
                       minimum: 0
                       type: integer
+                    valkey_version:
+                      description: |-
+                        Available versions: `8.1`, `9.0`. Newer versions may also be available.
+                        Valkey major version
+                      type: string
                   type: object
               required:
                 - plan

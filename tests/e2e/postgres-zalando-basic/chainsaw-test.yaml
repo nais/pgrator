@@ -76,3 +76,45 @@ spec:
                 namespace: zalando-team
               status:
                 engine: zalando
+    - name: Assert IAMServiceAccount created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMServiceAccount
+              metadata:
+                name: postgres-pod
+                namespace: zalando-team
+    - name: Assert IAMPolicyMember workload identity created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMPolicyMember
+              metadata:
+                name: postgres-pod-wi-user
+                namespace: zalando-team
+              spec:
+                role: roles/iam.workloadIdentityUser
+    - name: Assert IAMPolicyMember storage bucket created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMPolicyMember
+              metadata:
+                name: pg-gcs-zalando-team-2db278ca
+                namespace: serviceaccounts
+              spec:
+                role: roles/storage.objectUser
+    - name: Assert IAMPolicyMember logs writer created
+      try:
+        - assert:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMPolicyMember
+              metadata:
+                name: postgres-pod-logs-writer
+                namespace: zalando-team
+              spec:
+                role: roles/logging.logWriter

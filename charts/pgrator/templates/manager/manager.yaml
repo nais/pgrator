@@ -63,13 +63,13 @@ spec:
             - name: CNPG_STORAGE_CLASS
               value: {{ .Values.cnpg.storageClass }}
             {{- end }}
-            {{- if .Values.cnpg.backupBucket }}
-            - name: CNPG_BACKUP_BUCKET
-              value: {{ .Values.cnpg.backupBucket }}
+            {{- if .Values.cnpg.walBucketPrefix }}
+            - name: CNPG_WAL_BUCKET_PREFIX
+              value: {{ .Values.cnpg.walBucketPrefix }}
             {{- end }}
-            {{- if .Values.cnpg.barmanPluginName }}
-            - name: CNPG_BARMAN_PLUGIN_NAME
-              value: {{ .Values.cnpg.barmanPluginName }}
+            {{- if .Values.cnpg.walBucketNamespace }}
+            - name: CNPG_WAL_BUCKET_NAMESPACE
+              value: {{ .Values.cnpg.walBucketNamespace }}
             {{- end }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}

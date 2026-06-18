@@ -44,10 +44,10 @@ type CNPG struct {
 	ImageCatalogName string `env:"CNPG_IMAGE_CATALOG_NAME, default=postgresql" yaml:"imageCatalogName"`
 	// StorageClass is the storage class for CNPG persistent volumes.
 	StorageClass string `env:"CNPG_STORAGE_CLASS" yaml:"storageClass"`
-	// BackupBucket is the GCS bucket for barman-cloud backups.
-	BackupBucket string `env:"CNPG_BACKUP_BUCKET" yaml:"backupBucket"`
-	// BarmanPluginName is the name of the barman-cloud CNPG plugin.
-	BarmanPluginName string `env:"CNPG_BARMAN_PLUGIN_NAME, default=barman-cloud.cloudnative-pg.io" yaml:"barmanPluginName"`
+	// WalBucketPrefix is the prefix used for GCS buckets for barman-cloud WAL storage.
+	WalBucketPrefix string `env:"CNPG_WAL_BUCKET_PREFIX" yaml:"walBucketPrefix"`
+	// WalBucketNamespace is the namespace for creating wal storage buckets
+	WalBucketNamespace string `env:"CNPG_WAL_BUCKET_NAMESPACE" yaml:"walBucketNamespace"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

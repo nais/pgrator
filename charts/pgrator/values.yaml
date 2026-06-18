@@ -6,8 +6,8 @@ google:
 cnpg:
   imageCatalogName: "cloudnative-image-catalog"
   storageClass: "hyperdisk-balanced"
-  backupBucket: ""
-  barmanPluginName: "barman-cloud.cloudnative-pg.io"
+  walBucketNamespace: "nais-cnpg-wal-storage"
+  walBucketPrefix: ""
 
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:

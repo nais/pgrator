@@ -1,0 +1,15 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: iam.cnrm.cloud.google.com/v1beta1
+  kind: IAMPolicyMember
+  metadata:
+    name: cnpg-wal-test-db-f59f0b8b
+    namespace: nais-cnpg-wal-storage
+  spec:
+    role: roles/storage.objectUser
+    member: serviceAccount:cnpg-test-db-020a67ba@test-gcp-project.iam.gserviceaccount.com
+    resourceRef:
+      kind: StorageBucket
+      external: wal-bucket-prefix-my-team-test-db-3195addb
