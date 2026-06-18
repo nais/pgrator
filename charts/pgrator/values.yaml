@@ -2,6 +2,7 @@ postgresStorageClass: ""
 walGsBucket: ""
 google:
   projectId: ""
+  location: "europe-north1"
 
 cnpg:
   imageCatalogName: "cloudnative-image-catalog"

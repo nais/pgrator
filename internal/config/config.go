@@ -26,6 +26,12 @@ type Config struct {
 	Aiven  Aiven  `yaml:"aiven"`
 	Tenant Tenant `yaml:"tenant"`
 	CNPG   CNPG   `yaml:"cnpg"`
+	Google Google `yaml:"google"`
+}
+
+type Google struct {
+	// TODO: GoogleProjectID should be in here as well
+	Location string `env:"GOOGLE_LOCATION" yaml:"location"`
 }
 
 type Aiven struct {
@@ -36,7 +42,6 @@ type Aiven struct {
 
 type Tenant struct {
 	Name string `env:"TENANT_NAME, required" yaml:"name"`
-	// TODO: GoogleProjectID should be in here as well
 }
 
 type CNPG struct {

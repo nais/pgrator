@@ -9,6 +9,7 @@ tool (
 
 require (
 	github.com/cloudnative-pg/cloudnative-pg v1.29.1
+	github.com/cloudnative-pg/plugin-barman-cloud v0.13.0
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/go-cmp v0.7.0
@@ -39,9 +40,9 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/braydonk/yaml v0.9.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudnative-pg/barman-cloud v0.5.1 // indirect
+	github.com/cloudnative-pg/barman-cloud v0.5.2-0.20260609065833-bd68198c31dc // indirect
 	github.com/cloudnative-pg/cnpg-i v0.5.0 // indirect
-	github.com/cloudnative-pg/machinery v0.4.0 // indirect
+	github.com/cloudnative-pg/machinery v0.5.0 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/cli v29.2.0+incompatible // indirect
@@ -93,7 +94,6 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/sethvargo/ratchet v0.11.4 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	github.com/stoewer/go-strcase v1.3.1 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/thoas/go-funk v0.9.3 // indirect
 	github.com/vbatts/tar-split v0.12.1 // indirect
@@ -108,7 +108,7 @@ require (
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

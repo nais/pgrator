@@ -9,6 +9,7 @@ import (
 	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/monitoring"
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
+	"github.com/nais/pgrator/internal/resourcecreator/storagebucket"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
@@ -46,6 +47,9 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	if r.walStorageEnabled() {
+		storageBucket := storagebucket.CreateStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace, r.Config.Google.Location)
+		actions = append(actions, action.CreateOrUpdate(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+
 		backup := rccnpg.CreateScheduledBackup(obj, pgClusterName, pgNamespace)
 		actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
 	}
@@ -120,6 +124,9 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cluster := rccnpg.MinimalCluster(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
 
+	storageBucket := storagebucket.Minimal(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace)
+	actions = append(actions, actionFunc(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+
 	backup := rccnpg.MinimalScheduledBackup(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(backup, obj, existsConditionGetter, r.Recorder))
 
@@ -150,9 +157,9 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 	gsa := rciam.CreateIAMServiceAccount(gsaName, pgNamespace)
 	existingGsa := relatedObjects.GetMatching(gsa)
 	if existingGsa != nil {
-		actions = append(actions, action.Update(gsa, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Update(gsa, obj, cnrmConditionsGetter, r.Recorder))
 	} else {
-		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Create(gsa, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	workloadIdentityPolicyName := makeWorkloadIdentityPolicyName(obj)
@@ -160,15 +167,15 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, gsaName, ksaName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy == nil {
-		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Create(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
-			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		} else {
 			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
 		}
 	} else {
-		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	if r.walStorageEnabled() {
@@ -177,15 +184,15 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
-			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Create(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 			if r.Config.ResyncIAMPermissions {
-				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+				actions = append(actions, action.Recreate(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 			} else {
 				return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
 			}
 		} else {
-			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Claim(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		}
 	}
 
@@ -209,18 +216,18 @@ func (r *PostgresReconciler) deleteCnpgIAMActions(obj *data_nais_io_v1.Postgres,
 
 	gsa := rciam.CreateIAMServiceAccount(gsaName, pgNamespace)
 	if existing := relatedObjects.GetMatching(gsa); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, gsaName, ksaName)
 	if existing := relatedObjects.GetMatching(workloadIdentityPolicy); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	if r.walStorageEnabled() {
 		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
 		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
-			actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 		}
 	}
 

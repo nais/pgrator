@@ -1,3 +1,5 @@
 cnpg:
   walBucketPrefix: wal-bucket-prefix
   walBucketNamespace: nais-cnpg-wal-storage
+google:
+  location: google-location

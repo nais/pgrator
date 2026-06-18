@@ -15,6 +15,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -152,6 +153,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
+		&storage_cnrm_cloud_google_com_v1beta1.StorageBucket{},
 		&core_v1.ServiceAccount{},
 		&rbacv1.RoleBinding{},
 	}
@@ -174,20 +176,22 @@ func (r *PostgresReconciler) Update(obj *data_nais_io_v1.Postgres, preparedData 
 	}
 }
 
-func iamConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
-	var iamConditions []meta_v1.Condition
+func cnrmConditionsGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
+	var cnrmConditions []meta_v1.Condition
 	switch o := obj.(type) {
 	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
-		iamConditions = o.Status.Conditions
+		cnrmConditions = o.Status.Conditions
 	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
-		iamConditions = o.Status.Conditions
+		cnrmConditions = o.Status.Conditions
+	case *storage_cnrm_cloud_google_com_v1beta1.StorageBucket:
+		cnrmConditions = o.Status.Conditions
 	default:
 		panic(fmt.Sprintf("unsupported type for groupkind: %s (%T)", typePrefix(obj, scheme), o))
 	}
 
 	var statusCondition meta_v1.Condition
-	if len(iamConditions) > 0 {
-		statusCondition = iamConditions[0]
+	if len(cnrmConditions) > 0 {
+		statusCondition = cnrmConditions[0]
 	} else {
 		statusCondition = meta_v1.Condition{
 			Status:  meta_v1.ConditionUnknown,

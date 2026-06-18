@@ -96,53 +96,53 @@ func (r *PostgresReconciler) zalandoIAMActions(obj *data_nais_io_v1.Postgres, pr
 	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	existingWorkloadIdentityPolicy := relatedObjects.GetMatching(workloadIdentityPolicy)
 	if existingWorkloadIdentityPolicy == nil {
-		actions = append(actions, action.Create(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Create(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	} else if iamPolicyHasChanges(workloadIdentityPolicy, existingWorkloadIdentityPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
-			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Recreate(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		} else {
 			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(workloadIdentityPolicy))
 		}
 	} else {
-		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Claim(workloadIdentityPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	if backupBucket != "" {
 		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
-			actions = append(actions, action.Create(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Create(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		} else if iamPolicyHasChanges(storageBucketPolicy, existingStorageBucketPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 			if r.Config.ResyncIAMPermissions {
-				actions = append(actions, action.Recreate(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+				actions = append(actions, action.Recreate(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 			} else {
 				return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(storageBucketPolicy))
 			}
 		} else {
-			actions = append(actions, action.Claim(storageBucketPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Claim(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		}
 	}
 
 	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	existingLogsWriterPolicy := relatedObjects.GetMatching(logsWriterPolicy)
 	if existingLogsWriterPolicy == nil {
-		actions = append(actions, action.Create(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Create(logsWriterPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	} else if iamPolicyHasChanges(logsWriterPolicy, existingLogsWriterPolicy.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
 		if r.Config.ResyncIAMPermissions {
-			actions = append(actions, action.Recreate(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, action.Recreate(logsWriterPolicy, obj, cnrmConditionsGetter, r.Recorder))
 		} else {
 			return nil, fmt.Errorf("want to change IAMPolicyMember %s, but configuration does not allow recreate", client.ObjectKeyFromObject(logsWriterPolicy))
 		}
 	} else {
-		actions = append(actions, action.Claim(logsWriterPolicy, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Claim(logsWriterPolicy, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	gsa := rciam.CreateIAMServiceAccount(GSAName, obj.GetNamespace())
 	existingGsa := relatedObjects.GetMatching(gsa)
 	if existingGsa != nil {
-		actions = append(actions, action.Claim(gsa, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Claim(gsa, obj, cnrmConditionsGetter, r.Recorder))
 	} else {
-		actions = append(actions, action.Create(gsa, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, action.Create(gsa, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
@@ -172,19 +172,19 @@ func (r *PostgresReconciler) deleteZalandoIAMActions(obj *data_nais_io_v1.Postgr
 
 	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
 	if existing := relatedObjects.GetMatching(workloadIdentityPolicy); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	if bucket != "" {
 		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
 		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
-			actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+			actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 		}
 	}
 
 	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
 	if existing := relatedObjects.GetMatching(logsWriterPolicy); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+		actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)

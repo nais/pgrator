@@ -119,7 +119,7 @@ helm_resource(
         "--set=aiven.metricsDestinationEndpointID=test-endpoint",
         "--set=fasit.tenant.name=test-tenant",
         "--set=walGsBucket=test-bucket",
-        "--set=cnpg.backupBucket=test-cnpg-bucket",
+        "--set=cnpg.walBucketPrefix=test-cnpg-bucket",
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
