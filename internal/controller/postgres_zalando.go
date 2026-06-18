@@ -76,7 +76,7 @@ func (r *PostgresReconciler) deleteZalando(obj *data_nais_io_v1.Postgres, prepar
 	zalandoNetpol := rcnetpol.Minimal(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(zalandoNetpol, obj, existsConditionGetter, r.Recorder))
 
-	iamActions := r.deleteIAMActions(obj, preparedData, pgNamespace, r.Config.WalGsBucket, sharedActionFunc, relatedObjects)
+	iamActions := r.deleteZalandoIAMActions(obj, preparedData, pgNamespace, r.Config.WalGsBucket, sharedActionFunc, relatedObjects)
 	actions = append(actions, iamActions...)
 
 	if !r.Config.PrometheusRulesDisabled {
@@ -162,6 +162,37 @@ func (r *PostgresReconciler) zalandoIAMActions(obj *data_nais_io_v1.Postgres, pr
 	}
 
 	return actions, nil
+}
+
+// deleteZalandoIAMActions returns actions to clean up shared IAM resources during deletion.
+func (r *PostgresReconciler) deleteZalandoIAMActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, bucket string, sharedActionFunc actionFunc, relatedObjects reconciler.RelatedObjects) []action.Action {
+	var actions []action.Action
+
+	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
+
+	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
+	if existing := relatedObjects.GetMatching(workloadIdentityPolicy); existing != nil {
+		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+	}
+
+	if bucket != "" {
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
+		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
+			actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+		}
+	}
+
+	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
+	if existing := relatedObjects.GetMatching(logsWriterPolicy); existing != nil {
+		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
+	}
+
+	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
+	if existing := relatedObjects.GetMatching(kubernetesSA); existing != nil {
+		actions = append(actions, sharedActionFunc(existing, obj, existsConditionGetter, r.Recorder))
+	}
+
+	return actions
 }
 
 func postgresqlConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {

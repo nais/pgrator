@@ -11,7 +11,6 @@ import (
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
-	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -236,37 +235,6 @@ func (r *PostgresReconciler) Delete(obj *data_nais_io_v1.Postgres, preparedData 
 }
 
 type actionFunc func(client.Object, api.NaisObject, action.ConditionGetter, events.Recorder) action.Action
-
-// deleteIAMActions returns actions to clean up shared IAM resources during deletion.
-func (r *PostgresReconciler) deleteIAMActions(obj *data_nais_io_v1.Postgres, preparedData PreparedData, pgNamespace, bucket string, sharedActionFunc actionFunc, relatedObjects reconciler.RelatedObjects) []action.Action {
-	var actions []action.Action
-
-	workloadIdentityPolicyName, storageBucketPolicyName, logsWriterPolicyName := IAMPolicyMemberNames(obj.GetNamespace())
-
-	workloadIdentityPolicy := rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyName, obj.GetNamespace(), pgNamespace, r.Config.GoogleProjectID, GSAName, KSAName)
-	if existing := relatedObjects.GetMatching(workloadIdentityPolicy); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
-	}
-
-	if bucket != "" {
-		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
-		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
-			actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
-		}
-	}
-
-	logsWriterPolicy := rciam.CreateLogsWriterPolicyMember(logsWriterPolicyName, obj.GetNamespace(), preparedData.TeamGoogleProjectID, GSAName)
-	if existing := relatedObjects.GetMatching(logsWriterPolicy); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, iamConditionGetter, r.Recorder))
-	}
-
-	kubernetesSA := rciam.CreateKubernetesServiceAccount(KSAName, pgNamespace, preparedData.TeamGoogleProjectID, GSAName)
-	if existing := relatedObjects.GetMatching(kubernetesSA); existing != nil {
-		actions = append(actions, sharedActionFunc(existing, obj, existsConditionGetter, r.Recorder))
-	}
-
-	return actions
-}
 
 func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres, engine string) (string, string, error) {
 	var err error
