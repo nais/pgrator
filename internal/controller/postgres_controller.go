@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
 	"github.com/nais/pgrator/internal/synchronizer/action"
@@ -150,6 +151,7 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 		&cnpgv1.Cluster{},
 		&cnpgv1.ScheduledBackup{},
 		&cnpgv1.Pooler{},
+		&barmanv1.ObjectStore{},
 		&networking_v1.NetworkPolicy{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
 		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},

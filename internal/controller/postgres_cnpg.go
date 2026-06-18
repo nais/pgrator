@@ -9,7 +9,7 @@ import (
 	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/monitoring"
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
-	"github.com/nais/pgrator/internal/resourcecreator/storagebucket"
+	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
@@ -47,8 +47,11 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	if r.walStorageEnabled() {
-		storageBucket := storagebucket.CreateStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace, r.Config.Google.Location)
+		storageBucket := rcstorage.CreateStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace, r.Config.Google.Location)
 		actions = append(actions, action.CreateOrUpdate(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+
+		objectStore := rcstorage.CreateObjectStore(obj, storageBucketName)
+		actions = append(actions, action.CreateOrUpdate(objectStore, obj, existsConditionGetter, r.Recorder))
 
 		backup := rccnpg.CreateScheduledBackup(obj, pgClusterName, pgNamespace)
 		actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
@@ -124,8 +127,11 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cluster := rccnpg.MinimalCluster(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
 
-	storageBucket := storagebucket.Minimal(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace)
+	storageBucket := rcstorage.MinimalStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace)
 	actions = append(actions, actionFunc(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+
+	objectStore := rcstorage.MinimalObjectStore(obj, storageBucketName)
+	actions = append(actions, actionFunc(objectStore, obj, existsConditionGetter, r.Recorder))
 
 	backup := rccnpg.MinimalScheduledBackup(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(backup, obj, existsConditionGetter, r.Recorder))

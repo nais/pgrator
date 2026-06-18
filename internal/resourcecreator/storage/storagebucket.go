@@ -1,4 +1,4 @@
-package storagebucket
+package storage
 
 import (
 	"github.com/nais/pgrator/internal/resourcecreator"
@@ -7,7 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func Minimal(postgres *data_nais_io_v1.Postgres, storageBucketName string, storageBucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
+func MinimalStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName string, storageBucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = storageBucketName
 	objectMeta.Namespace = storageBucketNamespace
@@ -22,7 +22,7 @@ func Minimal(postgres *data_nais_io_v1.Postgres, storageBucketName string, stora
 }
 
 func CreateStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName, storageBucketNamespace, storageBucketLocation string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
-	storageBucket := Minimal(postgres, storageBucketName, storageBucketNamespace)
+	storageBucket := MinimalStorageBucket(postgres, storageBucketName, storageBucketNamespace)
 
 	storageBucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
 		Location:               storageBucketLocation,
