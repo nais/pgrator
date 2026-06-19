@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/namegen"
@@ -13,6 +14,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,7 +50,13 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	if r.walStorageEnabled() {
 		storageBucket := rcstorage.CreateStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace, r.Config.Google.Location)
-		actions = append(actions, action.CreateOrUpdate(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+		existingStorageBucket := relatedObjects.GetMatching(storageBucket)
+		if existingStorageBucket != nil {
+			copyCnrmAnnotations(existingStorageBucket, storageBucket)
+			actions = append(actions, action.Update(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+		} else {
+			actions = append(actions, action.Create(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+		}
 
 		objectStore := rcstorage.CreateObjectStore(obj, storageBucketName)
 		actions = append(actions, action.CreateOrUpdate(objectStore, obj, existsConditionGetter, r.Recorder))
@@ -83,6 +91,14 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func copyCnrmAnnotations(existingStorageBucket client.Object, storageBucket *storage_cnrm_cloud_google_com_v1beta1.StorageBucket) {
+	for key, value := range existingStorageBucket.GetAnnotations() {
+		if strings.HasPrefix("cnrm.cloud.google.com/", key) {
+			meta_v1.SetMetaDataAnnotation(&storageBucket.ObjectMeta, key, value)
+		}
+	}
 }
 
 func makeGsaName(obj *data_nais_io_v1.Postgres) string {
