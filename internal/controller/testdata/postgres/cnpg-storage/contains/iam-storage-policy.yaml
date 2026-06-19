@@ -12,4 +12,4 @@ object:
     member: serviceAccount:cnpg-test-db-020a67ba@test-gcp-project.iam.gserviceaccount.com
     resourceRef:
       kind: StorageBucket
-      external: wal-bucket-prefix-my-team-test-db-3195addb
+      external: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e

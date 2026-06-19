@@ -33,7 +33,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	ksaName := makeKsaName(obj)
 	gsaName := makeGsaName(obj)
 
-	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
+	storageBucketName := r.makeStorageBucketName(obj)
 
 	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, ksaName, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
 	if err != nil {
@@ -93,10 +93,10 @@ func makeKsaName(obj *data_nais_io_v1.Postgres) string {
 	return namegen.MustShortenName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
 }
 
-func (r *PostgresReconciler) makeStorageBucketName(obj *data_nais_io_v1.Postgres, pgClusterName string) string {
+func (r *PostgresReconciler) makeStorageBucketName(obj *data_nais_io_v1.Postgres) string {
 	storageBucketName := ""
 	if r.Config.CNPG.WalBucketPrefix != "" {
-		storageBucketName = namegen.MustShortenName(fmt.Sprintf("%s-%s-%s", r.Config.CNPG.WalBucketPrefix, obj.GetNamespace(), pgClusterName), validation.DNS1035LabelMaxLength)
+		storageBucketName = fmt.Sprintf("%s-%s", r.Config.CNPG.WalBucketPrefix, obj.GetUID())
 	}
 	return storageBucketName
 }
@@ -120,7 +120,7 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	ksaName := makeKsaName(obj)
 	gsaName := makeGsaName(obj)
-	storageBucketName := r.makeStorageBucketName(obj, pgClusterName)
+	storageBucketName := r.makeStorageBucketName(obj)
 
 	actions := make([]action.Action, 0, 4)
 

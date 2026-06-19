@@ -7,7 +7,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/sethvargo/go-envconfig"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+const uidLength = 36 // Length of a Kubernetes object UID
 
 type Config struct {
 	MetricsCertPath string `env:"METRICS_CERT_PATH" yaml:"metricsCertPath"`
@@ -65,7 +68,24 @@ func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error
 		return nil, err
 	}
 
+	if err = validateWalBucketPrefixLength(cfg); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateWalBucketPrefixLength makes sure that the configured prefix is not too long
+// The prefix is combined with the UID from the postgres object to create the name of the WAL bucket.
+// The WAL bucket name has a max length of 63 characters (DNS1035LabelMaxLength).
+// See controller.PostgresReconciler::makeStorageBucketName
+func validateWalBucketPrefixLength(cfg *Config) error {
+	allowedPrefixLength := validation.DNS1035LabelMaxLength - uidLength
+	prefixLength := len(cfg.CNPG.WalBucketPrefix)
+	if prefixLength > allowedPrefixLength {
+		return fmt.Errorf("WAL bucket prefix too long (%d), must be shorter than %d", prefixLength, allowedPrefixLength)
+	}
+	return nil
 }
 
 func (f *Config) Log(logger logr.Logger) {

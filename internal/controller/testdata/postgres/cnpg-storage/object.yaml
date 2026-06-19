@@ -6,6 +6,7 @@ metadata:
   namespace: my-team
   annotations:
     postgres.nais.io/engine: cnpg
+  uid: feedab1e-beef-cafe-babe-700d1e100d1e
 spec:
   cluster:
     majorVersion: "18"

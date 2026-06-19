@@ -24,7 +24,7 @@ object:
       - name: barman-cloud.cloudnative-pg.io
         isWALArchiver: true
         parameters:
-          barmanObjectName: wal-bucket-prefix-my-team-test-db-3195addb
+          barmanObjectName: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
     serviceAccountTemplate:
       metadata:
         name: cnpg-sa-test-db-d47cad9d
