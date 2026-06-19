@@ -51,7 +51,7 @@ type StorageBucket struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Spec              StorageBucketSpec   `json:"spec"`
-	Status            StorageBucketStatus `json:"status"`
+	Status            StorageBucketStatus `json:"status,omitempty"`
 }
 
 type PublicAccessPrevention string
