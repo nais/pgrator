@@ -164,10 +164,16 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 
 	gsa := rciam.CreateIAMServiceAccount(gsaName, pgNamespace)
 	existingGsa := relatedObjects.GetMatching(gsa)
-	if existingGsa != nil {
-		actions = append(actions, action.Update(gsa, obj, cnrmConditionsGetter, r.Recorder))
-	} else {
+	if existingGsa == nil {
 		actions = append(actions, action.Create(gsa, obj, cnrmConditionsGetter, r.Recorder))
+	} else if iamServiceAccountAsChanges(gsa, existingGsa.(*iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount)) {
+		if r.Config.ResyncIAMPermissions {
+			actions = append(actions, action.Recreate(gsa, obj, cnrmConditionsGetter, r.Recorder))
+		} else {
+			return nil, fmt.Errorf("want to change IAMServiceAccount %s, but configuration does not allow recreate", client.ObjectKeyFromObject(gsa))
+		}
+	} else {
+		actions = append(actions, action.Claim(gsa, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
 	workloadIdentityPolicyName := makeWorkloadIdentityPolicyName(obj)

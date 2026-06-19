@@ -258,6 +258,19 @@ func getClusterNameAndNamespace(obj *data_nais_io_v1.Postgres, engine string) (s
 	return pgClusterName, pgNamespace, nil
 }
 
+func iamServiceAccountAsChanges(a, b *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount) bool {
+	if a == b {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	if a.Spec.DisplayName != b.Spec.DisplayName {
+		return true
+	}
+	return false
+}
+
 func iamPolicyHasChanges(a, b *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember) bool {
 	if a == b {
 		return false
