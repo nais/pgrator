@@ -344,6 +344,7 @@ func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []actio
 	for _, a := range actions {
 		err := a.Do(ctx, s.client, s.scheme, s.ownerManager)
 		if err != nil {
+			err = fmt.Errorf("failed to perform action %T on object %v: %w", a, a.GetObject(), err)
 			return ctrl.Result{}, err
 		}
 	}
