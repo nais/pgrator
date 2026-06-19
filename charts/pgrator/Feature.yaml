@@ -36,7 +36,7 @@ values:
   # CNPG settings
   cnpg.walBucketPrefix:
     displayName: Prefix to use for WAL storage buckets
-    computes:
+    computed:
       # Max length 27 characters, to allow for 36 character uid for a total of 63 characters
       template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}-'
   # Zalando settings
