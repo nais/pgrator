@@ -27,6 +27,10 @@ spec:
             - name: METRICS_CERT_PATH
               value: /var/run/secrets/k8s-metrics-server/metrics-certs
             {{- end }}
+            - name: DRY_RUN
+              value: {{ .Values.dryRun | quote }}
+            - name: DEVELOPMENT
+              value: {{ .Values.development | quote }}
             - name: GOOGLE_PROJECT_ID
               value: {{ .Values.google.projectId }}
             - name: GOOGLE_LOCATION

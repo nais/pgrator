@@ -87,8 +87,9 @@ helm_resource(
 # ---------------------------------------------------------------------------
 namespace_create("serviceaccounts")
 namespace_create("nais-cnpg-wal-storage")
+namespace_create("cnpg-team", labels=["google-cloud-project: test-project"])
 k8s_resource(
-    objects=["serviceaccounts:namespace", "nais-cnpg-wal-storage:namespace"],
+    objects=["serviceaccounts:namespace", "nais-cnpg-wal-storage:namespace", "cnpg-team:namespace"],
     new_name="namespaces",
     labels=["setup"],
 )
@@ -111,6 +112,7 @@ helm_resource(
     namespace="pgrator-system",
     flags=[
         "--create-namespace",
+        "--set=development=true",
         "--set=controllerManager.container.image.repository=pgrator",
         "--set=controllerManager.container.image.tag=latest",
         "--set=google.projectId=test-project",

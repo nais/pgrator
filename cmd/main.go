@@ -40,16 +40,14 @@ func main() {
 	ctx, signalStop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer signalStop()
 
-	opts := zap.Options{
-		Development: false,
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
 	cfg, err := config.NewConfig(ctx, envconfig.OsLookuper())
 	if err != nil {
-		setupLog.Error(err, "unable to load configuration")
+		// Initialize a logger so we can log config errors because logging isn't configured until after config loaded
+		zap.New().Error(err, "unable to load configuration")
 		os.Exit(1)
 	}
+
+	ctrl.SetLogger(zap.New(zap.UseDevMode(cfg.Development)))
 
 	setupLog.Info("--- Configuration ---")
 	cfg.Log(setupLog)
@@ -129,6 +127,7 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Valkey")
 		os.Exit(1)
 	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

@@ -1,5 +1,8 @@
 postgresStorageClass: ""
 walGsBucket: ""
+dryRun: false
+development: false
+
 google:
   projectId: ""
   location: "europe-north1"

@@ -20,7 +20,9 @@ type Config struct {
 	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS" yaml:"postgresStorageClass"`
 	PostgresImage        string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
 
-	DryRun                  bool   `env:"DRY_RUN" yaml:"dryRun"`
+	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
+	Development bool `env:"DEVELOPMENT" yaml:"development"`
+
 	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
 	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
 	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
