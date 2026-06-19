@@ -1,0 +1,18 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: barmancloud.cnpg.io/v1
+  kind: ObjectStore
+  metadata:
+    name: wal-bucket-prefix-my-team-test-db-3195addb
+    namespace: my-team
+  spec:
+    configuration:
+      destinationPath: gs://wal-bucket-prefix-my-team-test-db-3195addb
+      googleCredentials:
+        gkeEnvironment: true
+      wal:
+        compression: zstd
+      data:
+        compression: snappy

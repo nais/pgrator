@@ -9,20 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/golden"
+	"github.com/nais/pgrator/internal/initscheme"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	kevents "k8s.io/client-go/tools/events"
@@ -72,8 +68,7 @@ func TestControllers(t *testing.T) {
 		},
 		Tenant:   config.Tenant{Name: "test-tenant"},
 		Recorder: recorder,
-		// TODO: scheme should be set up through a function for consistency with actual runtime use
-		Scheme: scheme.Scheme,
+		Scheme:   scheme.Scheme,
 	}
 
 	opensearchReconciler := &OpenSearchReconciler{
@@ -139,27 +134,7 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.Background())
 
-	var err error
-	err = iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = datav1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = pov1.AddToScheme(scheme.Scheme)
-	utilruntime.Must(err)
-
-	err = acid_zalan_do_v1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = v1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = aiven_v1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = cnpgv1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	initscheme.InitScheme(scheme.Scheme)
 
 	// +kubebuilder:scaffold:scheme
 
@@ -186,6 +161,7 @@ var _ = BeforeSuite(func() {
 	testEnv.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
 
 	// cfg is defined in this file globally.
+	var err error
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())

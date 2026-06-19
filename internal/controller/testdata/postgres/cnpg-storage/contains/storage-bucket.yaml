@@ -1,0 +1,12 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: storage.cnrm.cloud.google.com/v1beta1
+  kind: StorageBucket
+  metadata:
+    name: wal-bucket-prefix-my-team-test-db-3195addb
+    namespace: nais-cnpg-wal-storage
+  spec:
+    location: google-location
+    publicAccessPrevention: inherited

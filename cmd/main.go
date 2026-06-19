@@ -7,14 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
-	pov1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/nais/pgrator/internal/initscheme"
 	"github.com/sethvargo/go-envconfig"
-	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,8 +21,6 @@ import (
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
-	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
@@ -37,14 +30,7 @@ var (
 )
 
 func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(datav1.AddToScheme(scheme))
-	utilruntime.Must(v1.AddToScheme(scheme))
-	utilruntime.Must(iam_cnrm_cloud_google_com_v1beta1.AddToScheme(scheme))
-	utilruntime.Must(pov1.AddToScheme(scheme))
-	utilruntime.Must(acid_zalan_do_v1.AddToScheme(scheme))
-	utilruntime.Must(aiven_v1alpha1.AddToScheme(scheme))
-	utilruntime.Must(cnpgv1.AddToScheme(scheme))
+	initscheme.InitScheme(scheme)
 }
 
 // nolint:gocyclo
