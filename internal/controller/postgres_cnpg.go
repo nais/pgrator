@@ -95,7 +95,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 func copyCnrmAnnotations(existingStorageBucket client.Object, storageBucket *storage_cnrm_cloud_google_com_v1beta1.StorageBucket) {
 	for key, value := range existingStorageBucket.GetAnnotations() {
-		if strings.HasPrefix("cnrm.cloud.google.com/", key) {
+		if strings.HasPrefix(key, "cnrm.cloud.google.com/") {
 			meta_v1.SetMetaDataAnnotation(&storageBucket.ObjectMeta, key, value)
 		}
 	}
