@@ -127,14 +127,16 @@ func (r *PostgresReconciler) deleteCNPG(obj *data_nais_io_v1.Postgres, preparedD
 	cluster := rccnpg.MinimalCluster(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(cluster, obj, cnpgClusterConditionGetter, r.Recorder))
 
-	storageBucket := rcstorage.MinimalStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace)
-	actions = append(actions, actionFunc(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
+	if r.walStorageEnabled() {
+		storageBucket := rcstorage.MinimalStorageBucket(obj, storageBucketName, r.Config.CNPG.WalBucketNamespace)
+		actions = append(actions, actionFunc(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
 
-	objectStore := rcstorage.MinimalObjectStore(obj, storageBucketName)
-	actions = append(actions, actionFunc(objectStore, obj, existsConditionGetter, r.Recorder))
+		objectStore := rcstorage.MinimalObjectStore(obj, storageBucketName)
+		actions = append(actions, actionFunc(objectStore, obj, existsConditionGetter, r.Recorder))
 
-	backup := rccnpg.MinimalScheduledBackup(obj, pgClusterName, pgNamespace)
-	actions = append(actions, actionFunc(backup, obj, existsConditionGetter, r.Recorder))
+		backup := rccnpg.MinimalScheduledBackup(obj, pgClusterName, pgNamespace)
+		actions = append(actions, actionFunc(backup, obj, existsConditionGetter, r.Recorder))
+	}
 
 	pooler := rccnpg.MinimalPooler(obj, pgClusterName, pgNamespace)
 	actions = append(actions, actionFunc(pooler, obj, existsConditionGetter, r.Recorder))
