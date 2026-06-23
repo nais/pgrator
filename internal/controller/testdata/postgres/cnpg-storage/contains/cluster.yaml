@@ -27,6 +27,5 @@ object:
           barmanObjectName: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
     serviceAccountTemplate:
       metadata:
-        name: cnpg-sa-test-db-d47cad9d
         annotations:
           iam.gke.io/gcp-service-account: "cnpg-test-db-020a67ba@test-gcp-project.iam.gserviceaccount.com"

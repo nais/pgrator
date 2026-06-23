@@ -37,7 +37,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 
 	storageBucketName := r.makeStorageBucketName(obj)
 
-	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, ksaName, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
+	cluster, err := rccnpg.CreateClusterSpec(obj, r.Config, pgClusterName, pgNamespace, gsaName, preparedData.TeamGoogleProjectID, storageBucketName)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -106,7 +106,7 @@ func makeGsaName(obj *data_nais_io_v1.Postgres) string {
 }
 
 func makeKsaName(obj *data_nais_io_v1.Postgres) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-sa-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
+	return obj.GetName()
 }
 
 func (r *PostgresReconciler) makeStorageBucketName(obj *data_nais_io_v1.Postgres) string {

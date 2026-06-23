@@ -9,7 +9,7 @@ object:
     namespace: my-team
   spec:
     role: roles/iam.workloadIdentityUser
-    member: serviceAccount:test-gcp-project.svc.id.goog[my-team/cnpg-sa-test-db-d47cad9d]
+    member: serviceAccount:test-gcp-project.svc.id.goog[my-team/test-db]
     resourceRef:
       kind: IAMServiceAccount
       name: cnpg-test-db-020a67ba
