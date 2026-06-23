@@ -22,7 +22,10 @@ jobs:
     strategy:
       matrix:
         mise-task:
-          - check
+          - check:lint
+          - check:vet
+          - check:deadcode
+          - check:vuln
           - ci:fmt
           - ci:generate
     steps:
