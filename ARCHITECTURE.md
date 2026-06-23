@@ -125,7 +125,7 @@ pgrator/
 
 ### Single "do everything" commands
 ```sh
-# Run all checks (vet + lint + helm-lint + lint-config)
+# Run all checks (vet + lint)
 mise run check
 
 # Run all tests (requires setup-envtest; sets KUBEBUILDER_ASSETS automatically)
@@ -141,8 +141,8 @@ mise run test
 | Lint (root)            | `mise run check:lint:root`     | `.config/mise/tasks/check/lint/root.sh`    |
 | Lint (api)             | `mise run check:lint:api`      | `.config/mise/tasks/check/lint/api.sh`     |
 | Lint with autofix      | `mise run check:lint -- --fix` | `.config/mise/tasks/check/lint/_default`   |
-| Helm lint              | `mise run check:helm-lint`     | `.config/mise/tasks/check/helm-lint.sh`    |
-| Verify lint config     | `mise run check:lint-config`   | `.config/mise/tasks/check/lint-config.sh`  |
+| Helm lint              | `mise run check:lint:helm`     | `.config/mise/tasks/check/lint/helm.sh`    |
+| Verify lint config     | `mise run check:lint:config`   | `.config/mise/tasks/check/lint/config.sh`  |
 | Generate deepcopy      | `mise run generate:objects`    | `.config/mise/tasks/generate/objects.sh`   |
 | Generate CRD manifests | `mise run generate:manifests`  | `.config/mise/tasks/generate/manifests.sh` |
 | Generate docs          | `mise run generate:doc`        | `.config/mise/tasks/generate/doc.sh`       |
