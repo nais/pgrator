@@ -58,6 +58,8 @@ type CNPG struct {
 	WalBucketPrefix string `env:"CNPG_WAL_BUCKET_PREFIX" yaml:"walBucketPrefix"`
 	// WalBucketNamespace is the namespace for creating wal storage buckets
 	WalBucketNamespace string `env:"CNPG_WAL_BUCKET_NAMESPACE" yaml:"walBucketNamespace"`
+	// WalBucketRole is the namespace for creating wal storage buckets
+	WalBucketRole string `env:"CNPG_WAL_BUCKET_ROLE" yaml:"walBucketRole"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

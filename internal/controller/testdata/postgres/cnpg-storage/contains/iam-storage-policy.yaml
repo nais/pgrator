@@ -8,7 +8,7 @@ object:
     name: cnpg-wal-test-db-f59f0b8b
     namespace: nais-cnpg-wal-storage
   spec:
-    role: roles/storage.objectUser
+    role: projects/cnpg-wal-project/roles/CNRMRoleForCNPGClusters
     member: serviceAccount:cnpg-test-db-020a67ba@test-gcp-project.iam.gserviceaccount.com
     resourceRef:
       kind: StorageBucket

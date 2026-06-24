@@ -108,7 +108,7 @@ func (r *PostgresReconciler) zalandoIAMActions(obj *data_nais_io_v1.Postgres, pr
 	}
 
 	if backupBucket != "" {
-		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, backupBucket, rciam.StorageBucketRole)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
@@ -176,7 +176,7 @@ func (r *PostgresReconciler) deleteZalandoIAMActions(obj *data_nais_io_v1.Postgr
 	}
 
 	if bucket != "" {
-		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, ServiceAccountsNamespace, preparedData.TeamGoogleProjectID, GSAName, bucket, rciam.StorageBucketRole)
 		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
 			actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 		}

@@ -39,6 +39,11 @@ values:
     computed:
       # Max length 27 characters, to allow for 36 character uid for a total of 63 characters
       template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}-'
+  cnpg.walBucketRole:
+    displayName: Role to give clusters for WAL storage access
+    computed:
+      # Max length 27 characters, to allow for 36 character uid for a total of 63 characters
+      template: 'projects/{{ .Values.cnpg_wal_project_id }}/roles/CNRMRoleForCNPGClusters'
   # Zalando settings
   postgresStorageClass:
     description: Storage class for Zalando Postgres ("standard-rwo" (default) or "premium-rwo")

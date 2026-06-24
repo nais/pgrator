@@ -59,11 +59,11 @@ func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, cluste
 	return iamPolicyMember
 }
 
-func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName, role string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	iamPolicyMember := MinimalPolicyMember(name, namespace)
 	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
-		Role:   StorageBucketRole,
+		Role:   role,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
 			APIVersion: ptr.To("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",

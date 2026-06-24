@@ -211,7 +211,7 @@ func (r *PostgresReconciler) cnpgIAMActions(obj *data_nais_io_v1.Postgres, ksaNa
 	if r.walStorageEnabled() {
 		storageBucketPolicyName := makeStorageBucketPolicyName(obj)
 
-		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName, r.Config.CNPG.WalBucketRole)
 		existingStorageBucketPolicy := relatedObjects.GetMatching(storageBucketPolicy)
 		if existingStorageBucketPolicy == nil {
 			actions = append(actions, action.Create(storageBucketPolicy, obj, cnrmConditionsGetter, r.Recorder))
@@ -255,7 +255,7 @@ func (r *PostgresReconciler) deleteCnpgIAMActions(obj *data_nais_io_v1.Postgres,
 	}
 
 	if r.walStorageEnabled() {
-		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName)
+		storageBucketPolicy := rciam.CreateStorageBucketPolicyMember(storageBucketPolicyName, r.Config.CNPG.WalBucketNamespace, preparedData.TeamGoogleProjectID, gsaName, storageBucketName, r.Config.CNPG.WalBucketRole)
 		if existing := relatedObjects.GetMatching(storageBucketPolicy); existing != nil {
 			actions = append(actions, sharedActionFunc(existing, obj, cnrmConditionsGetter, r.Recorder))
 		}
