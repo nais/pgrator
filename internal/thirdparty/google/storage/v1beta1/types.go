@@ -112,18 +112,71 @@ type RetentionPolicy struct {
 }
 
 type StorageBucketLifecycleRule struct {
-	Action    StorageBucketLifecycleRuleAction    `json:"action"`
-	Condition StorageBucketLifecycleRuleCondition `json:"condition"`
+	/* The Lifecycle Rule's action configuration. A single block of this type is supported. */
+	// +required
+	Action *StorageBucketLifecycleRuleAction `json:"action"`
+
+	/* The Lifecycle Rule's condition configuration. */
+	// +required
+	Condition *StorageBucketLifecycleRuleCondition `json:"condition"`
 }
 
+type StorageBucketLifecycleRuleActionStorageClass string
+type StorageBucketLifecycleRuleActionType string
+
+const (
+	StorageBucketLifecycleRuleActionStorageClassMultiRegional StorageBucketLifecycleRuleActionStorageClass = "MULTI_REGIONAL"
+	StorageBucketLifecycleRuleActionStorageClassRegional      StorageBucketLifecycleRuleActionStorageClass = "REGIONAL"
+	StorageBucketLifecycleRuleActionStorageClassNearline      StorageBucketLifecycleRuleActionStorageClass = "NEARLINE"
+	StorageBucketLifecycleRuleActionStorageClassColdline      StorageBucketLifecycleRuleActionStorageClass = "COLDLINE"
+	StorageBucketLifecycleRuleActionStorageClassArchive       StorageBucketLifecycleRuleActionStorageClass = "ARCHIVE"
+
+	StorageBucketLifecycleRuleActionTypeDelete                         StorageBucketLifecycleRuleActionType = "Delete"
+	StorageBucketLifecycleRuleActionTypeSetStorageClass                StorageBucketLifecycleRuleActionType = "SetStorageClass"
+	StorageBucketLifecycleRuleActionTypeAbortIncompleteMultipartUpload StorageBucketLifecycleRuleActionType = "AbortIncompleteMultipartUpload"
+)
+
 type StorageBucketLifecycleRuleAction struct {
-	Type string `json:"type,omitempty"`
+	/* The target Storage Class of objects affected by this Lifecycle Rule. Supported values include: MULTI_REGIONAL, REGIONAL, NEARLINE, COLDLINE, ARCHIVE. */
+	StorageClass *StorageBucketLifecycleRuleActionStorageClass `json:"storageClass,omitempty"`
+
+	/* The type of the action of this Lifecycle Rule. Supported values include: Delete, SetStorageClass and AbortIncompleteMultipartUpload. */
+	// +required
+	Type StorageBucketLifecycleRuleActionType `json:"type"`
 }
 
 type StorageBucketLifecycleRuleCondition struct {
-	Age                 int    `json:"age,omitempty"`
-	CreatedBefore       string `json:"createdBefore,omitempty"`
-	DaysSinceCustomTime int    `json:"daysSinceCustomTime,omitempty"`
-	NumNewerVersions    int    `json:"numNewerVersions,omitempty"`
-	WithState           string `json:"withState,omitempty"`
+	/* Minimum age of an object in days to satisfy this condition. */
+	Age *int `json:"age,omitempty"`
+
+	/* Creation date of an object in RFC 3339 (e.g. 2017-06-13) to satisfy this condition. */
+	CreatedBefore *string `json:"createdBefore,omitempty"`
+
+	/* Creation date of an object in RFC 3339 (e.g. 2017-06-13) to satisfy this condition. */
+	CustomTimeBefore *string `json:"customTimeBefore,omitempty"`
+
+	/* Number of days elapsed since the user-specified timestamp set on an object. */
+	DaysSinceCustomTime *int `json:"daysSinceCustomTime,omitempty"`
+
+	/* Number of days elapsed since the noncurrent timestamp of an object. This
+	condition is relevant only for versioned objects. */
+	DaysSinceNoncurrentTime *int `json:"daysSinceNoncurrentTime,omitempty"`
+
+	/* One or more matching name prefixes to satisfy this condition. */
+	MatchesPrefix []string `json:"matchesPrefix,omitempty"`
+
+	/* Storage Class of objects to satisfy this condition. Supported values include: MULTI_REGIONAL, REGIONAL, NEARLINE, COLDLINE, ARCHIVE, STANDARD, DURABLE_REDUCED_AVAILABILITY. */
+	MatchesStorageClass []string `json:"matchesStorageClass,omitempty"`
+
+	/* One or more matching name suffixes to satisfy this condition. */
+	MatchesSuffix []string `json:"matchesSuffix,omitempty"`
+
+	/* Creation date of an object in RFC 3339 (e.g. 2017-06-13) to satisfy this condition. */
+	NoncurrentTimeBefore *string `json:"noncurrentTimeBefore,omitempty"`
+
+	/* Relevant only for versioned objects. The number of newer versions of an object to satisfy this condition. */
+	NumNewerVersions *int `json:"numNewerVersions,omitempty"`
+
+	/* Match to live and/or archived objects. Unversioned buckets have only live objects. Supported values include: "LIVE", "ARCHIVED", "ANY". */
+	WithState *string `json:"withState,omitempty"`
 }

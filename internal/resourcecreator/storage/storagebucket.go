@@ -7,6 +7,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	daysUntilDelete = 8
+)
+
 func MinimalStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName string, storageBucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	objectMeta := resourcecreator.CreateObjectMeta(postgres)
 	objectMeta.Name = storageBucketName
@@ -27,6 +31,16 @@ func CreateStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName, 
 	storageBucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
 		Location:               storageBucketLocation,
 		PublicAccessPrevention: storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
+		LifecycleRules: []storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRule{
+			{
+				Action: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleAction{
+					Type: storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleActionTypeDelete,
+				},
+				Condition: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleCondition{
+					Age: new(daysUntilDelete),
+				},
+			},
+		},
 	}
 
 	return storageBucket

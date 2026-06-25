@@ -10,3 +10,8 @@ object:
   spec:
     location: google-location
     publicAccessPrevention: inherited
+    lifecycleRule:
+      - action:
+          type: Delete
+        condition:
+          age: 8
