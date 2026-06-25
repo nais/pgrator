@@ -53,6 +53,7 @@ func (r *PostgresReconciler) updateCNPG(obj *data_nais_io_v1.Postgres, preparedD
 		existingStorageBucket := relatedObjects.GetMatching(storageBucket)
 		if existingStorageBucket != nil {
 			copyCnrmAnnotations(existingStorageBucket, storageBucket)
+			storageBucket.Spec.ResourceID = existingStorageBucket.(*storage_cnrm_cloud_google_com_v1beta1.StorageBucket).Spec.ResourceID
 			actions = append(actions, action.Update(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
 		} else {
 			actions = append(actions, action.Create(storageBucket, obj, cnrmConditionsGetter, r.Recorder))
