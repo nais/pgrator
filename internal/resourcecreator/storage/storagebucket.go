@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	daysUntilDelete = 8
+	daysUntilDelete = 30
 )
 
 func MinimalStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName string, storageBucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {

@@ -14,4 +14,4 @@ object:
       - action:
           type: Delete
         condition:
-          age: 8
+          age: 30
