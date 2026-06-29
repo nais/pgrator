@@ -1,0 +1,41 @@
+# Use these if you need to reach other ports on the cluster than the ones available on the pooler
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zalando-example-testing-eg
+  namespace: basseng
+spec:
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pg-basseng
+      podSelector:
+        matchLabels:
+          cluster-name: zalando-example
+  podSelector:
+    matchLabels:
+      app: debug-zalando
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zalando-example-testing-in
+  namespace: pg-basseng
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: basseng
+      podSelector:
+        matchLabels:
+          app: debug-zalando
+  podSelector:
+    matchLabels:
+      cluster-name: zalando-example
+  policyTypes:
+  - Ingress
