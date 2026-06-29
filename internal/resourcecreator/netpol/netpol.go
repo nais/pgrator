@@ -5,6 +5,7 @@ import (
 	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func Minimal(postgres *data_nais_io_v1.Postgres, pgClusterName string, pgNamespace string) *networking_v1.NetworkPolicy {
@@ -69,10 +70,6 @@ func createNetworkPolicySpec(clusterMatchLabels map[string]string, operatorName 
 							MatchLabels: clusterMatchLabels,
 						},
 					},
-				},
-			},
-			{
-				From: []networking_v1.NetworkPolicyPeer{
 					{
 						NamespaceSelector: &meta_v1.LabelSelector{
 							MatchLabels: map[string]string{
@@ -100,6 +97,23 @@ func createNetworkPolicySpec(clusterMatchLabels map[string]string, operatorName 
 								"app.kubernetes.io/name": "prometheus",
 							},
 						},
+					},
+					{
+						NamespaceSelector: &meta_v1.LabelSelector{
+							MatchLabels: map[string]string{
+								"kubernetes.io/metadata.name": "nais-system",
+							},
+						},
+						PodSelector: &meta_v1.LabelSelector{
+							MatchLabels: map[string]string{
+								"app.kubernetes.io/name": "alloy",
+							},
+						},
+					},
+				},
+				Ports: []networking_v1.NetworkPolicyPort{
+					{
+						Port: new(intstr.FromString("metrics")),
 					},
 				},
 			},

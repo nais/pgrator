@@ -26,7 +26,6 @@ object:
           - podSelector:
               matchLabels:
                 cnpg.io/cluster: test-db
-      - from:
           - namespaceSelector:
               matchLabels:
                 kubernetes.io/metadata.name: nais-system
@@ -40,3 +39,11 @@ object:
             podSelector:
               matchLabels:
                 app.kubernetes.io/name: prometheus
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: alloy
+        ports:
+          - port: metrics
