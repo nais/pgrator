@@ -330,6 +330,22 @@ func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resourc
 		"random_page_cost":           "1.1",
 		"effective_io_concurrency":   "200",
 		"huge_pages":                 "off",
+
+		// --- Monitoring of I/O times ---
+		"track_io_timing": "on",
+
+		// --- Group commit (reduces sync-rep round trips) ---
+		"commit_delay":    "100",
+		"commit_siblings": "10",
+
+		// --- WAL performance ---
+		"max_wal_size":    "2GB",
+		"wal_compression": "zstd",
+
+		// --- Checkpoint / background writer ---
+		"checkpoint_timeout":    "10min",
+		"bgwriter_lru_maxpages": "200",
+
 		// CNPG auto-manages shared_preload_libraries when it detects these prefixed parameters.
 		// Setting pg_stat_statements.track triggers loading of pg_stat_statements,
 		// and pgaudit.log (set below) triggers loading of pgaudit.
