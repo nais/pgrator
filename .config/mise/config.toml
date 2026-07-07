@@ -12,14 +12,14 @@ lefthook = "latest"
 kind = "0.29.0"
 tilt = "0.33.22"
 setup-envtest = """
-{%- set tool = '"\\ssigs.k8s.io/controller-runtime\\s"' -%}
+{%- set tool = '"\\\\ssigs.k8s.io/controller-runtime\\\\s"' -%}
 {%- set version_fmt = '"%d.%d"' -%}
 {%- set command = "grep " ~ tool ~ " " ~ config_root ~ "/go.mod | awk -F. '{printf " ~ version_fmt ~ ", $3, $4}'" -%}
 
 {{- exec(cache_key="setup-envtest", command=command) -}}
 """
 go = """
-{%- set command = 'grep "^go [0-9]*\\.[0-9]*" ' ~ config_root ~ "/go.mod | awk '{print $2}'" -%}
+{%- set command = 'grep "^go [0-9]*\\\\.[0-9]*" ' ~ config_root ~ "/go.mod | awk '{print $2}'" -%}
 
 {{- exec(cache_key="go", command=command) -}}
 """
