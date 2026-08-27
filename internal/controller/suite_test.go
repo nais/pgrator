@@ -46,6 +46,7 @@ func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	postgresConfig := config.Config{
+		APIServerIP: "172.16.0.2/32",
 		CNPG: config.CNPG{
 			ImageCatalogName: "postgresql",
 			StorageClass:     "hyperdisk-balanced",

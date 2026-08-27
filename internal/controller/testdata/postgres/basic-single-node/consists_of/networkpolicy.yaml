@@ -17,6 +17,22 @@ object:
         controller: true
         blockOwnerDeletion: true
   spec:
+    policyTypes:
+      - Egress
+      - Ingress
     podSelector:
       matchLabels:
         cnpg.io/cluster: mydb
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                cnpg.io/cluster: mydb
+      - to:
+          - namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+      - to:
+          - ipBlock:
+              cidr: 172.16.0.2/32

@@ -16,6 +16,11 @@ values:
     displayName: Google project ID
     computed:
       template: '"{{.Env.project_id}}"'
+  apiServerIP:
+    displayName: API server CIDR
+    description: CIDR of the Kubernetes API server, allowed for egress from CNPG pods
+    computed:
+      template: '"{{ .Env.apiserver_endpoint }}/32"'
   resyncIAMPermissions:
     displayName: Resync IAM permissions
     description: Enable resyncing of IAM permissions by recreating IAMPolicyMember resources

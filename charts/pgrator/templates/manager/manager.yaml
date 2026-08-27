@@ -35,6 +35,8 @@ spec:
               value: {{ .Values.google.projectId }}
             - name: GOOGLE_LOCATION
               value: {{ .Values.google.location }}
+            - name: API_SERVER_IP
+              value: {{ .Values.apiServerIP }}
             - name: POSTGRES_STORAGE_CLASS
               value: {{ .Values.postgresStorageClass }}
             - name: POSTGRES_IMAGE

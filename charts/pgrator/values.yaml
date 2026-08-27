@@ -1,5 +1,6 @@
 postgresStorageClass: ""
 walGsBucket: ""
+apiServerIP: ""
 dryRun: false
 development: false
 

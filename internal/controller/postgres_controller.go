@@ -96,7 +96,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ 
 	}
 	actions = append(actions, action.CreateOrUpdate(appRole, obj, existsConditionGetter, r.Recorder))
 
-	netpol, err := rcnetpol.Create(r.Scheme, obj, rccnpg.ClusterName(obj))
+	netpol, err := rcnetpol.Create(r.Scheme, obj, rccnpg.ClusterName(obj), r.Config.APIServerIP)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}

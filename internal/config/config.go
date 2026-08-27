@@ -17,6 +17,10 @@ type Config struct {
 
 	GoogleProjectID string `env:"GOOGLE_PROJECT_ID" yaml:"googleProjectID"`
 
+	// APIServerIP is the CIDR of the Kubernetes API server, used to allow egress
+	// from CNPG pods (which must reach the API server) through their NetworkPolicy.
+	APIServerIP string `env:"API_SERVER_IP" yaml:"apiServerIP"`
+
 	PostgresImage string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
 
 	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
