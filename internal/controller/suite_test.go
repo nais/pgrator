@@ -13,12 +13,9 @@ import (
 	"github.com/nais/pgrator/internal/golden"
 	"github.com/nais/pgrator/internal/initscheme"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	acid_zalan_do_v1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
-	apiextensions_v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	kevents "k8s.io/client-go/tools/events"
@@ -40,7 +37,7 @@ var (
 	recorder  events.Recorder
 
 	// Golden test instances
-	postgresGolden   *golden.Golden[*datav1.Postgres, PreparedData]
+	postgresGolden   *golden.Golden[*v1.Postgres, PostgresPreparedData]
 	valkeyGolden     *golden.Golden[*v1.Valkey, ValkeyPreparedData]
 	opensearchGolden *golden.Golden[*v1.OpenSearch, OpenSearchPreparedData]
 )
@@ -48,17 +45,17 @@ var (
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	postgresReconcilerConfig := config.Config{
-		PrometheusRulesDisabled: false,
-		GoogleProjectID:         "test-gcp-project",
-		WalGsBucket:             "test-wal-bucket",
+	postgresConfig := config.Config{
 		CNPG: config.CNPG{
 			ImageCatalogName: "postgresql",
 			StorageClass:     "hyperdisk-balanced",
-			WalBucketPrefix:  "test-cnpg-backup-bucket",
 		},
 	}
-	postgresReconciler := &PostgresReconciler{Config: &postgresReconcilerConfig, Recorder: recorder}
+	postgresReconciler := &PostgresReconciler{
+		Config:   &postgresConfig,
+		Recorder: recorder,
+		Scheme:   scheme.Scheme,
+	}
 
 	valkeyReconciler := &ValkeyReconciler{
 		Aiven: config.Aiven{
@@ -89,7 +86,7 @@ func TestControllers(t *testing.T) {
 	opensearchTestDataDir := filepath.Join(testDataDir, "opensearch")
 
 	postgresGolden = golden.NewGolden(t, postgresReconciler, postgresTestDataDir,
-		postgresReconcilerConfig,
+		postgresConfig,
 		func(cfg config.Config) { *postgresReconciler.Config = cfg },
 	)
 	postgresGolden.DefineTests()
@@ -138,8 +135,6 @@ var _ = BeforeSuite(func() {
 
 	// +kubebuilder:scaffold:scheme
 
-	pgCrd := acid_zalan_do_v1.PostgresCRD([]string{"all"})
-
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
@@ -147,7 +142,6 @@ var _ = BeforeSuite(func() {
 			"./testdata/external-crds",
 		},
 		ErrorIfCRDPathMissing: true,
-		CRDs:                  []*apiextensions_v1.CustomResourceDefinition{pgCrd},
 	}
 
 	// Retrieve the first found binary directory to allow running tests from IDEs

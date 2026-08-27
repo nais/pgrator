@@ -1,0 +1,9 @@
+---
+apiVersion: nais.io/v1
+kind: Postgres
+metadata:
+  name: mydb
+  namespace: myteam
+spec:
+  majorVersion: "17"
+  highAvailability: true

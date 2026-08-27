@@ -1,3 +1,6 @@
+// Package cnpg builds CloudNativePG resources (Cluster, DatabaseRole) for the
+// nais.io/v1 Postgres type. It is deliberately self-contained: no Google IAM,
+// WAL/barman, pooler or monitoring wiring lives here yet.
 package cnpg
 
 import (
@@ -7,30 +10,40 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/resourcecreator"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+	"github.com/nais/pgrator/pkg/api"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
-	cnpgDefaultInstances       = 2
-	cnpgHAInstances            = 3
-	cnpgDefaultPoolerInstances = int32(2)
-	cnpgDatabaseName           = "app"
-	cnpgDatabaseUser           = "app"
+	// DatabaseName is the application database and owner role created by InitDB.
+	DatabaseName = "app"
+	// OwnerRole is the durable database owner (adopted as a DatabaseRole for cert auth).
+	OwnerRole = "app"
+	// ReadRole and ReadWriteRole are the pre-created NOLOGIN group roles that
+	// carry the object-level privileges. Memberships are managed declaratively;
+	// the GRANTs themselves are a one-time bootstrap step.
+	ReadRole      = "app_read"
+	ReadWriteRole = "app_readwrite"
 
-	// PostgreSQL memory tuning ratios
-	sharedBuffersFraction      = 4                      // 1/4 of memory (25%)
-	effectiveCacheSizeFraction = 4                      // 3/4 of memory (75%), computed as mem*3/4
-	workMemFraction            = 64                     // 1/64 of memory (~1.5%)
-	maintenanceWorkMemFraction = 8                      // 1/8 of memory (12.5%)
-	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024 // 2GB cap
+	defaultInstances = 2
+	haInstances      = 3
 
-	computeClass     = "n4-machines"
-	barmanPluginName = "barman-cloud.cloudnative-pg.io"
+	computeClass      = "n4-machines"
+	nameLabel         = "postgres.nais.io/name"
+	memoryLimitFactor = 4
+
+	// PostgreSQL memory tuning ratios.
+	sharedBuffersFraction      = 4
+	effectiveCacheSizeFraction = 4
+	workMemFraction            = 64
+	maintenanceWorkMemFraction = 8
+	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024
 )
 
 var dedicatedPostgresToleration = corev1.Toleration{
@@ -40,39 +53,71 @@ var dedicatedPostgresToleration = corev1.Toleration{
 	Effect:   "NoSchedule",
 }
 
-func MinimalCluster(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Cluster {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = clusterName
-	objectMeta.Namespace = namespace
-	objectMeta.Labels["apiserver-access"] = "enabled"
+var minimumDiskPerStorageClass = map[string]resource.Quantity{
+	"hyperdisk-balanced": resource.MustParse("4Gi"),
+	"hyperdisk-premium":  resource.MustParse("4Gi"),
+	"standard-rwo":       resource.MustParse("2Gi"),
+	"premium-rwo":        resource.MustParse("2Gi"),
+	"":                   resource.MustParse("2Gi"),
+}
 
-	return &cnpgv1.Cluster{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       cnpgv1.ClusterKind,
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+// ClusterName returns the CNPG Cluster name for a Postgres resource.
+func ClusterName(postgres *v1.Postgres) string {
+	return postgres.GetName()
+}
+
+// AppRoleName returns the DatabaseRole resource name for the app owner.
+func AppRoleName(postgres *v1.Postgres) string {
+	return ClusterName(postgres) + "-" + OwnerRole
+}
+
+func objectMeta(postgres *v1.Postgres, name string) metav1.ObjectMeta {
+	var annotations map[string]string
+	if postgres.GetCorrelationId() != "" {
+		annotations = map[string]string{
+			api.DeploymentCorrelationIDAnnotation: postgres.GetCorrelationId(),
+		}
+	}
+
+	return metav1.ObjectMeta{
+		Name:      name,
+		Namespace: postgres.GetNamespace(),
+		Labels: map[string]string{
+			nameLabel: postgres.GetName(),
 		},
-		ObjectMeta: objectMeta,
+		Annotations: annotations,
 	}
 }
 
-func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, clusterName, namespace, gsaName, teamGoogleProjectID, storageBucketName string) (*cnpgv1.Cluster, error) {
-	cluster := MinimalCluster(postgres, clusterName, namespace)
+func enforceMinimumDisk(diskSize resource.Quantity, storageClass string) (resource.Quantity, error) {
+	minimum, ok := minimumDiskPerStorageClass[storageClass]
+	if !ok {
+		return resource.Quantity{}, fmt.Errorf("no minimum disksize defined for storage class %q (this is a platform error)", storageClass)
+	}
+	if diskSize.Cmp(minimum) < 0 {
+		return minimum, nil
+	}
+	return diskSize, nil
+}
 
-	instances := cnpgDefaultInstances
-	minSyncReplicas := 0
-	maxSyncReplicas := 0
-	if postgres.Spec.Cluster.HighAvailability {
-		instances = cnpgHAInstances
-		minSyncReplicas = 1
-		maxSyncReplicas = 1
+// CreateCluster builds the CNPG Cluster for a Postgres resource. Authentication
+// is certificate-based (hostssl ... cert); the durable app owner is created by
+// InitDB with superuser access disabled, and bootstrap SQL pre-creates the
+// app_read/app_readwrite group roles and their default privileges.
+func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config) (*cnpgv1.Cluster, error) {
+	instances := defaultInstances
+	minSync, maxSync := 0, 0
+	if postgres.Spec.HighAvailability {
+		instances = haInstances
+		minSync, maxSync = 1, 1
 	}
 
-	majorVersion, err := strconv.Atoi(postgres.Spec.Cluster.MajorVersion)
+	majorVersion, err := strconv.Atoi(postgres.Spec.MajorVersion)
 	if err != nil {
-		return nil, fmt.Errorf("invalid major version %q: %w", postgres.Spec.Cluster.MajorVersion, err)
+		return nil, fmt.Errorf("invalid major version %q: %w", postgres.Spec.MajorVersion, err)
 	}
 
-	diskSize, err := resourcecreator.EnforceMinimumDisk(postgres.Spec.Cluster.Resources.DiskSize, cfg.CNPG.StorageClass)
+	diskSize, err := enforceMinimumDisk(postgres.Spec.Resources.DiskSize, cfg.CNPG.StorageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -82,237 +127,154 @@ func CreateClusterSpec(postgres *data_nais_io_v1.Postgres, cfg *config.Config, c
 		storageClass = ptr.To(cfg.CNPG.StorageClass)
 	}
 
-	var postgresExtensions []cnpgv1.ExtensionConfiguration
-	if postgres.Spec.Database != nil {
-		postgresExtensions = makePostgresExtensions(postgres.Spec.Database.Extensions)
-	}
+	memory := postgres.Spec.Resources.Memory
+	memLimit := memory.DeepCopy()
+	memLimit.Set(memLimit.Value() * memoryLimitFactor)
 
-	cluster.Spec = cnpgv1.ClusterSpec{
-		Instances:       instances,
-		MinSyncReplicas: minSyncReplicas,
-		MaxSyncReplicas: maxSyncReplicas,
-
-		ImageCatalogRef: &cnpgv1.ImageCatalogRef{
-			TypedLocalObjectReference: corev1.TypedLocalObjectReference{
-				APIGroup: ptr.To("postgresql.cnpg.io"),
-				Kind:     "ClusterImageCatalog",
-				Name:     cfg.CNPG.ImageCatalogName,
-			},
-			Major: majorVersion,
+	cluster := &cnpgv1.Cluster{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       cnpgv1.ClusterKind,
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
 		},
+		ObjectMeta: objectMeta(postgres, ClusterName(postgres)),
+		Spec: cnpgv1.ClusterSpec{
+			Instances:       instances,
+			MinSyncReplicas: minSync,
+			MaxSyncReplicas: maxSync,
 
-		PostgresConfiguration: cnpgv1.PostgresConfiguration{
-			Parameters: makePostgresParameters(postgres.Spec.Cluster.Audit, postgres.Spec.Cluster.Resources.Memory),
-			Extensions: postgresExtensions,
-		},
-
-		Bootstrap: &cnpgv1.BootstrapConfiguration{
-			InitDB: &cnpgv1.BootstrapInitDB{
-				Database: cnpgDatabaseName,
-				Owner:    cnpgDatabaseUser,
+			ImageCatalogRef: &cnpgv1.ImageCatalogRef{
+				TypedLocalObjectReference: corev1.TypedLocalObjectReference{
+					APIGroup: ptr.To("postgresql.cnpg.io"),
+					Kind:     "ClusterImageCatalog",
+					Name:     cfg.CNPG.ImageCatalogName,
+				},
+				Major: majorVersion,
 			},
-		},
 
-		StorageConfiguration: cnpgv1.StorageConfiguration{
-			StorageClass: storageClass,
-			Size:         diskSize.String(),
-		},
-
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    postgres.Spec.Cluster.Resources.Cpu,
-				corev1.ResourceMemory: postgres.Spec.Cluster.Resources.Memory,
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceMemory: func() resource.Quantity {
-					mem := postgres.Spec.Cluster.Resources.Memory.DeepCopy()
-					mem.Mul(resourcecreator.MemoryLimitFactor)
-					return mem
-				}(),
-			},
-		},
-
-		Affinity: cnpgv1.AffinityConfiguration{
-			NodeSelector: map[string]string{
-				"cloud.google.com/compute-class": computeClass,
-			},
-			EnablePodAntiAffinity: ptr.To(true),
-			TopologyKey:           "kubernetes.io/hostname",
-			Tolerations: []corev1.Toleration{
-				dedicatedPostgresToleration,
-			},
-		},
-
-		ServiceAccountTemplate: &cnpgv1.ServiceAccountTemplate{
-			Metadata: cnpgv1.Metadata{
-				Annotations: map[string]string{
-					"iam.gke.io/gcp-service-account": fmt.Sprintf("%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
+			PostgresConfiguration: cnpgv1.PostgresConfiguration{
+				Parameters: makePostgresParameters(memory),
+				Extensions: makeExtensions(postgres.Spec.Extensions),
+				PgHBA: []string{
+					// Certificate authentication for all application clients.
+					// The client certificate CN maps directly to the PostgreSQL role.
+					"hostssl all all all cert",
 				},
 			},
-		},
 
-		EnableSuperuserAccess: ptr.To(false),
-	}
-
-	// Configure barman-cloud plugin for WAL archiving and backups
-	if storageBucketName != "" {
-		cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
-			{
-				Name:          barmanPluginName,
-				Enabled:       ptr.To(true),
-				IsWALArchiver: ptr.To(true),
-				Parameters: map[string]string{
-					"barmanObjectName": storageBucketName,
+			Bootstrap: &cnpgv1.BootstrapConfiguration{
+				InitDB: &cnpgv1.BootstrapInitDB{
+					Database:               DatabaseName,
+					Owner:                  OwnerRole,
+					PostInitSQL:            postInitSQL(),
+					PostInitApplicationSQL: postInitApplicationSQL(),
 				},
 			},
-		}
+
+			StorageConfiguration: cnpgv1.StorageConfiguration{
+				StorageClass: storageClass,
+				Size:         diskSize.String(),
+			},
+
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    postgres.Spec.Resources.Cpu,
+					corev1.ResourceMemory: memory,
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: memLimit,
+				},
+			},
+
+			Affinity: cnpgv1.AffinityConfiguration{
+				NodeSelector: map[string]string{
+					"cloud.google.com/compute-class": computeClass,
+				},
+				EnablePodAntiAffinity: ptr.To(true),
+				TopologyKey:           "kubernetes.io/hostname",
+				Tolerations:           []corev1.Toleration{dedicatedPostgresToleration},
+			},
+
+			EnableSuperuserAccess: ptr.To(false),
+		},
 	}
 
+	if err := controllerutil.SetControllerReference(postgres, cluster, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Cluster: %w", err)
+	}
 	return cluster, nil
 }
 
-func makePostgresExtensions(extensions []data_nais_io_v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
+// CreateAppRole builds the DatabaseRole that adopts the durable InitDB-created
+// app owner and issues an operator-managed TLS client certificate for it. The
+// reclaim policy is retain so deleting the CR never drops the owner role.
+func CreateAppRole(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.DatabaseRole, error) {
+	role := &cnpgv1.DatabaseRole{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "DatabaseRole",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: objectMeta(postgres, AppRoleName(postgres)),
+		Spec: cnpgv1.DatabaseRoleSpec{
+			RoleConfiguration: cnpgv1.RoleConfiguration{
+				Name:  OwnerRole,
+				Login: true,
+			},
+			ClusterRef:        corev1.LocalObjectReference{Name: ClusterName(postgres)},
+			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
+			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{},
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(postgres, role, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on DatabaseRole: %w", err)
+	}
+	return role, nil
+}
+
+func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
 	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
-	for _, extension := range extensions {
-		res = append(res, cnpgv1.ExtensionConfiguration{
-			Name: extension.Name,
-		})
+	for _, e := range extensions {
+		res = append(res, cnpgv1.ExtensionConfiguration{Name: e.Name})
 	}
 	return res
 }
 
-func CreateScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.ScheduledBackup {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = clusterName
-	objectMeta.Namespace = namespace
-
-	backup := &cnpgv1.ScheduledBackup{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ScheduledBackup",
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: objectMeta,
-		Spec: cnpgv1.ScheduledBackupSpec{
-			// Daily at 02:00
-			Schedule: "0 0 2 * * *",
-			Cluster: cnpgv1.LocalObjectReference{
-				Name: clusterName,
-			},
-			BackupOwnerReference: "cluster",
-			Target:               cnpgv1.BackupTargetStandby,
-			Method:               cnpgv1.BackupMethodPlugin,
-			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
-				Name: barmanPluginName,
-			},
-		},
-	}
-
-	return backup
-}
-
-func MinimalScheduledBackup(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.ScheduledBackup {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = clusterName
-	objectMeta.Namespace = namespace
-
-	return &cnpgv1.ScheduledBackup{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "ScheduledBackup",
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: objectMeta,
+// postInitSQL creates the NOLOGIN group roles globally, before the application
+// database bootstrap grants privileges to them (avoids operator ordering races).
+func postInitSQL() []string {
+	return []string{
+		createRoleIfNotExists(ReadRole),
+		createRoleIfNotExists(ReadWriteRole),
 	}
 }
 
-func CreatePooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = fmt.Sprintf("%s-pooler", clusterName)
-	objectMeta.Namespace = namespace
+func createRoleIfNotExists(role string) string {
+	return fmt.Sprintf(
+		"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s NOLOGIN; END IF; END $$;",
+		role, role,
+	)
+}
 
-	return &cnpgv1.Pooler{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Pooler",
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: objectMeta,
-		Spec: cnpgv1.PoolerSpec{
-			Cluster: cnpgv1.LocalObjectReference{
-				Name: clusterName,
-			},
-			Type:      cnpgv1.PoolerTypeRW,
-			Instances: ptr.To(cnpgDefaultPoolerInstances),
-			Template: &cnpgv1.PodTemplateSpec{
-				ObjectMeta: cnpgv1.Metadata{
-					Labels: map[string]string{
-						"apiserver-access": "enabled",
-					},
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name: "pgbouncer",
-							Resources: corev1.ResourceRequirements{
-								Limits: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceMemory: resource.MustParse("100Mi"),
-								},
-								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("50Mi"),
-								},
-							},
-						},
-					},
-					NodeSelector: map[string]string{
-						"cloud.google.com/compute-class": computeClass,
-					},
-					Affinity: &corev1.Affinity{
-						PodAntiAffinity: &corev1.PodAntiAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "cnpg.io/podRole",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"pooler"},
-											},
-										},
-									},
-									TopologyKey: "kubernetes.io/hostname",
-								},
-							},
-						},
-					},
-					Tolerations: []corev1.Toleration{
-						dedicatedPostgresToleration,
-					},
-				},
-			},
-			PgBouncer: &cnpgv1.PgBouncerSpec{
-				PoolMode: cnpgv1.PgBouncerPoolModeTransaction,
-			},
-		},
+// postInitApplicationSQL runs as superuser on the application database. It wires
+// the group roles' object-level privileges and sets schema-less default
+// privileges for objects the app owner creates later (in any schema).
+func postInitApplicationSQL() []string {
+	both := ReadRole + ", " + ReadWriteRole
+	return []string{
+		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
+		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
+		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
+		fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;", ReadWriteRole),
+		fmt.Sprintf("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %s;", both),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT ON TABLES TO %s;", OwnerRole, ReadRole),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;", OwnerRole, ReadWriteRole),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT USAGE, SELECT ON SEQUENCES TO %s;", OwnerRole, both),
 	}
 }
 
-func MinimalPooler(postgres *data_nais_io_v1.Postgres, clusterName, namespace string) *cnpgv1.Pooler {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = fmt.Sprintf("%s-pooler", clusterName)
-	objectMeta.Namespace = namespace
-
-	return &cnpgv1.Pooler{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Pooler",
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: objectMeta,
-	}
-}
-
-func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resource.Quantity) map[string]string {
+func makePostgresParameters(memory resource.Quantity) map[string]string {
 	memBytes := memory.Value()
 
-	// PostgreSQL tuning parameters based on available memory
 	sharedBuffers := memBytes / sharedBuffersFraction
 	effectiveCacheSize := memBytes * 3 / effectiveCacheSizeFraction
 	workMem := memBytes / workMemFraction
@@ -321,48 +283,28 @@ func makePostgresParameters(audit *data_nais_io_v1.PostgresAudit, memory resourc
 		maintenanceWorkMem = maxMaintenanceWorkMemBytes
 	}
 
-	params := map[string]string{
+	mb := func(b int64) string { return fmt.Sprintf("%dMB", b/(1024*1024)) }
+
+	return map[string]string{
 		"log_min_duration_statement": "1000",
-		"shared_buffers":             fmt.Sprintf("%dMB", sharedBuffers/(1024*1024)),
-		"effective_cache_size":       fmt.Sprintf("%dMB", effectiveCacheSize/(1024*1024)),
-		"work_mem":                   fmt.Sprintf("%dMB", workMem/(1024*1024)),
-		"maintenance_work_mem":       fmt.Sprintf("%dMB", maintenanceWorkMem/(1024*1024)),
+		"shared_buffers":             mb(sharedBuffers),
+		"effective_cache_size":       mb(effectiveCacheSize),
+		"work_mem":                   mb(workMem),
+		"maintenance_work_mem":       mb(maintenanceWorkMem),
 		"random_page_cost":           "1.1",
 		"effective_io_concurrency":   "200",
 		"huge_pages":                 "off",
+		"track_io_timing":            "on",
+		"commit_delay":               "100",
+		"commit_siblings":            "10",
+		"max_wal_size":               "2GB",
+		"wal_compression":            "zstd",
+		"checkpoint_timeout":         "10min",
+		"bgwriter_lru_maxpages":      "200",
 
-		// --- Monitoring of I/O times ---
-		"track_io_timing": "on",
-
-		// --- Group commit (reduces sync-rep round trips) ---
-		"commit_delay":    "100",
-		"commit_siblings": "10",
-
-		// --- WAL performance ---
-		"max_wal_size":    "2GB",
-		"wal_compression": "zstd",
-
-		// --- Checkpoint / background writer ---
-		"checkpoint_timeout":    "10min",
-		"bgwriter_lru_maxpages": "200",
-
-		// CNPG auto-manages shared_preload_libraries when it detects these prefixed parameters.
-		// Setting pg_stat_statements.track triggers loading of pg_stat_statements,
-		// and pgaudit.log (set below) triggers loading of pgaudit.
+		// CNPG auto-loads the matching shared_preload_libraries when it sees
+		// these prefixed parameters. Audit is always on with sane defaults.
 		"pg_stat_statements.track": "all",
+		"pgaudit.log":              strings.Join([]string{"write", "ddl", "role"}, ","),
 	}
-
-	if audit != nil && audit.Enabled {
-		if len(audit.StatementClasses) > 0 {
-			classes := make([]string, 0, len(audit.StatementClasses))
-			for _, c := range audit.StatementClasses {
-				classes = append(classes, string(c))
-			}
-			params["pgaudit.log"] = strings.Join(classes, ",")
-		} else {
-			params["pgaudit.log"] = "write,ddl,role"
-		}
-	}
-
-	return params
 }

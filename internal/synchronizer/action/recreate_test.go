@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/nais/pgrator/pkg/api"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	core_v1 "k8s.io/api/core/v1"
@@ -47,7 +47,7 @@ var _ = Describe("Recreate Action", func() {
 	var (
 		scheme          *runtime.Scheme
 		fakeClient      client.Client
-		postgres        *data_nais_io_v1.Postgres
+		postgres        *v1.Postgres
 		recorder        *mockRecorder
 		ownerManager    *mockOwnerManager
 		conditionGetter ConditionGetter
@@ -58,16 +58,16 @@ var _ = Describe("Recreate Action", func() {
 		ctx = context.Background()
 		scheme = runtime.NewScheme()
 		Expect(core_v1.AddToScheme(scheme)).To(Succeed())
-		Expect(data_nais_io_v1.AddToScheme(scheme)).To(Succeed())
+		Expect(v1.AddToScheme(scheme)).To(Succeed())
 
-		postgres = &data_nais_io_v1.Postgres{
+		postgres = &v1.Postgres{
 			ObjectMeta: meta_v1.ObjectMeta{
 				Name:      "test-postgres",
 				Namespace: "test-namespace",
 			},
-			Spec: data_nais_io_v1.PostgresSpec{},
+			Spec: v1.PostgresSpec{},
 		}
-		postgres.Status = &data_nais_io_v1.PostgresStatus{}
+		postgres.Status = &v1.PostgresStatus{}
 
 		recorder = &mockRecorder{}
 		ownerManager = &mockOwnerManager{}

@@ -2,7 +2,7 @@
 
 ## Project
 
-pgrator is a Kubernetes operator managing Postgres (Zalando/CNPG), Valkey, and OpenSearch resources on the nais platform. Written in Go using controller-runtime.
+pgrator is a Kubernetes operator managing Postgres (CloudNativePG), Valkey, and OpenSearch resources on the nais platform. Written in Go using controller-runtime.
 
 ## Build & Test
 

@@ -6,7 +6,7 @@ Kubernetes operator for the [nais](https://nais.io) platform that manages **Post
 
 | CRD          | API group         | Backend                                                                                                                 | Creates                                                                                     |
 |--------------|-------------------|-------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| `Postgres`   | `data.nais.io/v1` | [Zalando postgres-operator](https://github.com/zalando/postgres-operator) or [CloudNativePG](https://cloudnative-pg.io) | Postgres cluster, NetworkPolicy, IAM resources, ServiceAccount, RoleBinding, PrometheusRule |
+| `Postgres`   | `nais.io/v1`      | [CloudNativePG](https://cloudnative-pg.io) (greenfield, reconciler under rebuild)                                        | CNPG `Cluster` (+ planned NetworkPolicy, backups)                                           |
 | `Valkey`     | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven Valkey instance + ServiceIntegration (metrics)                                        |
 | `OpenSearch` | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven OpenSearch instance + ServiceIntegration (metrics)                                    |
 
@@ -50,14 +50,9 @@ lefthook install
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed information about project structure, conventions, and design patterns.
 
-### Postgres engine selection
+### Postgres
 
-The `Postgres` CRD supports two backend engines:
-
-- **Zalando** (default) — uses the [Zalando postgres-operator](https://github.com/zalando/postgres-operator) with Spilo
-- **CNPG** — uses [CloudNativePG](https://cloudnative-pg.io) with barman-cloud backups
-
-Engine selection is immutable after creation. The operator detects existing resources and prevents engine changes.
+The `Postgres` CRD (`nais.io/v1`) provisions a [CloudNativePG](https://cloudnative-pg.io) cluster. The reconciler is being rebuilt greenfield (cert-based auth, PostgreSQL 18); see the type in `pkg/api/v1/postgres_types.go`.
 
 ## CI/CD
 

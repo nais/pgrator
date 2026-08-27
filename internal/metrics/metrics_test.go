@@ -13,7 +13,7 @@ import (
 const (
 	testPhaseCompleted   = "Completed"
 	testPhasePreparing   = "Preparing"
-	testResourceType     = "postgres.data.nais.io"
+	testResourceType     = "postgres.nais.io"
 	testNamespace        = "my-team"
 	testName             = "my-db"
 	testMajorVersion     = "16"

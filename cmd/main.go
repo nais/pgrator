@@ -88,6 +88,7 @@ func main() {
 	postgresReconciler := &controller.PostgresReconciler{
 		Config:   cfg,
 		Recorder: recorder,
+		Scheme:   scheme,
 	}
 	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), postgresReconciler, recorder)
 	if err := postgresController.SetupWithManager(mgr); err != nil {

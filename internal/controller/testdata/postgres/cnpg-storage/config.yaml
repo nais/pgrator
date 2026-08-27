@@ -1,6 +1,0 @@
-cnpg:
-  walBucketPrefix: wal-bucket-prefix
-  walBucketNamespace: nais-cnpg-wal-storage
-  walBucketRole: projects/cnpg-wal-project/roles/CNRMRoleForCNPGClusters
-google:
-  location: google-location

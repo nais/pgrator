@@ -8,7 +8,7 @@
 
 | CRD          | API group         | What it creates                                                                                                                                           |
 |--------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Postgres`   | `data.nais.io/v1` | Zalando `postgresql` CR **or** CNPG `Cluster`/`ScheduledBackup`/`Pooler`, NetworkPolicy, Google IAM resources, Kubernetes ServiceAccount, RoleBinding, PrometheusRule |
+| `Postgres`   | `nais.io/v1`      | CNPG `Cluster` (greenfield rebuild in progress; see `pkg/api/v1/postgres_types.go`) |
 | `Valkey`     | `nais.io/v1`      | Aiven `Valkey` CR + `ServiceIntegration`                                                                                                                  |
 | `OpenSearch` | `nais.io/v1`      | Aiven `OpenSearch` CR + `ServiceIntegration`                                                                                                              |
 
@@ -23,7 +23,7 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Language           | Go 1.26                                                                               | `go.mod:3`, `Dockerfile:2`                                  |
 | Operator framework | `sigs.k8s.io/controller-runtime` v0.23.3                                              | `go.mod:28`                                                 |
 | Kubernetes API     | `k8s.io/api` v0.35.3                                                                  | `go.mod:23-26`                                              |
-| Postgres backend   | `github.com/zalando/postgres-operator` v1.15.1 + `github.com/cloudnative-pg/cloudnative-pg` | `go.mod:21`, `go.mod`                    |
+| Postgres backend   | `github.com/cloudnative-pg/cloudnative-pg` + `plugin-barman-cloud`                    | `go.mod`                                 |
 | Aiven backend      | Internal thirdparty types (`internal/thirdparty/aiven/v1alpha1`)                      | types hand-written; no direct module dep                    |
 | Google IAM backend | Internal thirdparty types (`internal/thirdparty/google/v1beta1`)                      | `internal/thirdparty/google/v1beta1/*.go`                   |
 | Monitoring         | `prometheus-operator/pkg/apis/monitoring` v0.90.1                                     | `go.mod:18`                                                 |
@@ -51,8 +51,7 @@ pgrator/
 │   ├── main.go            # Operator entry point; wires controllers + webhooks
 │   └── docgen/docgen.go   # CLI tool: generates nais/doc reference markdown
 ├── pkg/api/               # Separate Go module (github.com/nais/pgrator/pkg/api)
-│   ├── v1/                # nais.io/v1 CRD types: Valkey, OpenSearch (+ webhooks)
-│   ├── datav1/            # data.nais.io/v1 CRD types: Postgres
+│   ├── v1/                # nais.io/v1 CRD types: Postgres, Valkey, OpenSearch (+ webhooks)
 │   ├── annotation.go      # Shared annotation constants
 │   ├── object.go          # NaisObject interface
 │   └── status.go          # BaseStatus (shared by all CRDs)
@@ -162,7 +161,7 @@ mise run test
 |---------------------------------------------------------|-----------------------------------------------------------|
 | `sigs.k8s.io/controller-runtime`                        | Manager, reconcile loop, envtest, client, webhooks        |
 | `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/client-go` | Kubernetes types and client                               |
-| `github.com/zalando/postgres-operator`                  | `Postgresql` CRD types used as reconcile target           |
+| `github.com/cloudnative-pg/cloudnative-pg`              | `Cluster` CRD types used as reconcile target              |
 | `prometheus-operator/pkg/apis/monitoring`               | `PrometheusRule`, `ServiceMonitor` CRD types              |
 | `github.com/sethvargo/go-envconfig`                     | Struct-tag-based env-var configuration                    |
 | `github.com/onsi/ginkgo/v2` + `gomega`                  | BDD test framework                                        |
@@ -215,9 +214,8 @@ Helm chart exposes most of these via `charts/pgrator/values.yaml`.
 | **Generic reconciler via `Synchronizer[T, P]`**: all three controllers plug into the same generic synchronizer; resource-specific logic is in `Prepare`/`Update`/`Delete`. | `internal/synchronizer/synchronizer.go`, `internal/synchronizer/reconciler/reconciler.go` |
 | **Action objects**: all mutations are expressed as `action.Action` values — none executed inline in reconcilers.                                                           | `internal/synchronizer/action/action.go`, `internal/controller/postgres_controller.go`    |
 | **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgres_controller.go:57`, `valkey_controller.go:35`                |
-| **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/controller/postgres_controller.go:75`, `internal/synchronizer/synchronizer.go`  |
+| **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/synchronizer/synchronizer.go`  |
 | **Structured logging via `logr`/`zap`**: no `fmt.Print*` in production paths; uses `ctrl.Log` / `logf.FromContext(ctx)`.                                                   | `cmd/main.go:58`, `internal/synchronizer/synchronizer.go:93`                              |
-| **Version-engine validation at two layers**: CRD enum allows all supported versions; a ValidatingAdmissionPolicy rejects invalid combos at admission; `validateVersionForEngine` in the controller acts as a safety net. CNPG requires ≥18, Zalando supports 16–17. | `charts/pgrator/templates/admission/validating-admission-policy.yaml`, `internal/controller/postgres_controller.go` |
 | **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/golden/golden.go`, `internal/controller/testdata/`                              |
 | **Ownership via annotations** (not OwnerReferences for cross-namespace resources): `<name>/owner` annotations track multi-owner shared resources.                          | `internal/synchronizer/ownership/ownership.go`                                            |
 

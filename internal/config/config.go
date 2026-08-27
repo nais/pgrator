@@ -17,16 +17,14 @@ type Config struct {
 
 	GoogleProjectID string `env:"GOOGLE_PROJECT_ID" yaml:"googleProjectID"`
 
-	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS" yaml:"postgresStorageClass"`
-	PostgresImage        string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
+	PostgresImage string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
 
 	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
 	Development bool `env:"DEVELOPMENT" yaml:"development"`
 
-	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
-	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
-	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
-	WalGsBucket             string `env:"WAL_GS_BUCKET" yaml:"walGsBucket"`
+	LeaderElectionEnabled   bool `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
+	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
+	ResyncIAMPermissions    bool `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
 
 	Aiven  Aiven  `yaml:"aiven"`
 	Tenant Tenant `yaml:"tenant"`

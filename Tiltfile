@@ -42,16 +42,6 @@ local_resource(
 )
 
 # ---------------------------------------------------------------------------
-# 3. Zalando CRD (generated from Go code)
-# ---------------------------------------------------------------------------
-local_resource(
-    "zalando-crd",
-    cmd="go run ./tests/e2e/setup/install-zalando-crd.go",
-    deps=["tests/e2e/setup/install-zalando-crd.go", "go.mod", "go.sum"],
-    labels=["setup"],
-)
-
-# ---------------------------------------------------------------------------
 # 4. cert-manager
 # ---------------------------------------------------------------------------
 helm_repo("jetstack", "https://charts.jetstack.io", labels=["infra"])
@@ -125,7 +115,7 @@ helm_resource(
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
-    resource_deps=["cert-manager", "prometheus-crds", "postgres-pod-clusterrole", "zalando-crd", "external-crds", "namespaces"],
+    resource_deps=["cert-manager", "prometheus-crds", "postgres-pod-clusterrole", "external-crds", "namespaces"],
     labels=["app"],
 )
 

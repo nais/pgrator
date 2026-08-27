@@ -37,11 +37,8 @@ rules:
   verbs: [create, delete, get, list, patch, update, watch]
 
 # Resources needed for Postgres controller
-- apiGroups: [acid.zalan.do]
-  resources: [postgresqls]
-  verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [postgresql.cnpg.io]
-  resources: [clusters, scheduledbackups, poolers]
+  resources: [clusters, databaseroles, scheduledbackups, poolers]
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [barmancloud.cnpg.io]
   resources: [objectstores]

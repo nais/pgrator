@@ -1,0 +1,22 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: mydb
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    podSelector:
+      matchLabels:
+        cnpg.io/cluster: mydb
