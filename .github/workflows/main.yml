@@ -202,7 +202,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
-        if: github.ref == 'refs/heads/main'
+        if: github.actor != 'dependabot[bot]'
         uses: 'google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093' # ratchet:google-github-actions/auth@v3.0.0
         with:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
@@ -211,7 +211,7 @@ jobs:
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db' # ratchet:google-github-actions/setup-gcloud@v3.0.1
       - name: 'Log in to Google Artifact Registry'
-        if: github.ref == 'refs/heads/main'
+        if: github.actor != 'dependabot[bot]'
         run: |-
           echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://${{ env.GOOGLE_REGISTRY }}
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5.0.1
@@ -230,7 +230,7 @@ jobs:
             helm package "$chart"
           done
       - name: Push Chart
-        if: github.ref == 'refs/heads/main'
+        if: github.actor != 'dependabot[bot]'
         run: |-
           for chart in *.tgz; do
             helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature

@@ -94,13 +94,13 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ 
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating app DatabaseRole spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(appRole, obj, nilConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(appRole, obj, existsConditionGetter, r.Recorder))
 
 	netpol, err := rcnetpol.Create(r.Scheme, obj, rccnpg.ClusterName(obj))
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(netpol, obj, nilConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil
 }
@@ -126,8 +126,4 @@ func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1
 			Message:            fmt.Sprintf("Cluster is in phase: %s", phase),
 		},
 	}
-}
-
-func nilConditionGetter(_ client.Object, _ *runtime.Scheme) []meta_v1.Condition {
-	return nil
 }
