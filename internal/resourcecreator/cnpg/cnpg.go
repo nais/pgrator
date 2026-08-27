@@ -241,18 +241,15 @@ func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfigu
 
 // postInitSQL creates the NOLOGIN group roles globally, before the application
 // database bootstrap grants privileges to them (avoids operator ordering races).
+// postInitSQL runs exactly once at initdb on a fresh cluster, so the roles cannot
+// exist yet and a plain CREATE ROLE is safe (no IF NOT EXISTS / DO block needed;
+// CNPG runs each entry as a single statement and dollar-quoted blocks with inner
+// semicolons break it).
 func postInitSQL() []string {
 	return []string{
-		createRoleIfNotExists(ReadRole),
-		createRoleIfNotExists(ReadWriteRole),
+		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadRole),
+		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
 	}
-}
-
-func createRoleIfNotExists(role string) string {
-	return fmt.Sprintf(
-		"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s NOLOGIN; END IF; END $$;",
-		role, role,
-	)
 }
 
 // postInitApplicationSQL runs as superuser on the application database. It wires
