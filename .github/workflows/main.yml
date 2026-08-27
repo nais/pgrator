@@ -232,8 +232,13 @@ jobs:
       - name: Push Chart
         if: github.actor != 'dependabot[bot]'
         run: |-
+          version='${{ needs.build.outputs.version }}'
           for chart in *.tgz; do
             helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
+            name=$(basename "$chart" "-${version}.tgz")
+            ref="oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/${name}:${version}"
+            echo "::notice title=Chart pushed::${name} ${version} -> ${ref}"
+            echo "- \`${name}\` version \`${version}\` -> \`${ref}\`" >> "$GITHUB_STEP_SUMMARY"
           done
   branch-protection-checkpoint:
     needs: [lint, test, test-chart, chart]
