@@ -33,4 +33,13 @@ object:
         owner: app
     postgresql:
       pg_hba:
+        - hostssl all all ${podselector:pooler} cert map=pooler
         - hostssl all all all cert
+        - hostnossl all all all reject
+      pg_ident:
+        - pooler cnpg_pooler_pgbouncer all
+    podSelectorRefs:
+      - name: pooler
+        selector:
+          matchLabels:
+            cnpg.io/poolerName: mydb-pooler

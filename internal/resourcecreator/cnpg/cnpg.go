@@ -77,6 +77,21 @@ func PoolerName(postgres *v1.Postgres) string {
 	return ClusterName(postgres) + "-pooler"
 }
 
+const (
+	// poolerSelectorName names the pg_hba podSelectorRef covering the pooler pods.
+	poolerSelectorName = "pooler"
+
+	// poolerNameLabel is set by CloudNativePG on pods belonging to a Pooler.
+	poolerNameLabel = "cnpg.io/poolerName"
+
+	// poolerAuthUser is the certificate CN CloudNativePG gives PgBouncer for its
+	// connections to PostgreSQL (pgbouncer's server_tls_cert_file).
+	poolerAuthUser = "cnpg_pooler_pgbouncer"
+
+	// pgIdentMap names the pg_ident map referenced from the pooler pg_hba rule.
+	pgIdentMap = "pooler"
+)
+
 func objectMeta(postgres *v1.Postgres, name string) metav1.ObjectMeta {
 	var annotations map[string]string
 	if postgres.GetCorrelationId() != "" {
@@ -160,10 +175,52 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			PostgresConfiguration: cnpgv1.PostgresConfiguration{
 				Parameters: makePostgresParameters(memory),
 				Extensions: makeExtensions(postgres.Spec.Extensions),
+
+				// Rules are evaluated top to bottom, first match wins.
 				PgHBA: []string{
-					// Certificate authentication for all application clients.
-					// The client certificate CN maps directly to the PostgreSQL role.
+					// PgBouncer terminates TLS, so a client certificate cannot be
+					// forwarded: proving ownership requires the private key, which
+					// never leaves the client. PgBouncer therefore authenticates
+					// the client itself (CN must equal the requested role) and then
+					// opens its own connection as that role, presenting its own
+					// certificate. This rule lets it do so via the pgIdentMap below.
+					//
+					// Restricted to the pooler pod IPs, so possession of the pooler
+					// certificate alone is not enough to impersonate a role.
+					fmt.Sprintf("hostssl all all ${podselector:%s} cert map=%s", poolerSelectorName, pgIdentMap),
+
+					// Certificate authentication for all other clients. Without a
+					// map, PostgreSQL requires the certificate CN to equal the role,
+					// so clients connecting directly prove their own identity.
 					"hostssl all all all cert",
+
+					// CloudNativePG unconditionally appends "host all all all
+					// scram-sha-256" as the final rule, and "host" matches non-TLS
+					// connections too. Without this rule any client could bypass
+					// certificate authentication by connecting with sslmode=disable.
+					"hostnossl all all all reject",
+				},
+
+				// "all" lets the pooler connect as any role, so no entry is needed
+				// per role and bindings never have to mutate this shared Cluster.
+				// The pooler still cannot be reached as an arbitrary role: its own
+				// pg_hba requires the client certificate CN to equal the requested
+				// role, and certificates are only issued through DatabaseRole.
+				PgIdent: []string{
+					fmt.Sprintf("%s %s all", pgIdentMap, poolerAuthUser),
+				},
+			},
+
+			// Resolved by the operator into the current pooler pod IPs and kept
+			// up to date as pods are rescheduled.
+			PodSelectorRefs: []cnpgv1.PodSelectorRef{
+				{
+					Name: poolerSelectorName,
+					Selector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							poolerNameLabel: PoolerName(postgres),
+						},
+					},
 				},
 			},
 
