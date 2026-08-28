@@ -1,0 +1,10 @@
+---
+apiVersion: nais.io/v1
+kind: PostgresBinding
+metadata:
+  name: myapp-mydb
+  namespace: myteam
+spec:
+  postgres: mydb
+  workload: myapp
+  role: admin

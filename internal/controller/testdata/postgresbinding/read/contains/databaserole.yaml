@@ -1,0 +1,14 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: mydb-reporter
+    namespace: myteam
+  spec:
+    name: reporter
+    login: true
+    inRoles:
+      - app_read

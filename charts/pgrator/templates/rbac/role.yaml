@@ -69,6 +69,12 @@ rules:
   resources: [namespaces]
   verbs: [get, list, watch]
 
+# PostgresBinding: read the CloudNativePG cluster CA, write the connection
+# Secrets a workload consumes.
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [create, delete, get, list, patch, update, watch]
+
 # Controller runtime requirements
 - apiGroups: [coordination.k8s.io]
   resources: [leases]

@@ -78,20 +78,37 @@ func ClusterName(postgres *v1.Postgres) string {
 
 // AppRoleName returns the DatabaseRole resource name for the app owner.
 func AppRoleName(postgres *v1.Postgres) string {
-	return ClusterName(postgres) + "-" + OwnerRole
+	return AppRoleNameFor(ClusterName(postgres))
+}
+
+// AppRoleNameFor is AppRoleName for callers that only hold the cluster name.
+func AppRoleNameFor(clusterName string) string {
+	return clusterName + "-" + OwnerRole
 }
 
 // PoolerName returns the CNPG Pooler resource name for a Postgres resource.
 func PoolerName(postgres *v1.Postgres) string {
-	return ClusterName(postgres) + "-pooler"
+	return PoolerNameFor(ClusterName(postgres))
+}
+
+// PoolerNameFor is PoolerName for callers that only hold the cluster name.
+func PoolerNameFor(clusterName string) string {
+	return clusterName + "-pooler"
+}
+
+// CASecretNameFor is the Secret where CloudNativePG keeps the cluster CA. Note
+// that it holds ca.key as well as ca.crt, so it must never be mounted into a
+// workload.
+func CASecretNameFor(clusterName string) string {
+	return clusterName + "-ca"
 }
 
 const (
 	// poolerSelectorName names the pg_hba podSelectorRef covering the pooler pods.
 	poolerSelectorName = "pooler"
 
-	// poolerNameLabel is set by CloudNativePG on pods belonging to a Pooler.
-	poolerNameLabel = "cnpg.io/poolerName"
+	// PoolerNameLabel is set by CloudNativePG on pods belonging to a Pooler.
+	PoolerNameLabel = "cnpg.io/poolerName"
 
 	// poolerAuthUser is the certificate CN CloudNativePG gives PgBouncer for its
 	// connections to PostgreSQL (pgbouncer's server_tls_cert_file).
@@ -245,7 +262,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 					Name: poolerSelectorName,
 					Selector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
-							poolerNameLabel: PoolerName(postgres),
+							PoolerNameLabel: PoolerName(postgres),
 						},
 					},
 				},

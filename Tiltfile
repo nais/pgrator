@@ -186,8 +186,11 @@ helm_resource(
         "--set=aiven.projectVPCID=test-vpc",
         "--set=aiven.metricsDestinationEndpointID=test-endpoint",
         "--set=fasit.tenant.name=test-tenant",
-        "--set=walGsBucket=test-bucket",
-        "--set=cnpg.walBucketPrefix=test-cnpg-bucket",
+        # No Config Connector in kind, so leave the WAL bucket prefix empty. That
+        # switches off the whole Google path (bucket, IAM, Workload Identity,
+        # barman-cloud) instead of failing on a missing project ID.
+        "--set=cnpg.walBucketPrefix=",
+        "--set=cnpg.walBucketNamespace=",
         # kind has no hyperdisk-balanced; empty means "use the cluster default"
         # (and is a known key in minimumDiskPerStorageClass).
         "--set=cnpg.storageClass=",

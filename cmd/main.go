@@ -96,6 +96,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	postgresBindingReconciler := &controller.PostgresBindingReconciler{
+		Recorder: recorder,
+		Scheme:   scheme,
+	}
+	postgresBindingController := synchronizer.NewSynchronizer(
+		mgr.GetClient(), mgr.GetScheme(), postgresBindingReconciler, recorder)
+	if err := postgresBindingController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "postgresbinding")
+		os.Exit(1)
+	}
+
 	valkeyReconciler := &controller.ValkeyReconciler{
 		Aiven:    cfg.Aiven,
 		Tenant:   cfg.Tenant,

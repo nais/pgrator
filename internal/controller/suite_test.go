@@ -37,9 +37,10 @@ var (
 	recorder  events.Recorder
 
 	// Golden test instances
-	postgresGolden   *golden.Golden[*v1.Postgres, PostgresPreparedData]
-	valkeyGolden     *golden.Golden[*v1.Valkey, ValkeyPreparedData]
-	opensearchGolden *golden.Golden[*v1.OpenSearch, OpenSearchPreparedData]
+	postgresGolden        *golden.Golden[*v1.Postgres, PostgresPreparedData]
+	postgresBindingGolden *golden.Golden[*v1.PostgresBinding, PostgresBindingPreparedData]
+	valkeyGolden          *golden.Golden[*v1.Valkey, ValkeyPreparedData]
+	opensearchGolden      *golden.Golden[*v1.OpenSearch, OpenSearchPreparedData]
 )
 
 func TestControllers(t *testing.T) {
@@ -54,6 +55,11 @@ func TestControllers(t *testing.T) {
 	}
 	postgresReconciler := &PostgresReconciler{
 		Config:   &postgresConfig,
+		Recorder: recorder,
+		Scheme:   scheme.Scheme,
+	}
+
+	postgresBindingReconciler := &PostgresBindingReconciler{
 		Recorder: recorder,
 		Scheme:   scheme.Scheme,
 	}
@@ -91,6 +97,13 @@ func TestControllers(t *testing.T) {
 		func(cfg config.Config) { *postgresReconciler.Config = cfg },
 	)
 	postgresGolden.DefineTests()
+
+	postgresBindingGolden = golden.NewGolden(t, postgresBindingReconciler,
+		filepath.Join(testDataDir, "postgresbinding"),
+		config.Config{},
+		func(config.Config) {},
+	)
+	postgresBindingGolden.DefineTests()
 
 	valkeyGolden = golden.NewGolden(t, valkeyReconciler, valkeyTestDataDir,
 		config.Config{
@@ -169,6 +182,9 @@ var _ = BeforeSuite(func() {
 	Expect(recorder).NotTo(BeNil())
 
 	err = postgresGolden.ParseData(k8sClient.Scheme())
+	Expect(err).NotTo(HaveOccurred())
+
+	err = postgresBindingGolden.ParseData(k8sClient.Scheme())
 	Expect(err).NotTo(HaveOccurred())
 
 	err = valkeyGolden.ParseData(k8sClient.Scheme())

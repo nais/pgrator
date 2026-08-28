@@ -1,0 +1,10 @@
+---
+apiVersion: nais.io/v1
+kind: PostgresBinding
+metadata:
+  name: reporter-mydb
+  namespace: myteam
+spec:
+  postgres: mydb
+  workload: reporter
+  role: read
