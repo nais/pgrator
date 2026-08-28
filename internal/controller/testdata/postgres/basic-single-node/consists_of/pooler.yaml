@@ -1,4 +1,3 @@
----
 action: createOrUpdate
 matcher: Subset
 object:
@@ -21,5 +20,17 @@ object:
       name: mydb
     type: rw
     instances: 2
+    template:
+      metadata:
+        labels:
+          apiserver-access: enabled
+      spec:
+        containers:
+          - name: pgbouncer
+        tolerations:
+          - effect: NoSchedule
+            key: dedicated
+            operator: Equal
+            value: postgres
     pgbouncer:
       poolMode: transaction
