@@ -192,8 +192,6 @@ All configuration is read at startup by `internal/config/config.go` via `sethvar
 | `AIVEN_METRICS_DESTINATION_ENDPOINT_ID` | **yes**  | Aiven metrics endpoint                                |
 | `TENANT_NAME`                           | **yes**  | Tenant/cluster name                                   |
 | `GOOGLE_PROJECT_ID`                     | no       | GCP project for IAM resources                         |
-| `POSTGRES_STORAGE_CLASS`                | no       | StorageClass for Postgres PVCs                        |
-| `POSTGRES_IMAGE`                        | no       | Docker image for Spilo (Postgres pod)                 |
 | `WAL_GS_BUCKET`                         | no       | GCS bucket for WAL archiving                          |
 | `METRICS_CERT_PATH`                     | no       | Dir containing `tls.crt`/`tls.key` for metrics server |
 | `DRY_RUN`                               | no       | Enable dry-run mode on the K8s client                 |

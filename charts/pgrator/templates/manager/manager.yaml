@@ -37,14 +37,6 @@ spec:
               value: {{ .Values.google.location }}
             - name: API_SERVER_IP
               value: {{ .Values.apiServerIP }}
-            - name: POSTGRES_STORAGE_CLASS
-              value: {{ .Values.postgresStorageClass }}
-            - name: POSTGRES_IMAGE
-              valueFrom:
-                configMapKeyRef:
-                  key: postgres_image
-                  name: postgres-image
-                  optional: true
             - name: AIVEN_PROJECT
               value: {{ .Values.aiven.project | quote }}
             - name: AIVEN_PROJECT_VPC_ID

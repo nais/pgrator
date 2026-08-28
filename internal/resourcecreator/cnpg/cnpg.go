@@ -167,6 +167,13 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 				},
 			},
 
+			Certificates: &cnpgv1.CertificatesConfiguration{
+				// The pooler fronts the cluster under its own service name, so the
+				// server certificate must cover it or clients using
+				// sslmode=verify-full are rejected on hostname mismatch.
+				ServerAltDNSNames: poolerAltDNSNames(postgres),
+			},
+
 			Bootstrap: &cnpgv1.BootstrapConfiguration{
 				InitDB: &cnpgv1.BootstrapInitDB{
 					Database:               DatabaseName,
@@ -297,6 +304,17 @@ func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler
 			},
 			PgBouncer: &cnpgv1.PgBouncerSpec{
 				PoolMode: cnpgv1.PgBouncerPoolModeTransaction,
+				// PgBouncer terminates the client connection and authenticates the
+				// client itself, so it needs its own cert rule; without this it
+				// falls back to asking for a password.
+				PgHBA: []string{
+					"hostssl all all all cert",
+				},
+				Parameters: map[string]string{
+					// Required for client certificate validation; CNPG defaults to
+					// "prefer", which does not request a client certificate.
+					"client_tls_sslmode": "verify-ca",
+				},
 			},
 		},
 	}
@@ -379,5 +397,18 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 		// these prefixed parameters. Audit is always on with sane defaults.
 		"pg_stat_statements.track": "all",
 		"pgaudit.log":              strings.Join([]string{"write", "ddl", "role"}, ","),
+	}
+}
+
+// poolerAltDNSNames returns the DNS names the pooler service is reachable by,
+// so they can be included in the cluster's server certificate.
+func poolerAltDNSNames(postgres *v1.Postgres) []string {
+	name := PoolerName(postgres)
+	ns := postgres.GetNamespace()
+	return []string{
+		name,
+		fmt.Sprintf("%s.%s", name, ns),
+		fmt.Sprintf("%s.%s.svc", name, ns),
+		fmt.Sprintf("%s.%s.svc.cluster.local", name, ns),
 	}
 }

@@ -89,8 +89,8 @@ jobs:
       - name: Commit documentation to nais/doc
         working-directory: naisdoc
         run: |
-          cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
-          cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

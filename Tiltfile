@@ -73,6 +73,12 @@ helm_repo("prometheus-community", "https://prometheus-community.github.io/helm-c
 helm_resource(
     "prometheus-crds",
     "prometheus-community/prometheus-operator-crds",
+    # Pin the namespace explicitly: without it, Helm uses whatever namespace
+    # happens to be ambient in the kubectl context. If that drifts between
+    # `tilt up` runs (e.g. after `kubens`), Helm refuses to reconcile the
+    # release because the CRDs' meta.helm.sh/release-namespace annotation
+    # no longer matches, breaking restarts.
+    namespace="default",
     pod_readiness="ignore",
     resource_deps=["prometheus-community"],
     labels=["infra"],

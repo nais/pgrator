@@ -1,4 +1,3 @@
-postgresStorageClass: ""
 walGsBucket: ""
 apiServerIP: ""
 dryRun: false
