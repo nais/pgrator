@@ -73,6 +73,28 @@ helm_resource(
 )
 
 # ---------------------------------------------------------------------------
+# 5b. CloudNativePG operator
+#
+# Without this only the CRDs exist, so pgrator's Cluster/Pooler/DatabaseRole
+# objects would be created but never reconciled into actual Postgres pods.
+# The chart ships its own CRDs; external-crds (applied above) keeps envtest and
+# the golden tests working and is harmless here.
+# ---------------------------------------------------------------------------
+helm_repo("cnpg", "https://cloudnative-pg.github.io/charts", labels=["infra"])
+
+helm_resource(
+    "cloudnative-pg",
+    "cnpg/cloudnative-pg",
+    namespace="cnpg-system",
+    flags=[
+        "--create-namespace",
+        "--timeout=300s",
+    ],
+    resource_deps=["cnpg"],
+    labels=["infra"],
+)
+
+# ---------------------------------------------------------------------------
 # 6. Prerequisite namespaces
 # ---------------------------------------------------------------------------
 namespace_create("serviceaccounts")
@@ -90,6 +112,34 @@ k8s_resource(
 local_resource(
     "postgres-pod-clusterrole",
     cmd="kubectl create clusterrole postgres-pod-additional --verb=get,list --resource=pods --dry-run=client -o yaml | kubectl apply -f -",
+    labels=["setup"],
+)
+
+# ---------------------------------------------------------------------------
+# 7b. ClusterImageCatalog
+#
+# pgrator references this catalog by name (cnpg.imageCatalogName) and resolves
+# the image from spec.majorVersion. Without it the Cluster cannot pick an image.
+# We use the "standard" images: unlike "minimal" they bundle pgaudit, which is
+# required because pgaudit.log is always set in the generated parameters.
+# ---------------------------------------------------------------------------
+local_resource(
+    "cluster-image-catalog",
+    cmd="""kubectl apply --server-side -f - <<'EOF'
+apiVersion: postgresql.cnpg.io/v1
+kind: ClusterImageCatalog
+metadata:
+  name: cloudnative-image-catalog
+spec:
+  images:
+    - major: 18
+      image: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
+    - major: 17
+      image: ghcr.io/cloudnative-pg/postgresql:17-standard-trixie
+    - major: 16
+      image: ghcr.io/cloudnative-pg/postgresql:16-standard-trixie
+EOF""",
+    resource_deps=["cloudnative-pg"],
     labels=["setup"],
 )
 
@@ -112,10 +162,16 @@ helm_resource(
         "--set=fasit.tenant.name=test-tenant",
         "--set=walGsBucket=test-bucket",
         "--set=cnpg.walBucketPrefix=test-cnpg-bucket",
+        # kind has no hyperdisk-balanced; empty means "use the cluster default"
+        # (and is a known key in minimumDiskPerStorageClass).
+        "--set=cnpg.storageClass=",
+        # kube-apiserver ClusterIP in kind, so the CNPG instance manager is
+        # allowed egress to the API server by the generated NetworkPolicy.
+        "--set=apiServerIP=10.96.0.1/32",
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
-    resource_deps=["cert-manager", "prometheus-crds", "postgres-pod-clusterrole", "external-crds", "namespaces"],
+    resource_deps=["cert-manager", "prometheus-crds", "cloudnative-pg", "cluster-image-catalog", "postgres-pod-clusterrole", "external-crds", "namespaces"],
     labels=["app"],
 )
 

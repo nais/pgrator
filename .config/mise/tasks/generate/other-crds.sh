@@ -12,10 +12,11 @@ AIVEN_FILES=(
   aiven.io_valkeys.yaml
 )
 
-CLOUDNATIVE_PG_VERSION="v1.28.2"
+CLOUDNATIVE_PG_VERSION="v1.30.0"
 CLOUDNATIVE_PG_BASE_URL="https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/refs/tags/${CLOUDNATIVE_PG_VERSION}/config/crd/bases/"
 CLOUDNATIVE_PG_FILES=(
   postgresql.cnpg.io_clusters.yaml
+  postgresql.cnpg.io_databaseroles.yaml
   postgresql.cnpg.io_poolers.yaml
   postgresql.cnpg.io_scheduledbackups.yaml
 )
