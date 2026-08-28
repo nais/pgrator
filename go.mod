@@ -8,6 +8,7 @@ tool (
 )
 
 require (
+	github.com/cloudnative-pg/barman-cloud v0.5.2-0.20260720143032-950b0f57e122
 	github.com/cloudnative-pg/cloudnative-pg v1.30.0
 	github.com/cloudnative-pg/plugin-barman-cloud v0.14.0
 	github.com/ghodss/yaml v1.0.0
@@ -39,7 +40,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/braydonk/yaml v0.9.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudnative-pg/barman-cloud v0.5.2-0.20260720143032-950b0f57e122 // indirect
 	github.com/cloudnative-pg/cnpg-i v0.6.0 // indirect
 	github.com/cloudnative-pg/machinery v0.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
