@@ -1,6 +1,6 @@
-// Package cnpg builds CloudNativePG resources (Cluster, DatabaseRole) for the
-// nais.io/v1 Postgres type. It is deliberately self-contained: no Google IAM,
-// WAL/barman, pooler or monitoring wiring lives here yet.
+// Package cnpg builds CloudNativePG resources (Cluster, DatabaseRole, Pooler) for
+// the nais.io/v1 Postgres type. It is deliberately self-contained: no Google IAM,
+// WAL/barman or monitoring wiring lives here yet.
 package cnpg
 
 import (
@@ -33,6 +33,7 @@ const (
 
 	defaultInstances = 2
 	haInstances      = 3
+	poolerInstances  = int32(2)
 
 	computeClass      = "n4-machines"
 	nameLabel         = "postgres.nais.io/name"
@@ -69,6 +70,11 @@ func ClusterName(postgres *v1.Postgres) string {
 // AppRoleName returns the DatabaseRole resource name for the app owner.
 func AppRoleName(postgres *v1.Postgres) string {
 	return ClusterName(postgres) + "-" + OwnerRole
+}
+
+// PoolerName returns the CNPG Pooler resource name for a Postgres resource.
+func PoolerName(postgres *v1.Postgres) string {
+	return ClusterName(postgres) + "-pooler"
 }
 
 func objectMeta(postgres *v1.Postgres, name string) metav1.ObjectMeta {
@@ -229,6 +235,76 @@ func CreateAppRole(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Datab
 		return nil, fmt.Errorf("setting controller reference on DatabaseRole: %w", err)
 	}
 	return role, nil
+}
+
+// CreatePooler builds a PgBouncer connection Pooler for the cluster's primary
+// (read-write). Pooling uses transaction mode; authentication to Postgres remains
+// certificate-based (OAUTHBEARER is not used), so no OAuth pass-through is needed.
+func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler, error) {
+	pooler := &cnpgv1.Pooler{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pooler",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: objectMeta(postgres, PoolerName(postgres)),
+		Spec: cnpgv1.PoolerSpec{
+			Cluster:   cnpgv1.LocalObjectReference{Name: ClusterName(postgres)},
+			Type:      cnpgv1.PoolerTypeRW,
+			Instances: ptr.To(poolerInstances),
+			Template: &cnpgv1.PodTemplateSpec{
+				ObjectMeta: cnpgv1.Metadata{
+					Labels: map[string]string{"apiserver-access": "enabled"},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							// The container name must be "pgbouncer".
+							Name: "pgbouncer",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("50Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("100Mi"),
+								},
+							},
+						},
+					},
+					NodeSelector: map[string]string{
+						"cloud.google.com/compute-class": computeClass,
+					},
+					Affinity: &corev1.Affinity{
+						PodAntiAffinity: &corev1.PodAntiAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+								{
+									LabelSelector: &metav1.LabelSelector{
+										MatchExpressions: []metav1.LabelSelectorRequirement{
+											{
+												Key:      "cnpg.io/podRole",
+												Operator: metav1.LabelSelectorOpIn,
+												Values:   []string{"pooler"},
+											},
+										},
+									},
+									TopologyKey: "kubernetes.io/hostname",
+								},
+							},
+						},
+					},
+					Tolerations: []corev1.Toleration{dedicatedPostgresToleration},
+				},
+			},
+			PgBouncer: &cnpgv1.PgBouncerSpec{
+				PoolMode: cnpgv1.PgBouncerPoolModeTransaction,
+			},
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(postgres, pooler, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Pooler: %w", err)
+	}
+	return pooler, nil
 }
 
 func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {

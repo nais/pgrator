@@ -22,7 +22,8 @@ import (
 )
 
 // PostgresReconciler reconciles a nais.io/v1 Postgres object into a CloudNativePG
-// Cluster, an app-owner DatabaseRole (cert auth), and a NetworkPolicy.
+// Cluster, an app-owner DatabaseRole (cert auth), a PgBouncer Pooler, and a
+// NetworkPolicy.
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
@@ -62,6 +63,7 @@ func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 			},
 		},
 		{Type: &cnpgv1.DatabaseRole{}},
+		{Type: &cnpgv1.Pooler{}},
 		{Type: &networking_v1.NetworkPolicy{}},
 	}
 }
@@ -96,6 +98,12 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ 
 	}
 	actions = append(actions, action.CreateOrUpdate(appRole, obj, existsConditionGetter, r.Recorder))
 
+	pooler, err := rccnpg.CreatePooler(r.Scheme, obj)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)
+	}
+	actions = append(actions, action.CreateOrUpdate(pooler, obj, existsConditionGetter, r.Recorder))
+
 	netpol, err := rcnetpol.Create(r.Scheme, obj, rccnpg.ClusterName(obj), r.Config.APIServerIP)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
@@ -106,7 +114,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ 
 }
 
 // Delete relies on ownerReference garbage collection to remove the owned Cluster,
-// DatabaseRole and NetworkPolicy when the Postgres resource is deleted.
+// DatabaseRole, Pooler and NetworkPolicy when the Postgres resource is deleted.
 func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	return nil, ctrl.Result{}, nil
 }
