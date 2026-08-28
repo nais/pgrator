@@ -2,9 +2,9 @@ dependencies:
   - allOf:
       - aiven-operator
       - cert-manager
+      - cloudnative-image-catalog
+      - cloudnative-pg
       - monitoring-crds
-      - postgres-operator
-      - postgres-image
 environmentKinds:
   - tenant
 values:
