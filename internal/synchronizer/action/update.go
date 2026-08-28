@@ -31,8 +31,9 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 		return fmt.Errorf("internal error: %w", err)
 	}
 
+	existingObj := existing.(client.Object)
 	key := client.ObjectKeyFromObject(a.obj)
-	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+	if err = c.Get(ctx, key, existingObj); err != nil {
 		return err
 	}
 
@@ -45,7 +46,9 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	}
 	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
-	for _, condition := range a.conditionGetter(a.obj, scheme) {
+	// Use the previously fetched object for conditions: it carries the live
+	// status subresource, which c.Update() does not return.
+	for _, condition := range a.conditionGetter(existingObj, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 
