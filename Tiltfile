@@ -32,11 +32,17 @@ docker_build(
 )
 
 # ---------------------------------------------------------------------------
-# 2. External CRDs (CNPG, Aiven, IAM, etc.)
+# 2. External CRDs (Aiven, Google IAM, barman plugin)
+#
+# postgresql.cnpg.io CRDs are deliberately excluded: the CloudNativePG Helm
+# chart installs and owns those, and Helm refuses to adopt resources created by
+# kubectl (missing app.kubernetes.io/managed-by + meta.helm.sh annotations).
+# The chart also ships CRDs this directory lacks, e.g. ClusterImageCatalog.
+# The full directory is still used as-is by envtest in the controller tests.
 # ---------------------------------------------------------------------------
 local_resource(
     "external-crds",
-    cmd="kubectl apply --server-side -f internal/controller/testdata/external-crds/",
+    cmd="find internal/controller/testdata/external-crds -name '*.yaml' ! -name 'postgresql.cnpg.io_*' -exec kubectl apply --server-side -f {} ';'",
     deps=["internal/controller/testdata/external-crds"],
     labels=["setup"],
 )
@@ -77,15 +83,16 @@ helm_resource(
 #
 # Without this only the CRDs exist, so pgrator's Cluster/Pooler/DatabaseRole
 # objects would be created but never reconciled into actual Postgres pods.
-# The chart ships its own CRDs; external-crds (applied above) keeps envtest and
-# the golden tests working and is harmless here.
+# This chart owns all postgresql.cnpg.io CRDs (see the external-crds note).
 # ---------------------------------------------------------------------------
 helm_repo("cnpg", "https://cloudnative-pg.github.io/charts", labels=["infra"])
 
 helm_resource(
     "cloudnative-pg",
     "cnpg/cloudnative-pg",
-    namespace="cnpg-system",
+    # nais-system, not cnpg-system: the generated NetworkPolicy only allows
+    # operator ingress from namespace nais-system, matching production.
+    namespace="nais-system",
     flags=[
         "--create-namespace",
         "--timeout=300s",
@@ -112,6 +119,19 @@ k8s_resource(
 local_resource(
     "postgres-pod-clusterrole",
     cmd="kubectl create clusterrole postgres-pod-additional --verb=get,list --resource=pods --dry-run=client -o yaml | kubectl apply -f -",
+    labels=["setup"],
+)
+
+# ---------------------------------------------------------------------------
+# 7a. Node placement
+#
+# Postgres and pooler pods carry the GKE nodeSelector cloud.google.com/
+# compute-class=n4-machines. Label the kind node so they can schedule.
+# The dedicated=postgres toleration needs no matching taint.
+# ---------------------------------------------------------------------------
+local_resource(
+    "node-placement-labels",
+    cmd="kubectl label nodes --all cloud.google.com/compute-class=n4-machines --overwrite",
     labels=["setup"],
 )
 
@@ -171,7 +191,7 @@ helm_resource(
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
-    resource_deps=["cert-manager", "prometheus-crds", "cloudnative-pg", "cluster-image-catalog", "postgres-pod-clusterrole", "external-crds", "namespaces"],
+    resource_deps=["cert-manager", "prometheus-crds", "cloudnative-pg", "cluster-image-catalog", "node-placement-labels", "postgres-pod-clusterrole", "external-crds", "namespaces"],
     labels=["app"],
 )
 
