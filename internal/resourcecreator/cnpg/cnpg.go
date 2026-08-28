@@ -1,6 +1,7 @@
-// Package cnpg builds CloudNativePG resources (Cluster, DatabaseRole, Pooler) for
-// the nais.io/v1 Postgres type. It is deliberately self-contained: no Google IAM,
-// WAL/barman or monitoring wiring lives here yet.
+// Package cnpg builds CloudNativePG resources (Cluster, DatabaseRole, Pooler,
+// ScheduledBackup) for the nais.io/v1 Postgres type. WAL archiving to Google
+// Cloud Storage is wired in via the barman-cloud plugin and GKE Workload
+// Identity; see the storage and iam packages for the surrounding resources.
 package cnpg
 
 import (
@@ -38,6 +39,14 @@ const (
 	computeClass      = "n4-machines"
 	nameLabel         = "postgres.nais.io/name"
 	memoryLimitFactor = 4
+
+	// BarmanPluginName is the CNPG-I plugin that performs WAL archiving and base
+	// backups against an ObjectStore.
+	BarmanPluginName = "barman-cloud.cloudnative-pg.io"
+
+	// workloadIdentityAnnotation binds a Kubernetes service account to a Google
+	// service account on GKE.
+	workloadIdentityAnnotation = "iam.gke.io/gcp-service-account"
 
 	// PostgreSQL memory tuning ratios.
 	sharedBuffersFraction      = 4
@@ -121,11 +130,29 @@ func enforceMinimumDisk(diskSize resource.Quantity, storageClass string) (resour
 	return diskSize, nil
 }
 
+// WALArchive describes the Google-backed WAL archive for a cluster. It is empty
+// when WAL archiving is disabled (for instance in local development, where no
+// Config Connector is available), in which case neither Workload Identity nor
+// the barman-cloud plugin is configured.
+type WALArchive struct {
+	// GSAName is the Google service account impersonated through Workload Identity.
+	GSAName string
+	// TeamProjectID is the Google project owning the service account.
+	TeamProjectID string
+	// BucketName is the barman-cloud ObjectStore (and bucket) name.
+	BucketName string
+}
+
+// Enabled reports whether WAL archiving should be wired into the cluster.
+func (w WALArchive) Enabled() bool {
+	return w.BucketName != ""
+}
+
 // CreateCluster builds the CNPG Cluster for a Postgres resource. Authentication
 // is certificate-based (hostssl ... cert); the durable app owner is created by
 // InitDB with superuser access disabled, and bootstrap SQL pre-creates the
 // app_read/app_readwrite group roles and their default privileges.
-func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config) (*cnpgv1.Cluster, error) {
+func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive) (*cnpgv1.Cluster, error) {
 	instances := defaultInstances
 	minSync, maxSync := 0, 0
 	if postgres.Spec.HighAvailability {
@@ -268,10 +295,62 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 		},
 	}
 
+	if wal.Enabled() {
+		// Bind the instance pods' service account to the Google service account so
+		// barman-cloud can reach the bucket with a metadata-server OAuth token.
+		cluster.Spec.ServiceAccountTemplate = &cnpgv1.ServiceAccountTemplate{
+			Metadata: cnpgv1.Metadata{
+				Annotations: map[string]string{
+					workloadIdentityAnnotation: fmt.Sprintf("%s@%s.iam.gserviceaccount.com", wal.GSAName, wal.TeamProjectID),
+				},
+			},
+		}
+
+		cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
+			{
+				Name:          BarmanPluginName,
+				Enabled:       ptr.To(true),
+				IsWALArchiver: ptr.To(true),
+				Parameters: map[string]string{
+					"barmanObjectName": wal.BucketName,
+				},
+			},
+		}
+	}
+
 	if err := controllerutil.SetControllerReference(postgres, cluster, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on Cluster: %w", err)
 	}
 	return cluster, nil
+}
+
+// CreateScheduledBackup schedules a nightly base backup taken from a standby, so
+// the primary is left alone. Backups go through the barman-cloud plugin to the
+// same ObjectStore as the WAL archive.
+func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.ScheduledBackup, error) {
+	backup := &cnpgv1.ScheduledBackup{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ScheduledBackup",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: objectMeta(postgres, ClusterName(postgres)),
+		Spec: cnpgv1.ScheduledBackupSpec{
+			// Daily at 02:00.
+			Schedule:             "0 0 2 * * *",
+			Cluster:              cnpgv1.LocalObjectReference{Name: ClusterName(postgres)},
+			BackupOwnerReference: "cluster",
+			Target:               cnpgv1.BackupTargetStandby,
+			Method:               cnpgv1.BackupMethodPlugin,
+			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
+				Name: BarmanPluginName,
+			},
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(postgres, backup, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on ScheduledBackup: %w", err)
+	}
+	return backup, nil
 }
 
 // CreateAppRole builds the DatabaseRole that adopts the durable InitDB-created
