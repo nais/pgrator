@@ -47,5 +47,5 @@ mise run generate
 ## Common Pitfalls
 
 - **RBAC in Helm chart**: When adding new resource types to a controller (e.g. PodMonitor), update `charts/pgrator/templates/rbac/role.yaml` — the E2E will fail with `is forbidden` errors otherwise
-- **Golden test config**: The controller test suite in `suite_test.go` has config flags (e.g. `PrometheusRulesDisabled`) that gate which actions are produced. Golden test expectations must align with these flags
+- **Golden test config**: The controller test suite in `suite_test.go` has config flags that gate which actions are produced. Golden test expectations must align with these flags
 - **Two Go modules**: Root `/` and `pkg/api/` have separate `go.mod` files — dependency updates and linting run independently for each

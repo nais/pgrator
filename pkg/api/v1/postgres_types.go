@@ -41,7 +41,11 @@ type PostgresSpec struct {
 	// +kubebuilder:validation:Enum="18";"17";"16"
 	MajorVersion string `json:"majorVersion"`
 
-	// HighAvailability runs the cluster with multiple instances when true.
+	// HighAvailability adds a third instance and enables synchronous replication.
+	//
+	// A cluster always runs a primary and a standby, so failover is available either
+	// way. What this adds is the guarantee that an acknowledged commit survives
+	// losing the primary, at the cost of write latency.
 	// +optional
 	HighAvailability bool `json:"highAvailability,omitempty"`
 

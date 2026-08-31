@@ -70,7 +70,12 @@ spec:
                     type: object
                   type: array
                 highAvailability:
-                  description: HighAvailability runs the cluster with multiple instances when true.
+                  description: |-
+                    HighAvailability adds a third instance and enables synchronous replication.
+
+                    A cluster always runs a primary and a standby, so failover is available either
+                    way. What this adds is the guarantee that an acknowledged commit survives
+                    losing the primary, at the cost of write latency.
                   type: boolean
                 majorVersion:
                   description: MajorVersion of Postgres to use.

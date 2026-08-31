@@ -32,6 +32,10 @@ const (
 	ReadRole      = "app_read"
 	ReadWriteRole = "app_readwrite"
 
+	// Every cluster runs a primary and a warm standby, so a lost node or a drained
+	// pod fails over instead of taking the database down. HighAvailability adds a
+	// third instance and turns on synchronous replication, which trades write
+	// latency for a guarantee that no acknowledged commit is lost on failover.
 	defaultInstances = 2
 	haInstances      = 3
 	poolerInstances  = int32(2)

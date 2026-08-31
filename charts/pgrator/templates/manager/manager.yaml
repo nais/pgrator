@@ -47,10 +47,6 @@ spec:
               value: {{ .Values.fasit.tenant.name }}
             - name: LEADER_ELECTION_ENABLED
               value: {{ .Values.controllerManager.leaderElection.enable | quote }}
-            {{- if .Values.walGsBucket }}
-            - name: WAL_GS_BUCKET
-              value: {{ .Values.walGsBucket }}
-            {{- end }}
             {{- if .Values.resyncIAMPermissions }}
             - name: RESYNC_IAM_PERMISSIONS
               value: "{{ .Values.resyncIAMPermissions }}"

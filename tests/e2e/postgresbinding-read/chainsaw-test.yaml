@@ -1,0 +1,146 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgresbinding-read
+spec:
+  description: >-
+    A read binding gets its own login role limited to app_read, the two Secrets a
+    workload needs, and a NetworkPolicy to the pooler. Deleting the binding takes
+    all of it away again while the database itself is untouched.
+  steps:
+    - name: Create Postgres
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                majorVersion: "18"
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb
+
+    - name: Create a read binding
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: rapport-mydb
+              spec:
+                postgres: mydb
+                workload: rapport
+                role: read
+
+    - name: Role is a login role that only inherits app_read
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport
+              spec:
+                name: rapport
+                login: true
+                inRoles:
+                  - app_read
+                # The binding is the grant, so withdrawing it drops the role.
+                databaseRoleReclaimPolicy: delete
+                clientCertificate:
+                  enabled: true
+
+    - name: Connection Secret points at the pooler with the binding's own identity
+      try:
+        - script:
+            content: |
+              set -eu
+              get() { kubectl get secret postgres-mydb-rapport -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+              test "$(get PGUSER)"     = "rapport"
+              test "$(get PGHOST)"     = "mydb-pooler.$NAMESPACE"
+              test "$(get PGDATABASE)" = "app"
+              test "$(get PGSSLMODE)"  = "verify-full"
+              test "$(get PGSSLCERT)"  = "/var/run/secrets/nais.io/postgres/client/tls.crt"
+              test "$(get PGSSLROOTCERT)" = "/var/run/secrets/nais.io/postgres/ca/ca.crt"
+
+    - name: CA Secret carries the certificate but never the CA private key
+      try:
+        - script:
+            content: |
+              set -eu
+              keys=$(kubectl get secret postgres-mydb-rapport-ca -n "$NAMESPACE" \
+                       -o jsonpath='{.data}' | tr ',' '\n')
+              echo "$keys" | grep -q 'ca\.crt'
+              # The CloudNativePG CA Secret also holds ca.key, which would let a
+              # workload mint certificates for any role. It must not be copied.
+              ! echo "$keys" | grep -q 'ca\.key'
+
+    - name: CloudNativePG issues the client certificate for the role
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: mydb-rapport-client-cert
+              type: kubernetes.io/tls
+
+    - name: NetworkPolicy opens the workload's path to the pooler
+      try:
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport
+              spec:
+                podSelector:
+                  matchLabels:
+                    cnpg.io/poolerName: mydb-pooler
+
+    - name: Deleting the binding withdraws the access
+      try:
+        - delete:
+            ref:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              name: rapport-mydb
+        - error:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: postgres-mydb-rapport
+        - error:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport
+
+    - name: The database and its owner role survive
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-app
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb

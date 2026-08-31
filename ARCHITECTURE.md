@@ -192,11 +192,9 @@ All configuration is read at startup by `internal/config/config.go` via `sethvar
 | `AIVEN_METRICS_DESTINATION_ENDPOINT_ID` | **yes**  | Aiven metrics endpoint                                |
 | `TENANT_NAME`                           | **yes**  | Tenant/cluster name                                   |
 | `GOOGLE_PROJECT_ID`                     | no       | GCP project for IAM resources                         |
-| `WAL_GS_BUCKET`                         | no       | GCS bucket for WAL archiving                          |
 | `METRICS_CERT_PATH`                     | no       | Dir containing `tls.crt`/`tls.key` for metrics server |
 | `DRY_RUN`                               | no       | Enable dry-run mode on the K8s client                 |
 | `LEADER_ELECTION_ENABLED`               | no       | Enable leader election                                |
-| `PROMETHEUS_RULES_DISABLED`             | no       | Disable PrometheusRule creation                       |
 | `RESYNC_IAM_PERMISSIONS`                | no       | Allow recreating IAMPolicyMember resources            |
 
 Helm chart exposes most of these via `charts/pgrator/values.yaml`.

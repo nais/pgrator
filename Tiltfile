@@ -120,15 +120,6 @@ k8s_resource(
 )
 
 # ---------------------------------------------------------------------------
-# 7. ClusterRole
-# ---------------------------------------------------------------------------
-local_resource(
-    "postgres-pod-clusterrole",
-    cmd="kubectl create clusterrole postgres-pod-additional --verb=get,list --resource=pods --dry-run=client -o yaml | kubectl apply -f -",
-    labels=["setup"],
-)
-
-# ---------------------------------------------------------------------------
 # 7a. Node placement
 #
 # Postgres and pooler pods carry the GKE nodeSelector cloud.google.com/
@@ -200,7 +191,7 @@ helm_resource(
     ],
     image_deps=["pgrator"],
     image_keys=[("controllerManager.container.image.repository", "controllerManager.container.image.tag")],
-    resource_deps=["cert-manager", "prometheus-crds", "cloudnative-pg", "cluster-image-catalog", "node-placement-labels", "postgres-pod-clusterrole", "external-crds", "namespaces"],
+    resource_deps=["cert-manager", "prometheus-crds", "cloudnative-pg", "cluster-image-catalog", "node-placement-labels", "external-crds", "namespaces"],
     labels=["app"],
 )
 

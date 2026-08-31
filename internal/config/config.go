@@ -24,9 +24,8 @@ type Config struct {
 	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
 	Development bool `env:"DEVELOPMENT" yaml:"development"`
 
-	LeaderElectionEnabled   bool `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
-	PrometheusRulesDisabled bool `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
-	ResyncIAMPermissions    bool `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
+	LeaderElectionEnabled bool `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
+	ResyncIAMPermissions  bool `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
 
 	Aiven  Aiven  `yaml:"aiven"`
 	Tenant Tenant `yaml:"tenant"`

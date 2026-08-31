@@ -133,9 +133,18 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData
 // Delete relies on ownerReference garbage collection. Everything a binding creates
 // lives in the binding's own namespace, so there is nothing to clean up by hand.
 //
-// Note that deleting the DatabaseRole only drops the database role; any objects it
-// owns are left behind, and CloudNativePG will fail the DROP ROLE if the role still
-// owns anything. Read and readwrite roles never own objects, so this is fine today.
+// This is destructive by design: read and readwrite DatabaseRoles carry
+// databaseRoleReclaimPolicy: delete, so removing a binding runs DROP ROLE and
+// revokes that workload's access immediately. That is the intent — a binding is the
+// grant, so withdrawing it must withdraw the access.
+//
+// Admin bindings are exempt. They never own a DatabaseRole (see
+// binding.CreateDatabaseRole), so deleting one removes only the Secrets and the
+// NetworkPolicy; the durable owner role survives with its data intact.
+//
+// DROP ROLE fails if the role still owns objects. Read and readwrite roles never
+// create objects, so this does not bite today, but a future writable role that owns
+// tables would need ownership reassigned before its binding can be deleted.
 func (r *PostgresBindingReconciler) Delete(_ *v1.PostgresBinding, _ PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	return nil, ctrl.Result{}, nil
 }
