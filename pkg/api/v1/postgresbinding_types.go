@@ -10,6 +10,9 @@ import (
 // PostgresBindingRole is the level of access a workload is granted.
 type PostgresBindingRole string
 
+// PostgresBindingWorkloadType identifies the kind of workload granted access.
+type PostgresBindingWorkloadType string
+
 const (
 	// PostgresBindingRoleRead grants membership in the <app>_read group role.
 	PostgresBindingRoleRead PostgresBindingRole = "read"
@@ -19,7 +22,24 @@ const (
 	// default, because the common case is a workload owning its own database and
 	// running its own migrations.
 	PostgresBindingRoleAdmin PostgresBindingRole = "admin"
+
+	// PostgresBindingWorkloadTypeApplication identifies an Application workload.
+	PostgresBindingWorkloadTypeApplication PostgresBindingWorkloadType = "application"
+	// PostgresBindingWorkloadTypeJob identifies a Naisjob workload.
+	PostgresBindingWorkloadTypeJob PostgresBindingWorkloadType = "job"
 )
+
+// PostgresBindingWorkload identifies the workload granted access.
+type PostgresBindingWorkload struct {
+	// Name is the name of the Application or Naisjob.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Type identifies whether the workload is an Application or Naisjob.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=application;job
+	Type PostgresBindingWorkloadType `json:"type"`
+}
 
 // PostgresBindingSpec defines the desired state of PostgresBinding.
 type PostgresBindingSpec struct {
@@ -28,10 +48,11 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
-	// Workload is the name of the workload granted access. It is also the name of
-	// the database role, so it is what shows up in pg_stat_activity and the audit log.
+	// Workload identifies the Application or Naisjob granted access. Its name is
+	// also the name of the database role, so it is what shows up in pg_stat_activity
+	// and the audit log.
 	// +kubebuilder:validation:Required
-	Workload string `json:"workload"`
+	Workload PostgresBindingWorkload `json:"workload"`
 
 	// Role is the level of access granted to the workload.
 	// +kubebuilder:default="admin"
@@ -65,7 +86,7 @@ func (p *PostgresBinding) RoleName() string {
 	if p.Spec.Role == PostgresBindingRoleAdmin {
 		return ownerRole
 	}
-	return p.Spec.Workload
+	return p.Spec.Workload.Name
 }
 
 // DatabaseRoleName is the name of the CloudNativePG DatabaseRole backing this
@@ -75,12 +96,12 @@ func (p *PostgresBinding) DatabaseRoleName() string {
 	if p.Spec.Role == PostgresBindingRoleAdmin {
 		return fmt.Sprintf("%s-%s", p.Spec.Postgres, ownerRole)
 	}
-	return fmt.Sprintf("%s-%s", p.Spec.Postgres, p.Spec.Workload)
+	return fmt.Sprintf("%s-%s", p.Spec.Postgres, p.Spec.Workload.Name)
 }
 
 // ConfigSecretName is the Secret a workload consumes through envFrom.
 func (p *PostgresBinding) ConfigSecretName() string {
-	return fmt.Sprintf("postgres-%s-%s", p.Spec.Postgres, p.Spec.Workload)
+	return fmt.Sprintf("postgres-%s-%s", p.Spec.Postgres, p.Spec.Workload.Name)
 }
 
 // CASecretName is the Secret a workload mounts at CAMountPath. It holds only
@@ -103,7 +124,8 @@ func (p *PostgresBinding) ClientCertSecretName() string {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:categories={nais}
 // +kubebuilder:printcolumn:name="Postgres",type="string",JSONPath=".spec.postgres"
-// +kubebuilder:printcolumn:name="Workload",type="string",JSONPath=".spec.workload"
+// +kubebuilder:printcolumn:name="Workload",type="string",JSONPath=".spec.workload.name"
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.workload.type"
 // +kubebuilder:printcolumn:name="Role",type="string",JSONPath=".spec.role"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 

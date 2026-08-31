@@ -11,3 +11,9 @@ object:
     podSelector:
       matchLabels:
         cnpg.io/poolerName: mydb-pooler
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                app: reporter
+                nais.io/naisjob: "true"

@@ -11,6 +11,9 @@ object:
     podSelector:
       matchLabels:
         app: myapp
+      matchExpressions:
+        - key: nais.io/naisjob
+          operator: DoesNotExist
     policyTypes:
       - Egress
     egress:

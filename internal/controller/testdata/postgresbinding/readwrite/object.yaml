@@ -6,5 +6,7 @@ metadata:
   namespace: myteam
 spec:
   postgres: mydb
-  workload: myapp
+  workload:
+    name: myapp
+    type: application
   role: readwrite

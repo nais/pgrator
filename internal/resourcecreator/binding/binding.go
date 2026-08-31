@@ -65,7 +65,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 			RoleConfiguration: cnpgv1.RoleConfiguration{
 				Name:    b.RoleName(),
 				Login:   true,
-				Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Workload),
+				Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Workload.Name),
 				InRoles: []string{groupRole(b.Spec.Role)},
 			},
 			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{
@@ -89,6 +89,23 @@ func groupRole(role v1.PostgresBindingRole) string {
 	default:
 		return cnpg.ReadWriteRole
 	}
+}
+
+func workloadSelector(workload v1.PostgresBindingWorkload) meta_v1.LabelSelector {
+	selector := meta_v1.LabelSelector{
+		MatchLabels: map[string]string{"app": workload.Name},
+	}
+	if workload.Type == v1.PostgresBindingWorkloadTypeJob {
+		selector.MatchLabels["nais.io/naisjob"] = "true"
+	} else {
+		selector.MatchExpressions = []meta_v1.LabelSelectorRequirement{
+			{
+				Key:      "nais.io/naisjob",
+				Operator: meta_v1.LabelSelectorOpDoesNotExist,
+			},
+		}
+	}
+	return selector
 }
 
 // CreateConfigSecret builds the Secret a workload consumes through envFrom.
@@ -169,9 +186,7 @@ func CreateNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networ
 				{
 					From: []networking_v1.NetworkPolicyPeer{
 						{
-							PodSelector: &meta_v1.LabelSelector{
-								MatchLabels: map[string]string{"app": b.Spec.Workload},
-							},
+							PodSelector: ptr.To(workloadSelector(b.Spec.Workload)),
 						},
 					},
 					Ports: []networking_v1.NetworkPolicyPort{
@@ -199,9 +214,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 		},
 		ObjectMeta: objectMeta(b, b.ConfigSecretName()+"-egress"),
 		Spec: networking_v1.NetworkPolicySpec{
-			PodSelector: meta_v1.LabelSelector{
-				MatchLabels: map[string]string{"app": b.Spec.Workload},
-			},
+			PodSelector: workloadSelector(b.Spec.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},
 			Egress: []networking_v1.NetworkPolicyEgressRule{
 				{

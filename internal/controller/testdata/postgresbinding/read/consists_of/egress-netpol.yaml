@@ -11,6 +11,7 @@ object:
     podSelector:
       matchLabels:
         app: reporter
+        nais.io/naisjob: "true"
     policyTypes:
       - Egress
     egress:

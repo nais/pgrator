@@ -17,8 +17,11 @@ func ExamplePostgresBindingForDocumentation() api.NaisObject {
 		},
 		Spec: PostgresBindingSpec{
 			Postgres: "mypostgres",
-			Workload: "myapp",
-			Role:     PostgresBindingRoleReadWrite,
+			Workload: PostgresBindingWorkload{
+				Name: "myapp",
+				Type: PostgresBindingWorkloadTypeApplication,
+			},
+			Role: PostgresBindingRoleReadWrite,
 		},
 	}
 }

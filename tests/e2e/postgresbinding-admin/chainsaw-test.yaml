@@ -35,7 +35,9 @@ spec:
                 name: eier-mydb
               spec:
                 postgres: mydb
-                workload: eier
+                workload:
+                  name: eier
+                  type: application
 
     - name: Role defaults to admin
       try:

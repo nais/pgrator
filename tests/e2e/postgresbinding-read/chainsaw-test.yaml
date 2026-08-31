@@ -35,7 +35,9 @@ spec:
                 name: rapport-mydb
               spec:
                 postgres: mydb
-                workload: rapport
+                workload:
+                  name: rapport
+                  type: job
                 role: read
 
     - name: Role is a login role that only inherits app_read
