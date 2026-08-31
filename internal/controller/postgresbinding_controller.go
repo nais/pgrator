@@ -21,7 +21,7 @@ import (
 
 // PostgresBindingReconciler reconciles a nais.io/v1 PostgresBinding into a
 // CloudNativePG DatabaseRole with an operator-issued client certificate, the two
-// Secrets a workload needs in order to connect, and a NetworkPolicy that opens the
+// Secrets a workload needs in order to connect, and NetworkPolicies that open the
 // path to the connection pooler.
 type PostgresBindingReconciler struct {
 	Recorder events.Recorder
@@ -126,6 +126,12 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
+
+	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating egress NetworkPolicy spec: %w", err)
+	}
+	actions = append(actions, action.CreateOrUpdate(egressNetpol, obj, existsConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil
 }

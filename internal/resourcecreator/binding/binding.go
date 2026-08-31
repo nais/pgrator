@@ -1,6 +1,6 @@
 // Package binding builds the resources that give a workload access to a Postgres
 // instance: a CloudNativePG DatabaseRole authenticated by a client certificate,
-// the Secrets a workload needs in order to connect, and a NetworkPolicy opening
+// the Secrets a workload needs in order to connect, and NetworkPolicies opening
 // the path to the connection pooler.
 package binding
 
@@ -47,7 +47,7 @@ func objectMeta(b *v1.PostgresBinding, name string) meta_v1.ObjectMeta {
 // Admin bindings return nil: the owner role is created by the Postgres resource
 // at provisioning time and must outlive any individual binding, so a binding must
 // never claim ownership of it. An admin binding therefore only produces Secrets
-// and a NetworkPolicy, pointing at the already-existing owner credentials.
+// and NetworkPolicies, pointing at the already-existing owner credentials.
 func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.DatabaseRole, error) {
 	if b.Spec.Role == v1.PostgresBindingRoleAdmin {
 		return nil, nil
@@ -184,6 +184,56 @@ func CreateNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networ
 
 	if err := controllerutil.SetControllerReference(b, netpol, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on NetworkPolicy: %w", err)
+	}
+	return netpol, nil
+}
+
+// CreateEgressNetworkPolicy allows the workload to resolve and reach the
+// connection pooler. It selects workload pods, complementing CreateNetworkPolicy
+// which selects pooler pods and grants their ingress.
+func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networking_v1.NetworkPolicy, error) {
+	netpol := &networking_v1.NetworkPolicy{
+		TypeMeta: meta_v1.TypeMeta{
+			Kind:       "NetworkPolicy",
+			APIVersion: "networking.k8s.io/v1",
+		},
+		ObjectMeta: objectMeta(b, b.ConfigSecretName()+"-egress"),
+		Spec: networking_v1.NetworkPolicySpec{
+			PodSelector: meta_v1.LabelSelector{
+				MatchLabels: map[string]string{"app": b.Spec.Workload},
+			},
+			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},
+			Egress: []networking_v1.NetworkPolicyEgressRule{
+				{
+					To: []networking_v1.NetworkPolicyPeer{
+						{
+							PodSelector: &meta_v1.LabelSelector{
+								MatchLabels: map[string]string{
+									cnpg.PoolerNameLabel: cnpg.PoolerNameFor(b.Spec.Postgres),
+								},
+							},
+						},
+					},
+					Ports: []networking_v1.NetworkPolicyPort{
+						{Port: ptr.To(intstr.FromInt32(5432))},
+					},
+				},
+				{
+					To: []networking_v1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &meta_v1.LabelSelector{},
+							PodSelector: &meta_v1.LabelSelector{
+								MatchLabels: map[string]string{"k8s-app": "kube-dns"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(b, netpol, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on egress NetworkPolicy: %w", err)
 	}
 	return netpol, nil
 }
