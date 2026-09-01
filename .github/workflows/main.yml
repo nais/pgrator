@@ -91,6 +91,10 @@ jobs:
         run: |
           cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
           cp -v ../pgrator/doc/output/data.nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/valkey/reference.md docs/persistence/valkey/reference/valkey-spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/valkey/example.md docs/persistence/valkey/reference/valkey-example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/opensearch/reference.md docs/persistence/opensearch/reference/opensearch-spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/opensearch/example.md docs/persistence/opensearch/reference/opensearch-example.md
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
