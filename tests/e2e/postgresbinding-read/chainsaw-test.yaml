@@ -64,7 +64,7 @@ spec:
         - script:
             content: |
               set -eu
-               get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+               get() { kubectl get secret rapport-mydb -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
               test "$(get PGUSER)"     = "rapport"
               test "$(get PGHOST)"     = "mydb-pooler.$NAMESPACE"
               test "$(get PGDATABASE)" = "app"
@@ -130,7 +130,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-rapport-read
+                name: rapport-mydb
         - error:
             resource:
               apiVersion: networking.k8s.io/v1

@@ -130,7 +130,7 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1
 			Kind:       "Secret",
 			APIVersion: "v1",
 		},
-		ObjectMeta: objectMeta(b, b.ConfigSecretName()),
+		ObjectMeta: objectMeta(b, b.GetName()),
 		StringData: map[string]string{
 			"PGHOST":        fmt.Sprintf("%s.%s", cnpg.PoolerNameFor(b.Spec.Postgres), b.GetNamespace()),
 			"PGPORT":        "5432",

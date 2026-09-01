@@ -103,11 +103,6 @@ func (p *PostgresBinding) DatabaseRoleName() string {
 	return strings.TrimSuffix(p.Spec.SecretName, "-client-cert")
 }
 
-// ConfigSecretName is the Secret a workload consumes through envFrom.
-func (p *PostgresBinding) ConfigSecretName() string {
-	return "postgres-" + p.DatabaseRoleName()
-}
-
 // ClientCertSecretName is the Secret a workload mounts at ClientCertMountPath.
 //
 // It is issued and renewed by CloudNativePG and mounted directly rather than

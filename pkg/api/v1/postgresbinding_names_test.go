@@ -24,6 +24,5 @@ var _ = Describe("PostgresBinding resource names", func() {
 
 		Expect(binding.DatabaseRoleName()).To(HaveLen(241))
 		Expect(binding.ClientCertSecretName()).To(HaveLen(253))
-		Expect(binding.ConfigSecretName()).To(HaveLen(250))
 	})
 })

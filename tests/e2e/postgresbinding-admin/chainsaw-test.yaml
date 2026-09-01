@@ -68,7 +68,7 @@ spec:
         - script:
             content: |
               set -eu
-              user=$(kubectl get secret postgres-mydb-eier-admin -n "$NAMESPACE" \
+              user=$(kubectl get secret eier-mydb -n "$NAMESPACE" \
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
@@ -84,7 +84,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-eier-admin
+                name: eier-mydb
         - error:
             resource:
               apiVersion: postgresql.cnpg.io/v1
