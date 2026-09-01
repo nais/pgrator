@@ -92,20 +92,9 @@ func groupRole(role v1.PostgresBindingRole) string {
 }
 
 func workloadSelector(workload v1.PostgresBindingWorkload) meta_v1.LabelSelector {
-	selector := meta_v1.LabelSelector{
+	return meta_v1.LabelSelector{
 		MatchLabels: map[string]string{"app": workload.Name},
 	}
-	if workload.Type == v1.PostgresBindingWorkloadTypeJob {
-		selector.MatchLabels["nais.io/naisjob"] = "true"
-	} else {
-		selector.MatchExpressions = []meta_v1.LabelSelectorRequirement{
-			{
-				Key:      "nais.io/naisjob",
-				Operator: meta_v1.LabelSelectorOpDoesNotExist,
-			},
-		}
-	}
-	return selector
 }
 
 // CreateConfigSecret builds the Secret a workload consumes through envFrom.
