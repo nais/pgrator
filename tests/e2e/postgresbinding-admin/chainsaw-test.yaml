@@ -4,9 +4,8 @@ metadata:
   name: postgresbinding-admin
 spec:
   description: >-
-    An admin binding reuses the durable owner role rather than creating one of its
-    own, so that database objects keep a stable owner across deploys and no single
-    binding can drop the owner.
+    An admin binding adopts the durable owner role and receives its own
+    CloudNativePG-managed client certificate.
   steps:
     - name: Create Postgres
       try:
@@ -38,6 +37,7 @@ spec:
                 workload:
                   name: eier
                   type: application
+                databaseRoleName: mydb-eier-admin
 
     - name: Role defaults to admin
       try:
@@ -50,25 +50,29 @@ spec:
               spec:
                 role: admin
 
-    - name: No DatabaseRole is created for the binding
+    - name: The binding adopts the durable owner role
       try:
-        - error:
+        - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-eier
+                name: mydb-eier-admin
+              spec:
+                name: app
+                login: true
+                databaseRoleReclaimPolicy: retain
 
-    - name: The binding points at the durable owner instead
+    - name: The binding points at the durable owner
       try:
         - script:
             content: |
               set -eu
-              user=$(kubectl get secret postgres-mydb-eier -n "$NAMESPACE" \
+              user=$(kubectl get secret postgres-mydb-eier-admin -n "$NAMESPACE" \
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
-    - name: Deleting the binding leaves the owner role intact
+    - name: Deleting the binding removes its credential but retains the database role
       try:
         - delete:
             ref:
@@ -80,10 +84,16 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-eier
-        - assert:
+                name: postgres-mydb-eier-admin
+        - error:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-app
+                name: mydb-eier-admin
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: mydb-eier-admin-client-cert

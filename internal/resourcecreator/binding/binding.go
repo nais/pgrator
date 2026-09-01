@@ -5,6 +5,7 @@
 package binding
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
@@ -42,31 +43,37 @@ func objectMeta(b *v1.PostgresBinding, name string) meta_v1.ObjectMeta {
 	}
 }
 
-// CreateDatabaseRole builds the DatabaseRole for a read or readwrite binding.
-//
-// Admin bindings return nil: the owner role is created by the Postgres resource
-// at provisioning time and must outlive any individual binding, so a binding must
-// never claim ownership of it. An admin binding therefore only produces Secrets
-// and NetworkPolicies, pointing at the already-existing owner credentials.
-func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.DatabaseRole, error) {
-	if b.Spec.Role == v1.PostgresBindingRoleAdmin {
-		return nil, nil
+// CreateAdminLock builds the deterministic object that atomically reserves the
+// cluster's app role for one admin binding.
+func CreateAdminLock(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1.ConfigMap, error) {
+	hash := sha256.Sum256([]byte(b.Spec.Postgres))
+	lock := &core_v1.ConfigMap{
+		TypeMeta:   meta_v1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
+		ObjectMeta: objectMeta(b, fmt.Sprintf("postgresbinding-admin-%x", hash[:8])),
 	}
+	if err := controllerutil.SetControllerReference(b, lock, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on admin lock: %w", err)
+	}
+	return lock, nil
+}
 
+// CreateDatabaseRole builds the DatabaseRole for a binding. Admin bindings adopt
+// the durable app owner so CNPG can issue a client certificate for it.
+func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.DatabaseRole, error) {
 	role := &cnpgv1.DatabaseRole{
 		TypeMeta: meta_v1.TypeMeta{
 			Kind:       "DatabaseRole",
 			APIVersion: cnpgv1.SchemeGroupVersion.String(),
 		},
-		ObjectMeta: objectMeta(b, b.DatabaseRoleName()),
+		ObjectMeta: objectMeta(b, b.Spec.DatabaseRoleName),
 		Spec: cnpgv1.DatabaseRoleSpec{
 			ClusterRef:    core_v1.LocalObjectReference{Name: b.Spec.Postgres},
-			ReclaimPolicy: cnpgv1.DatabaseRoleReclaimDelete,
+			ReclaimPolicy: reclaimPolicy(b.Spec.Role),
 			RoleConfiguration: cnpgv1.RoleConfiguration{
 				Name:    b.RoleName(),
 				Login:   true,
 				Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Workload.Name),
-				InRoles: []string{groupRole(b.Spec.Role)},
+				InRoles: groupRoles(b.Spec.Role),
 			},
 			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{
 				Enabled: ptr.To(true),
@@ -78,6 +85,13 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 		return nil, fmt.Errorf("setting controller reference on DatabaseRole: %w", err)
 	}
 	return role, nil
+}
+
+func reclaimPolicy(role v1.PostgresBindingRole) cnpgv1.DatabaseRoleReclaimPolicy {
+	if role == v1.PostgresBindingRoleAdmin {
+		return cnpgv1.DatabaseRoleReclaimRetain
+	}
+	return cnpgv1.DatabaseRoleReclaimDelete
 }
 
 // groupRole maps a binding role onto the NOLOGIN group role that cluster bootstrap
@@ -95,6 +109,13 @@ func workloadSelector(workload v1.PostgresBindingWorkload) meta_v1.LabelSelector
 	return meta_v1.LabelSelector{
 		MatchLabels: map[string]string{"app": workload.Name},
 	}
+}
+
+func groupRoles(role v1.PostgresBindingRole) []string {
+	if role == v1.PostgresBindingRoleAdmin {
+		return nil
+	}
+	return []string{groupRole(role)}
 }
 
 // CreateConfigSecret builds the Secret a workload consumes through envFrom.
@@ -201,7 +222,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(b, b.ConfigSecretName()+"-egress"),
+		ObjectMeta: objectMeta(b, b.Spec.DatabaseRoleName+"-egress"),
 		Spec: networking_v1.NetworkPolicySpec{
 			PodSelector: workloadSelector(b.Spec.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},

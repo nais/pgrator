@@ -58,9 +58,9 @@ rules:
   verbs: [get, list, watch]
 
 # PostgresBinding: read the CloudNativePG cluster CA, write the connection
-# Secrets a workload consumes.
+# Secrets a workload consumes, and atomically reserve the admin role.
 - apiGroups: [""]
-  resources: [secrets]
+  resources: [configmaps, secrets]
   verbs: [create, delete, get, list, patch, update, watch]
 
 # Controller runtime requirements

@@ -38,6 +38,7 @@ spec:
                 workload:
                   name: rapport
                   type: job
+                databaseRoleName: mydb-rapport-read
                 role: read
 
     - name: Role is a login role that only inherits app_read
@@ -47,7 +48,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport
+                name: mydb-rapport-read
               spec:
                 name: rapport
                 login: true
@@ -63,7 +64,7 @@ spec:
         - script:
             content: |
               set -eu
-              get() { kubectl get secret postgres-mydb-rapport -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+               get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
               test "$(get PGUSER)"     = "rapport"
               test "$(get PGHOST)"     = "mydb-pooler.$NAMESPACE"
               test "$(get PGDATABASE)" = "app"
@@ -76,7 +77,7 @@ spec:
         - script:
             content: |
               set -eu
-              keys=$(kubectl get secret postgres-mydb-rapport-ca -n "$NAMESPACE" \
+               keys=$(kubectl get secret postgres-mydb-rapport-read-ca -n "$NAMESPACE" \
                        -o jsonpath='{.data}' | tr ',' '\n')
               echo "$keys" | grep -q 'ca\.crt'
               # The CloudNativePG CA Secret also holds ca.key, which would let a
@@ -90,7 +91,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: mydb-rapport-client-cert
+                name: mydb-rapport-read-client-cert
               type: kubernetes.io/tls
 
     - name: NetworkPolicy opens the workload's path to the pooler
@@ -100,7 +101,7 @@ spec:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: postgres-mydb-rapport
+                name: postgres-mydb-rapport-read
               spec:
                 podSelector:
                   matchLabels:
@@ -118,28 +119,22 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport
+                name: mydb-rapport-read
         - error:
             resource:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-rapport
+                name: postgres-mydb-rapport-read
         - error:
             resource:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: postgres-mydb-rapport
+                name: postgres-mydb-rapport-read
 
-    - name: The database and its owner role survive
+    - name: The database survives
       try:
-        - assert:
-            resource:
-              apiVersion: postgresql.cnpg.io/v1
-              kind: DatabaseRole
-              metadata:
-                name: mydb-app
         - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1

@@ -31,6 +31,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-nais-io-v1-postgresbinding
+  failurePolicy: Fail
+  name: vpostgresbinding.nais.io
+  rules:
+  - apiGroups:
+    - nais.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - postgresbindings
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-nais-io-v1-valkey
   failurePolicy: Fail
   name: vvalkey.nais.io

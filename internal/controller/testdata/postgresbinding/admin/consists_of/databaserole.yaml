@@ -5,10 +5,9 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: mydb-reporter-read
+    name: mydb-myapp-admin
     namespace: myteam
   spec:
-    name: reporter
+    name: app
     login: true
-    inRoles:
-      - app_read
+    databaseRoleReclaimPolicy: retain

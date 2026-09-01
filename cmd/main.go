@@ -139,6 +139,10 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Valkey")
 		os.Exit(1)
 	}
+	if err := (&v1.PostgresBinding{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "PostgresBinding")
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:builder
 

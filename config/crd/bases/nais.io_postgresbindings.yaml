@@ -60,6 +60,17 @@ spec:
           spec:
             description: spec defines the desired state of PostgresBinding
             properties:
+              databaseRoleName:
+                description: |-
+                  DatabaseRoleName is the Kubernetes name naiserator assigned to the
+                  DatabaseRole backing this binding. It must include the binding's role so
+                  one workload can hold multiple bindings to the same Postgres instance.
+                  CloudNativePG appends "-client-cert" when naming the generated Secret, so
+                  the name is limited to 241 characters to keep that Secret within the
+                  Kubernetes DNS-subdomain limit of 253 characters.
+                maxLength: 241
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
               postgres:
                 description: |-
                   Postgres is the name of the Postgres instance to bind to. The instance must
@@ -94,6 +105,7 @@ spec:
                 - type
                 type: object
             required:
+            - databaseRoleName
             - postgres
             - workload
             type: object

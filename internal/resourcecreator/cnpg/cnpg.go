@@ -24,7 +24,7 @@ import (
 const (
 	// DatabaseName is the application database and owner role created by InitDB.
 	DatabaseName = "app"
-	// OwnerRole is the durable database owner (adopted as a DatabaseRole for cert auth).
+	// OwnerRole is the durable database owner created by InitDB.
 	OwnerRole = "app"
 	// ReadRole and ReadWriteRole are the pre-created NOLOGIN group roles that
 	// carry the object-level privileges. Memberships are managed declaratively;
@@ -78,16 +78,6 @@ var minimumDiskPerStorageClass = map[string]resource.Quantity{
 // ClusterName returns the CNPG Cluster name for a Postgres resource.
 func ClusterName(postgres *v1.Postgres) string {
 	return postgres.GetName()
-}
-
-// AppRoleName returns the DatabaseRole resource name for the app owner.
-func AppRoleName(postgres *v1.Postgres) string {
-	return AppRoleNameFor(ClusterName(postgres))
-}
-
-// AppRoleNameFor is AppRoleName for callers that only hold the cluster name.
-func AppRoleNameFor(clusterName string) string {
-	return clusterName + "-" + OwnerRole
 }
 
 // PoolerName returns the CNPG Pooler resource name for a Postgres resource.
@@ -372,33 +362,6 @@ func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpg
 		return nil, fmt.Errorf("setting controller reference on ScheduledBackup: %w", err)
 	}
 	return backup, nil
-}
-
-// CreateAppRole builds the DatabaseRole that adopts the durable InitDB-created
-// app owner and issues an operator-managed TLS client certificate for it. The
-// reclaim policy is retain so deleting the CR never drops the owner role.
-func CreateAppRole(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.DatabaseRole, error) {
-	role := &cnpgv1.DatabaseRole{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "DatabaseRole",
-			APIVersion: cnpgv1.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: objectMeta(postgres, AppRoleName(postgres)),
-		Spec: cnpgv1.DatabaseRoleSpec{
-			RoleConfiguration: cnpgv1.RoleConfiguration{
-				Name:  OwnerRole,
-				Login: true,
-			},
-			ClusterRef:        corev1.LocalObjectReference{Name: ClusterName(postgres)},
-			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
-			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{},
-		},
-	}
-
-	if err := controllerutil.SetControllerReference(postgres, role, scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on DatabaseRole: %w", err)
-	}
-	return role, nil
 }
 
 // CreatePooler builds a PgBouncer connection Pooler for the cluster's primary

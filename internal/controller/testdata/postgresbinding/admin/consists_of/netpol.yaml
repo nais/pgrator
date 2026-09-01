@@ -5,5 +5,5 @@ object:
   apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: postgres-mydb-myapp
+    name: postgres-mydb-myapp-admin
     namespace: myteam

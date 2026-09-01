@@ -9,4 +9,5 @@ spec:
   workload:
     name: reporter
     type: job
+  databaseRoleName: mydb-reporter-read
   role: read

@@ -9,4 +9,5 @@ spec:
   workload:
     name: myapp
     type: application
+  databaseRoleName: mydb-myapp-admin
   role: admin

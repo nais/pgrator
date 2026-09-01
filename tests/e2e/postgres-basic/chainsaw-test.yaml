@@ -58,19 +58,6 @@ spec:
                   pg_ident:
                     - pooler cnpg_pooler_pgbouncer all
 
-    - name: Durable owner DatabaseRole is retained, not deleted
-      try:
-        - assert:
-            resource:
-              apiVersion: postgresql.cnpg.io/v1
-              kind: DatabaseRole
-              metadata:
-                name: mydb-app
-              spec:
-                name: app
-                login: true
-                databaseRoleReclaimPolicy: retain
-
     - name: Pooler and NetworkPolicy are created
       try:
         - assert:

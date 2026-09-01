@@ -193,12 +193,6 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, preparedData PostgresPrepa
 	}
 	actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
 
-	appRole, err := rccnpg.CreateAppRole(r.Scheme, obj)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating app DatabaseRole spec: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(appRole, obj, existsConditionGetter, r.Recorder))
-
 	pooler, err := rccnpg.CreatePooler(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)

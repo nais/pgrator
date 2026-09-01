@@ -1,8 +1,6 @@
 package v1
 
 import (
-	"fmt"
-
 	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -54,6 +52,17 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Workload PostgresBindingWorkload `json:"workload"`
 
+	// DatabaseRoleName is the Kubernetes name naiserator assigned to the
+	// DatabaseRole backing this binding. It must include the binding's role so
+	// one workload can hold multiple bindings to the same Postgres instance.
+	// CloudNativePG appends "-client-cert" when naming the generated Secret, so
+	// the name is limited to 241 characters to keep that Secret within the
+	// Kubernetes DNS-subdomain limit of 253 characters.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=241
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	DatabaseRoleName string `json:"databaseRoleName"`
+
 	// Role is the level of access granted to the workload.
 	// +kubebuilder:default="admin"
 	// +kubebuilder:validation:Enum=read;readwrite;admin
@@ -89,19 +98,9 @@ func (p *PostgresBinding) RoleName() string {
 	return p.Spec.Workload.Name
 }
 
-// DatabaseRoleName is the name of the CloudNativePG DatabaseRole backing this
-// binding. For admin bindings this is the DatabaseRole owned by the Postgres
-// resource, which the binding reuses rather than creates.
-func (p *PostgresBinding) DatabaseRoleName() string {
-	if p.Spec.Role == PostgresBindingRoleAdmin {
-		return fmt.Sprintf("%s-%s", p.Spec.Postgres, ownerRole)
-	}
-	return fmt.Sprintf("%s-%s", p.Spec.Postgres, p.Spec.Workload.Name)
-}
-
 // ConfigSecretName is the Secret a workload consumes through envFrom.
 func (p *PostgresBinding) ConfigSecretName() string {
-	return fmt.Sprintf("postgres-%s-%s", p.Spec.Postgres, p.Spec.Workload.Name)
+	return "postgres-" + p.Spec.DatabaseRoleName
 }
 
 // CASecretName is the Secret a workload mounts at CAMountPath. It holds only
@@ -117,7 +116,7 @@ func (p *PostgresBinding) CASecretName() string {
 // copied, so that private key material is never duplicated and a renewed
 // certificate reaches the workload without pgrator being in the path.
 func (p *PostgresBinding) ClientCertSecretName() string {
-	return p.DatabaseRoleName() + "-client-cert"
+	return p.Spec.DatabaseRoleName + "-client-cert"
 }
 
 // +kubebuilder:object:root=true

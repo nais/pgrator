@@ -1,0 +1,9 @@
+---
+action: exclusiveCreate
+matcher: Subset
+object:
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: postgresbinding-admin-b50d3038fdd554ed
+    namespace: myteam

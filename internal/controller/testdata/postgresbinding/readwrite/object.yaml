@@ -9,4 +9,5 @@ spec:
   workload:
     name: myapp
     type: application
+  databaseRoleName: mydb-myapp-readwrite
   role: readwrite

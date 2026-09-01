@@ -48,6 +48,7 @@ func (r *PostgresBindingReconciler) New() *v1.PostgresBinding {
 func (r *PostgresBindingReconciler) OwnedTypes() []reconciler.OwnedType {
 	return []reconciler.OwnedType{
 		{Type: &cnpgv1.DatabaseRole{}},
+		{Type: &core_v1.ConfigMap{}},
 		{Type: &core_v1.Secret{}},
 		{Type: &networking_v1.NetworkPolicy{}},
 	}
@@ -98,16 +99,19 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
+	if obj.Spec.Role == v1.PostgresBindingRoleAdmin {
+		lock, err := rcbinding.CreateAdminLock(r.Scheme, obj)
+		if err != nil {
+			return nil, ctrl.Result{}, fmt.Errorf("creating admin lock: %w", err)
+		}
+		actions = append(actions, action.ExclusiveCreate(lock, obj))
+	}
 
-	// Admin bindings deliberately produce no DatabaseRole: the owner role is
-	// created and retained by the Postgres resource, and must survive the binding.
 	role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 	}
-	if role != nil {
-		actions = append(actions, action.CreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
-	}
+	actions = append(actions, action.CreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
 
 	configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj)
 	if err != nil {
@@ -144,9 +148,8 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData
 // revokes that workload's access immediately. That is the intent — a binding is the
 // grant, so withdrawing it must withdraw the access.
 //
-// Admin bindings are exempt. They never own a DatabaseRole (see
-// binding.CreateDatabaseRole), so deleting one removes only the Secrets and the
-// NetworkPolicy; the durable owner role survives with its data intact.
+// Admin bindings retain the durable owner role when their DatabaseRole is deleted,
+// while CloudNativePG garbage-collects the client certificate.
 //
 // DROP ROLE fails if the role still owns objects. Read and readwrite roles never
 // create objects, so this does not bite today, but a future writable role that owns
