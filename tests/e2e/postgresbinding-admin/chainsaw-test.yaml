@@ -37,7 +37,7 @@ spec:
                 workload:
                   name: eier
                   type: application
-                databaseRoleName: mydb-eier-admin
+                secretName: mydb-eier-admin-client-cert
 
     - name: Role defaults to admin
       try:

@@ -65,7 +65,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 			Kind:       "DatabaseRole",
 			APIVersion: cnpgv1.SchemeGroupVersion.String(),
 		},
-		ObjectMeta: objectMeta(b, b.Spec.DatabaseRoleName),
+		ObjectMeta: objectMeta(b, b.DatabaseRoleName()),
 		Spec: cnpgv1.DatabaseRoleSpec{
 			ClusterRef:    core_v1.LocalObjectReference{Name: b.Spec.Postgres},
 			ReclaimPolicy: reclaimPolicy(b.Spec.Role),
@@ -222,7 +222,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(b, b.Spec.DatabaseRoleName+"-egress"),
+		ObjectMeta: objectMeta(b, b.DatabaseRoleName()+"-egress"),
 		Spec: networking_v1.NetworkPolicySpec{
 			PodSelector: workloadSelector(b.Spec.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},

@@ -38,7 +38,7 @@ spec:
                 workload:
                   name: rapport
                   type: job
-                databaseRoleName: mydb-rapport-read
+                secretName: mydb-rapport-read-client-cert
                 role: read
 
     - name: Role is a login role that only inherits app_read

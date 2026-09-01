@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"strings"
+
 	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -52,16 +54,14 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Workload PostgresBindingWorkload `json:"workload"`
 
-	// DatabaseRoleName is the Kubernetes name naiserator assigned to the
-	// DatabaseRole backing this binding. It must include the binding's role so
-	// one workload can hold multiple bindings to the same Postgres instance.
-	// CloudNativePG appends "-client-cert" when naming the generated Secret, so
-	// the name is limited to 241 characters to keep that Secret within the
-	// Kubernetes DNS-subdomain limit of 253 characters.
+	// SecretName is the complete name of the client-certificate Secret naiserator
+	// mounts into the workload. It must be unique per binding so one workload can
+	// hold multiple roles for the same Postgres instance. CloudNativePG derives
+	// this name by appending "-client-cert" to the DatabaseRole name.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=241
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	DatabaseRoleName string `json:"databaseRoleName"`
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*-client-cert$`
+	SecretName string `json:"secretName"`
 
 	// Role is the level of access granted to the workload.
 	// +kubebuilder:default="admin"
@@ -98,9 +98,14 @@ func (p *PostgresBinding) RoleName() string {
 	return p.Spec.Workload.Name
 }
 
+// DatabaseRoleName is the CloudNativePG DatabaseRole name that produces SecretName.
+func (p *PostgresBinding) DatabaseRoleName() string {
+	return strings.TrimSuffix(p.Spec.SecretName, "-client-cert")
+}
+
 // ConfigSecretName is the Secret a workload consumes through envFrom.
 func (p *PostgresBinding) ConfigSecretName() string {
-	return "postgres-" + p.Spec.DatabaseRoleName
+	return "postgres-" + p.DatabaseRoleName()
 }
 
 // CASecretName is the Secret a workload mounts at CAMountPath. It holds only
@@ -116,7 +121,7 @@ func (p *PostgresBinding) CASecretName() string {
 // copied, so that private key material is never duplicated and a renewed
 // certificate reaches the workload without pgrator being in the path.
 func (p *PostgresBinding) ClientCertSecretName() string {
-	return p.Spec.DatabaseRoleName + "-client-cert"
+	return p.Spec.SecretName
 }
 
 // +kubebuilder:object:root=true

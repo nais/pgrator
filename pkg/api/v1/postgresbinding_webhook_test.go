@@ -21,8 +21,8 @@ var _ = Describe("PostgresBinding webhook validation", func() {
 					Name: name,
 					Type: PostgresBindingWorkloadTypeApplication,
 				},
-				DatabaseRoleName: name + "-admin",
-				Role:             PostgresBindingRoleAdmin,
+				SecretName: name + "-admin-client-cert",
+				Role:       PostgresBindingRoleAdmin,
 			},
 		}
 	}

@@ -9,5 +9,5 @@ spec:
   workload:
     name: myapp
     type: application
-  databaseRoleName: mydb-myapp-admin
+  secretName: mydb-myapp-admin-client-cert
   role: admin
