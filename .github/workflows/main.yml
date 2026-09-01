@@ -102,7 +102,7 @@ jobs:
           git --no-pager diff --cached
           if [ ! -z "$(git diff --cached)" ]; then
             git commit -a --author "$GITHUB_ACTOR <$GITHUB_ACTOR@users.noreply.github.com>" \
-              -m "postgres: automatic update of reference spec and example" \
+              -m "pgrator: automatic update of reference spec and example" \
               -m "Ref: https://github.com/nais/pgrator/commit/${GITHUB_SHA}"
             git push
           else
