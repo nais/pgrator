@@ -235,7 +235,14 @@ jobs:
           for chart in *.tgz; do
             helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
           done
-
+  branch-protection-checkpoint:
+    needs: [lint, test, test-chart, chart]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - if: ${{ needs.lint.result != 'success' || needs.test.result != 'success' || needs.test-chart.result != 'success' || needs.chart.result != 'success' }}
+        run: exit 1
+      - run: echo "All checks and builds passed."
   deploy:
     name: Deploy
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/main'
@@ -245,6 +252,7 @@ jobs:
       - test-chart
       - test
       - lint
+      - branch-protection-checkpoint 
     runs-on: fasit-deploy
     permissions:
       id-token: write
