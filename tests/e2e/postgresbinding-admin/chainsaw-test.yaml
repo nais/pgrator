@@ -24,7 +24,7 @@ spec:
               metadata:
                 name: mydb
 
-    - name: Create a binding without stating a role
+    - name: Create an admin binding
       try:
         - apply:
             resource:
@@ -38,16 +38,6 @@ spec:
                   name: eier
                   type: application
                 secretName: mydb-eier-admin-client-cert
-
-    - name: Role defaults to admin
-      try:
-        - assert:
-            resource:
-              apiVersion: nais.io/v1
-              kind: PostgresBinding
-              metadata:
-                name: eier-mydb
-              spec:
                 role: admin
 
     - name: The binding adopts the durable owner role

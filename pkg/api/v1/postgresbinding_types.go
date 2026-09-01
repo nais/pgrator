@@ -64,10 +64,9 @@ type PostgresBindingSpec struct {
 	SecretName string `json:"secretName"`
 
 	// Role is the level of access granted to the workload.
-	// +kubebuilder:default="admin"
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=read;readwrite;admin
-	// +optional
-	Role PostgresBindingRole `json:"role,omitempty"`
+	Role PostgresBindingRole `json:"role"`
 }
 
 // PostgresBindingStatus defines the observed state of PostgresBinding.
@@ -76,18 +75,12 @@ type PostgresBindingStatus struct {
 }
 
 const (
-	// ClientCertMountPath and CAMountPath are where a workload must mount the two
-	// certificate Secrets. The paths are baked into the PGSSL* variables in the
-	// config Secret, so a consumer that mounts them elsewhere will not connect.
-	ClientCertMountPath = "/var/run/secrets/nais.io/postgres/client"
-	CAMountPath         = "/var/run/secrets/nais.io/postgres/ca"
-
 	// ownerRole is the durable database owner created at provisioning time.
 	ownerRole = "app"
 )
 
-// RoleName is the database role the workload authenticates as, and therefore the
-// identity that shows up in pg_stat_activity and the audit log.
+// RoleName is the database role the workload authenticates as and the identity
+// that shows up in pg_stat_activity and the audit log.
 //
 // Admin bindings reuse the durable owner so that database objects keep a stable
 // owner across deploys; every other role is named after the workload.
@@ -103,7 +96,7 @@ func (p *PostgresBinding) DatabaseRoleName() string {
 	return strings.TrimSuffix(p.Spec.SecretName, "-client-cert")
 }
 
-// ClientCertSecretName is the Secret a workload mounts at ClientCertMountPath.
+// ClientCertSecretName is the CNPG-managed Secret containing the client certificate.
 //
 // It is issued and renewed by CloudNativePG and mounted directly rather than
 // copied, so that private key material is never duplicated and a renewed

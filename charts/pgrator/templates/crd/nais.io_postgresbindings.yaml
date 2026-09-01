@@ -67,7 +67,6 @@ spec:
                     live in the same namespace: bindings never cross team boundaries.
                   type: string
                 role:
-                  default: admin
                   description: Role is the level of access granted to the workload.
                   enum:
                     - read
@@ -104,6 +103,7 @@ spec:
                   type: object
               required:
                 - postgres
+                - role
                 - secretName
                 - workload
               type: object

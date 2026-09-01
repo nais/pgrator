@@ -132,14 +132,11 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1
 		},
 		ObjectMeta: objectMeta(b, b.GetName()),
 		StringData: map[string]string{
-			"PGHOST":        fmt.Sprintf("%s.%s", cnpg.PoolerNameFor(b.Spec.Postgres), b.GetNamespace()),
-			"PGPORT":        "5432",
-			"PGDATABASE":    appDatabase,
-			"PGUSER":        b.RoleName(),
-			"PGSSLMODE":     "verify-full",
-			"PGSSLCERT":     fmt.Sprintf("%s/tls.crt", v1.ClientCertMountPath),
-			"PGSSLKEY":      fmt.Sprintf("%s/tls.key", v1.ClientCertMountPath),
-			"PGSSLROOTCERT": fmt.Sprintf("%s/ca.crt", v1.CAMountPath),
+			"PGHOST":     fmt.Sprintf("%s.%s", cnpg.PoolerNameFor(b.Spec.Postgres), b.GetNamespace()),
+			"PGPORT":     "5432",
+			"PGDATABASE": appDatabase,
+			"PGUSER":     b.RoleName(),
+			"PGSSLMODE":  "verify-full",
 		},
 	}
 
