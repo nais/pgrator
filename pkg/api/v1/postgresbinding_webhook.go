@@ -26,17 +26,24 @@ func (p *PostgresBinding) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *PostgresBinding) (admission.Warnings, error) {
-	return nil, v.validateAdminBinding(ctx, obj)
+	return nil, v.validate(ctx, obj)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, _ *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
-	return nil, v.validateAdminBinding(ctx, newObj)
+	return nil, v.validate(ctx, newObj)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateDelete(_ context.Context, _ *PostgresBinding) (admission.Warnings, error) {
 	return nil, nil
+}
+
+func (v *PostgresBindingValidator) validate(ctx context.Context, obj *PostgresBinding) error {
+	if len(obj.GetName()) > 246 {
+		return fmt.Errorf("metadata.name must be at most 246 characters to name the egress NetworkPolicy")
+	}
+	return v.validateAdminBinding(ctx, obj)
 }
 
 func (v *PostgresBindingValidator) validateAdminBinding(ctx context.Context, obj *PostgresBinding) error {

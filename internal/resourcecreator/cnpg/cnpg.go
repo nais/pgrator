@@ -90,13 +90,6 @@ func PoolerNameFor(clusterName string) string {
 	return clusterName + "-pooler"
 }
 
-// CASecretNameFor is the Secret where CloudNativePG keeps the cluster CA. Note
-// that it holds ca.key as well as ca.crt, so it must never be mounted into a
-// workload.
-func CASecretNameFor(clusterName string) string {
-	return clusterName + "-ca"
-}
-
 const (
 	// poolerSelectorName names the pg_hba podSelectorRef covering the pooler pods.
 	poolerSelectorName = "pooler"

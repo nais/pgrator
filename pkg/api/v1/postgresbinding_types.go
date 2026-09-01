@@ -108,13 +108,6 @@ func (p *PostgresBinding) ConfigSecretName() string {
 	return "postgres-" + p.DatabaseRoleName()
 }
 
-// CASecretName is the Secret a workload mounts at CAMountPath. It holds only
-// ca.crt: the CloudNativePG CA Secret also contains the CA private key and must
-// never reach a workload.
-func (p *PostgresBinding) CASecretName() string {
-	return p.ConfigSecretName() + "-ca"
-}
-
 // ClientCertSecretName is the Secret a workload mounts at ClientCertMountPath.
 //
 // It is issued and renewed by CloudNativePG and mounted directly rather than

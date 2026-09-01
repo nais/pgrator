@@ -6,7 +6,6 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	rcbinding "github.com/nais/pgrator/internal/resourcecreator/binding"
-	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
@@ -20,9 +19,9 @@ import (
 )
 
 // PostgresBindingReconciler reconciles a nais.io/v1 PostgresBinding into a
-// CloudNativePG DatabaseRole with an operator-issued client certificate, the two
-// Secrets a workload needs in order to connect, and NetworkPolicies that open the
-// path to the connection pooler.
+// CloudNativePG DatabaseRole with an operator-issued client certificate, a
+// connection Secret, and NetworkPolicies that open the path to the connection
+// pooler.
 type PostgresBindingReconciler struct {
 	Recorder events.Recorder
 	Scheme   *runtime.Scheme
@@ -31,11 +30,7 @@ type PostgresBindingReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresBinding, PostgresBindingPreparedData] = &PostgresBindingReconciler{}
 
 // PostgresBindingPreparedData contains data prepared during the Prepare phase.
-type PostgresBindingPreparedData struct {
-	// CACert is the cluster CA certificate, copied out of the CloudNativePG CA
-	// Secret so it can be handed to the workload without the CA private key.
-	CACert []byte
-}
+type PostgresBindingPreparedData struct{}
 
 func (r *PostgresBindingReconciler) Name() string {
 	return "postgresbinding.nais.io"
@@ -58,8 +53,7 @@ func (r *PostgresBindingReconciler) AdditionalTypes() []client.Object {
 	return nil
 }
 
-// Prepare verifies that the referenced Postgres exists in the same namespace and
-// reads the cluster CA certificate.
+// Prepare verifies that the referenced Postgres exists in the same namespace.
 //
 // Bindings are namespace-local by design: the namespace is the team boundary, so
 // resolving the Postgres by name in the binding's own namespace is what enforces
@@ -75,29 +69,10 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	caSecret := &core_v1.Secret{}
-	caKey := client.ObjectKey{
-		Namespace: obj.GetNamespace(),
-		Name:      rccnpg.CASecretNameFor(obj.Spec.Postgres),
-	}
-	if err := reader.Get(ctx, caKey, caSecret); err != nil {
-		if apierrors.IsNotFound(err) {
-			// The operator has not finished provisioning the cluster yet. Wait
-			// rather than fail: this is the normal state right after creation.
-			return PostgresBindingPreparedData{}, ctrl.Result{Requeue: true}, nil
-		}
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CA Secret %q: %w", caKey.Name, err)
-	}
-
-	caCert, ok := caSecret.Data["ca.crt"]
-	if !ok || len(caCert) == 0 {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("CA Secret %q has no ca.crt", caKey.Name)
-	}
-
-	return PostgresBindingPreparedData{CACert: caCert}, ctrl.Result{}, nil
+	return PostgresBindingPreparedData{}, ctrl.Result{}, nil
 }
 
-func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, _ PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
 	if obj.Spec.Role == v1.PostgresBindingRoleAdmin {
 		lock, err := rcbinding.CreateAdminLock(r.Scheme, obj)
@@ -118,12 +93,6 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, preparedData
 		return nil, ctrl.Result{}, fmt.Errorf("creating config Secret spec: %w", err)
 	}
 	actions = append(actions, action.CreateOrUpdate(configSecret, obj, existsConditionGetter, r.Recorder))
-
-	caSecret, err := rcbinding.CreateCASecret(r.Scheme, obj, preparedData.CACert)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating CA Secret spec: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(caSecret, obj, existsConditionGetter, r.Recorder))
 
 	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj)
 	if err != nil {

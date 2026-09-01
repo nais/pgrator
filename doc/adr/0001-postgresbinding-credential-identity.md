@@ -10,6 +10,8 @@ The credential identity is derived as `<postgres>-<workload>-<role>-client-cert`
 
 Every binding, including `admin`, creates a DatabaseRole and receives its own CNPG-managed client-certificate Secret. For `admin`, the DatabaseRole configures the existing database-owner role `app`; it does not join either shared read or readwrite group role. At most one admin binding may target a given `(namespace, postgres)` pair, preventing multiple DatabaseRole resources from concurrently declaring the same PostgreSQL `app` role. This invariant is enforced when a PostgresBinding is admitted.
 
+The workload reads the server CA directly from CNPG's `<postgres>-ca` Secret so CA rotation is propagated automatically. Since that Secret also contains `ca.key`, naiserator must project only the `ca.crt` key into the workload volume; pgrator does not create a binding-specific copy.
+
 When CNPG implements configurable client-certificate Secret names, pgrator will pass `spec.secretName` directly to CNPG instead of deriving the DatabaseRole name from it. The Secret name remains the stable cross-controller contract.
 
 ## Considered Options

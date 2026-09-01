@@ -5,7 +5,7 @@ object:
   apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: mydb-reporter-read-egress
+    name: reporter-mydb-egress
     namespace: myteam
   spec:
     podSelector:

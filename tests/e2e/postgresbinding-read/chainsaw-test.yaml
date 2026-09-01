@@ -4,9 +4,9 @@ metadata:
   name: postgresbinding-read
 spec:
   description: >-
-    A read binding gets its own login role limited to app_read, the two Secrets a
-    workload needs, and a NetworkPolicy to the pooler. Deleting the binding takes
-    all of it away again while the database itself is untouched.
+    A read binding gets its own login role limited to app_read, connection and
+    client-certificate Secrets, and NetworkPolicies to the pooler. The workload
+    reads the rotating CA certificate directly from the CNPG Secret.
   steps:
     - name: Create Postgres
       try:
@@ -32,7 +32,7 @@ spec:
               apiVersion: nais.io/v1
               kind: PostgresBinding
               metadata:
-                name: rapport-mydb
+                name: postgres-mydb-rapport-read
               spec:
                 postgres: mydb
                 workload:
@@ -72,17 +72,12 @@ spec:
               test "$(get PGSSLCERT)"  = "/var/run/secrets/nais.io/postgres/client/tls.crt"
               test "$(get PGSSLROOTCERT)" = "/var/run/secrets/nais.io/postgres/ca/ca.crt"
 
-    - name: CA Secret carries the certificate but never the CA private key
+    - name: CloudNativePG owns the CA Secret mounted by the workload
       try:
         - script:
             content: |
               set -eu
-               keys=$(kubectl get secret postgres-mydb-rapport-read-ca -n "$NAMESPACE" \
-                       -o jsonpath='{.data}' | tr ',' '\n')
-              echo "$keys" | grep -q 'ca\.crt'
-              # The CloudNativePG CA Secret also holds ca.key, which would let a
-              # workload mint certificates for any role. It must not be copied.
-              ! echo "$keys" | grep -q 'ca\.key'
+              test -n "$(kubectl get secret mydb-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
 
     - name: CloudNativePG issues the client certificate for the role
       try:
@@ -101,11 +96,21 @@ spec:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: postgres-mydb-rapport-read
+                name: rapport-mydb
               spec:
                 podSelector:
                   matchLabels:
                     cnpg.io/poolerName: mydb-pooler
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: rapport-mydb-egress
+              spec:
+                podSelector:
+                  matchLabels:
+                    app: rapport
 
     - name: Deleting the binding withdraws the access
       try:
@@ -131,7 +136,13 @@ spec:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: postgres-mydb-rapport-read
+                name: rapport-mydb
+        - error:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: rapport-mydb-egress
 
     - name: The database survives
       try:

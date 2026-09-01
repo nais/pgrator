@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,12 @@ var _ = Describe("PostgresBinding webhook validation", func() {
 		binding := adminBinding("migrator", "mydb")
 		_, err := newValidator().ValidateCreate(context.Background(), binding)
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("rejects a name that cannot fit the egress NetworkPolicy suffix", func() {
+		binding := adminBinding(strings.Repeat("a", 247), "mydb")
+		_, err := newValidator().ValidateCreate(context.Background(), binding)
+		Expect(err).To(MatchError(ContainSubstring("metadata.name must be at most 246 characters")))
 	})
 
 	It("rejects another admin binding for the same Postgres", func() {

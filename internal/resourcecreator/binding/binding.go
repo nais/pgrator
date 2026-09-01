@@ -149,29 +149,6 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1
 	return secret, nil
 }
 
-// CreateCASecret copies the cluster CA certificate into a Secret of its own.
-//
-// The CloudNativePG CA Secret cannot be mounted directly: it also contains ca.key,
-// and a workload holding the CA private key could mint a client certificate for
-// any role in the cluster.
-func CreateCASecret(scheme *runtime.Scheme, b *v1.PostgresBinding, caCert []byte) (*core_v1.Secret, error) {
-	secret := &core_v1.Secret{
-		TypeMeta: meta_v1.TypeMeta{
-			Kind:       "Secret",
-			APIVersion: "v1",
-		},
-		ObjectMeta: objectMeta(b, b.CASecretName()),
-		Data: map[string][]byte{
-			"ca.crt": caCert,
-		},
-	}
-
-	if err := controllerutil.SetControllerReference(b, secret, scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on CA Secret: %w", err)
-	}
-	return secret, nil
-}
-
 // CreateNetworkPolicy allows the workload to reach the connection pooler.
 //
 // The Postgres NetworkPolicy selects every pod labelled cnpg.io/cluster, which
@@ -183,7 +160,7 @@ func CreateNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networ
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(b, b.ConfigSecretName()),
+		ObjectMeta: objectMeta(b, b.GetName()),
 		Spec: networking_v1.NetworkPolicySpec{
 			// Selects the pooler pods, not the workload: this grants ingress.
 			PodSelector: meta_v1.LabelSelector{
@@ -222,7 +199,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(b, b.DatabaseRoleName()+"-egress"),
+		ObjectMeta: objectMeta(b, b.GetName()+"-egress"),
 		Spec: networking_v1.NetworkPolicySpec{
 			PodSelector: workloadSelector(b.Spec.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},
