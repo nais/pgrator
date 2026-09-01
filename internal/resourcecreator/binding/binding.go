@@ -118,6 +118,17 @@ func groupRoles(role v1.PostgresBindingRole) []string {
 	return []string{groupRole(role)}
 }
 
+func connectionEnvPrefix(role v1.PostgresBindingRole) string {
+	switch role {
+	case v1.PostgresBindingRoleRead:
+		return "READ_"
+	case v1.PostgresBindingRoleReadWrite:
+		return "READWRITE_"
+	default:
+		return ""
+	}
+}
+
 // CreateConfigSecret builds the Secret a workload consumes through envFrom.
 //
 // Connections go through PgBouncer rather than straight to the instance: the
@@ -125,6 +136,7 @@ func groupRoles(role v1.PostgresBindingRole) []string {
 // requested role via pg_ident, so current_user and the audit log still show the
 // workload's own role.
 func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1.Secret, error) {
+	prefix := connectionEnvPrefix(b.Spec.Role)
 	secret := &core_v1.Secret{
 		TypeMeta: meta_v1.TypeMeta{
 			Kind:       "Secret",
@@ -132,11 +144,11 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1
 		},
 		ObjectMeta: objectMeta(b, b.GetName()),
 		StringData: map[string]string{
-			"PGHOST":     fmt.Sprintf("%s.%s", cnpg.PoolerNameFor(b.Spec.Postgres), b.GetNamespace()),
-			"PGPORT":     "5432",
-			"PGDATABASE": appDatabase,
-			"PGUSER":     b.RoleName(),
-			"PGSSLMODE":  "verify-full",
+			prefix + "PGHOST":     fmt.Sprintf("%s.%s", cnpg.PoolerNameFor(b.Spec.Postgres), b.GetNamespace()),
+			prefix + "PGPORT":     "5432",
+			prefix + "PGDATABASE": appDatabase,
+			prefix + "PGUSER":     b.RoleName(),
+			prefix + "PGSSLMODE":  "verify-full",
 		},
 	}
 

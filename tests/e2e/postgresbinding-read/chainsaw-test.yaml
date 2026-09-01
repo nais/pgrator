@@ -65,10 +65,10 @@ spec:
             content: |
               set -eu
                get() { kubectl get secret rapport-mydb -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
-              test "$(get PGUSER)"     = "rapport"
-              test "$(get PGHOST)"     = "mydb-pooler.$NAMESPACE"
-              test "$(get PGDATABASE)" = "app"
-              test "$(get PGSSLMODE)"  = "verify-full"
+              test "$(get READ_PGUSER)"     = "rapport"
+              test "$(get READ_PGHOST)"     = "mydb-pooler.$NAMESPACE"
+              test "$(get READ_PGDATABASE)" = "app"
+              test "$(get READ_PGSSLMODE)"  = "verify-full"
 
     - name: CloudNativePG owns the CA Secret mounted by the workload
       try:
