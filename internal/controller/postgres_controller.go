@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	rcfqdnpolicy "github.com/nais/pgrator/internal/resourcecreator/fqdnpolicy"
 	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
 	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
@@ -18,6 +20,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	networking_gke_io_v1alpha3 "github.com/nais/pgrator/internal/thirdparty/google/networking/v1alpha3"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	core_v1 "k8s.io/api/core/v1"
@@ -135,7 +138,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 }
 
 func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
-	return []reconciler.OwnedType{
+	types := []reconciler.OwnedType{
 		{
 			Type: &cnpgv1.Cluster{},
 			AdditionalPredicate: predicate.Funcs{
@@ -155,6 +158,10 @@ func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 		{Type: &barmanv1.ObjectStore{}},
 		{Type: &networking_v1.NetworkPolicy{}},
 	}
+	if r.walArchivingEnabled() {
+		types = append(types, reconciler.OwnedType{Type: &networking_gke_io_v1alpha3.FQDNNetworkPolicy{}})
+	}
+	return types
 }
 
 // AdditionalTypes lists resources the reconciler manages that are not owned via
@@ -217,8 +224,8 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, preparedData PostgresPrepa
 }
 
 // walActions builds the WAL archive: the Google service account and its Workload
-// Identity binding, the bucket and its IAM binding, the barman-cloud ObjectStore
-// and the nightly ScheduledBackup.
+// Identity binding, the bucket and its IAM binding, the barman-cloud ObjectStore,
+// nightly ScheduledBackup, and FQDN egress policy.
 //
 // Config Connector resources are created once and then claimed rather than
 // updated, because changing an IAMPolicyMember's member or role in place is not
@@ -292,6 +299,12 @@ func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresP
 	}
 	actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
 
+	fqdnPolicy, err := rcfqdnpolicy.Create(r.Scheme, obj, rccnpg.ClusterName(obj))
+	if err != nil {
+		return nil, fmt.Errorf("creating WAL FQDNNetworkPolicy spec: %w", err)
+	}
+	actions = append(actions, action.CreateOrUpdate(fqdnPolicy, obj, existsConditionGetter, r.Recorder))
+
 	return actions, nil
 }
 
@@ -319,7 +332,9 @@ func iamServiceAccountHasChanges(desired, existing *iam_cnrm_cloud_google_com_v1
 }
 
 func iamPolicyHasChanges(desired, existing *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember) bool {
-	return desired.Spec.Member != existing.Spec.Member || desired.Spec.Role != existing.Spec.Role
+	return desired.Spec.Member != existing.Spec.Member ||
+		desired.Spec.Role != existing.Spec.Role ||
+		!reflect.DeepEqual(desired.Spec.ResourceRef, existing.Spec.ResourceRef)
 }
 
 func copyCnrmAnnotations(existing client.Object, desired *storage_cnrm_cloud_google_com_v1beta1.StorageBucket) {

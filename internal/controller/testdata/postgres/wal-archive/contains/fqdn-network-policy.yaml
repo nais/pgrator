@@ -1,0 +1,37 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: networking.gke.io/v1alpha3
+  kind: FQDNNetworkPolicy
+  metadata:
+    name: mydb-wal
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    podSelector:
+      matchLabels:
+        cnpg.io/cluster: mydb
+    policyTypes:
+      - Egress
+    egress:
+      - ports:
+          - protocol: TCP
+            port: 80
+        to:
+          - fqdns:
+              - metadata.google.internal
+      - ports:
+          - protocol: TCP
+            port: 443
+        to:
+          - fqdns:
+              - private.googleapis.com

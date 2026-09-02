@@ -52,13 +52,16 @@ rules:
 - apiGroups: [networking.k8s.io]
   resources: [networkpolicies]
   verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [networking.gke.io]
+  resources: [fqdnnetworkpolicies]
+  verbs: [create, delete, get, list, patch, update, watch]
 # The team namespace is read to resolve the GCP project ID for Workload Identity.
 - apiGroups: [""]
   resources: [namespaces]
   verbs: [get, list, watch]
 
 # PostgresBinding: read the CloudNativePG cluster CA, write the connection
-# Secrets a workload consumes, and atomically reserve the admin role.
+# Secrets a workload consumes, and atomically reserve login roles.
 - apiGroups: [""]
   resources: [configmaps, secrets]
   verbs: [create, delete, get, list, patch, update, watch]

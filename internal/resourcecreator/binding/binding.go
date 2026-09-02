@@ -7,6 +7,7 @@ package binding
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/resourcecreator/cnpg"
@@ -38,21 +39,35 @@ func objectMeta(b *v1.PostgresBinding, name string) meta_v1.ObjectMeta {
 	return meta_v1.ObjectMeta{
 		Name:        name,
 		Namespace:   b.GetNamespace(),
-		Labels:      map[string]string{nameLabel: b.GetName()},
+		Labels:      map[string]string{nameLabel: shortenedName(b.GetName(), "", 63)},
 		Annotations: annotations,
 	}
 }
 
-// CreateAdminLock builds the deterministic object that atomically reserves the
-// cluster's app role for one admin binding.
-func CreateAdminLock(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1.ConfigMap, error) {
-	hash := sha256.Sum256([]byte(b.Spec.Postgres))
+// shortenedName retains name unchanged when suffix fits, otherwise it includes
+// a readable prefix and a stable hash while preserving the requested suffix.
+func shortenedName(name, suffix string, limit int) string {
+	if len(name)+len(suffix) <= limit {
+		return name + suffix
+	}
+
+	hash := sha256.Sum256([]byte(name + suffix))
+	hashText := fmt.Sprintf("%x", hash[:8])
+	prefixBytes := limit - len(suffix) - len(hashText) - 1
+	prefix := strings.TrimRight(name[:prefixBytes], "-_.")
+	return fmt.Sprintf("%s-%s%s", prefix, hashText, suffix)
+}
+
+// CreateRoleLock builds the deterministic object that atomically reserves a
+// PostgreSQL login role on one Postgres cluster for one binding.
+func CreateRoleLock(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1.ConfigMap, error) {
+	hash := sha256.Sum256([]byte(b.Spec.Postgres + "\x00" + b.RoleName()))
 	lock := &core_v1.ConfigMap{
 		TypeMeta:   meta_v1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
-		ObjectMeta: objectMeta(b, fmt.Sprintf("postgresbinding-admin-%x", hash[:8])),
+		ObjectMeta: objectMeta(b, fmt.Sprintf("postgresbinding-role-%x", hash[:8])),
 	}
 	if err := controllerutil.SetControllerReference(b, lock, scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on admin lock: %w", err)
+		return nil, fmt.Errorf("setting controller reference on role lock: %w", err)
 	}
 	return lock, nil
 }
@@ -208,7 +223,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(b, b.GetName()+"-egress"),
+		ObjectMeta: objectMeta(b, shortenedName(b.GetName(), "-egress", 253)),
 		Spec: networking_v1.NetworkPolicySpec{
 			PodSelector: workloadSelector(b.Spec.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},

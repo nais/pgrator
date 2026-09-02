@@ -5,5 +5,5 @@ object:
   apiVersion: v1
   kind: ConfigMap
   metadata:
-    name: postgresbinding-role-4d43ddea4cb13d48
+    name: postgresbinding-role-64891f918718a3e3
     namespace: myteam

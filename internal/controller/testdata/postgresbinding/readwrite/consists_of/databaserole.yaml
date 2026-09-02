@@ -1,5 +1,5 @@
 ---
-action: createOrUpdate
+action: exclusiveCreateOrUpdate
 matcher: Subset
 object:
   apiVersion: postgresql.cnpg.io/v1
@@ -11,7 +11,7 @@ object:
     cluster:
       name: mydb
     databaseRoleReclaimPolicy: delete
-    name: myapp
+    name: myapp-readwrite
     login: true
     inRoles:
       - app_readwrite

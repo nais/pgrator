@@ -30,7 +30,10 @@ func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *Post
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, _ *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
+func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
+	if oldObj.Spec != newObj.Spec {
+		return nil, fmt.Errorf("spec is immutable")
+	}
 	return nil, v.validate(ctx, newObj)
 }
 
@@ -40,9 +43,6 @@ func (v *PostgresBindingValidator) ValidateDelete(_ context.Context, _ *Postgres
 }
 
 func (v *PostgresBindingValidator) validate(ctx context.Context, obj *PostgresBinding) error {
-	if len(obj.GetName()) > 246 {
-		return fmt.Errorf("metadata.name must be at most 246 characters to name the egress NetworkPolicy")
-	}
 	return v.validateAdminBinding(ctx, obj)
 }
 

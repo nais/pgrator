@@ -63,6 +63,9 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
 		if apierrors.IsNotFound(err) {
+			if !obj.GetDeletionTimestamp().IsZero() {
+				return PostgresBindingPreparedData{}, ctrl.Result{}, nil
+			}
 			return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf(
 				"no Postgres named %q in namespace %q", obj.Spec.Postgres, obj.GetNamespace())
 		}
@@ -73,38 +76,35 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 }
 
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, _ PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	var actions []action.Action
-	if obj.Spec.Role == v1.PostgresBindingRoleAdmin {
-		lock, err := rcbinding.CreateAdminLock(r.Scheme, obj)
-		if err != nil {
-			return nil, ctrl.Result{}, fmt.Errorf("creating admin lock: %w", err)
-		}
-		actions = append(actions, action.ExclusiveCreate(lock, obj))
+	lock, err := rcbinding.CreateRoleLock(r.Scheme, obj)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating role lock: %w", err)
 	}
+	actions := []action.Action{action.ExclusiveCreate(lock, obj)}
 
 	role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.ExclusiveCreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
 
 	configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating config Secret spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(configSecret, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.ExclusiveCreateOrUpdate(configSecret, obj, existsConditionGetter, r.Recorder))
 
 	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.ExclusiveCreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating egress NetworkPolicy spec: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(egressNetpol, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.ExclusiveCreateOrUpdate(egressNetpol, obj, existsConditionGetter, r.Recorder))
 
 	return actions, ctrl.Result{}, nil
 }

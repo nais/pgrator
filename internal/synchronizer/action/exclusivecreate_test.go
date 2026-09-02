@@ -66,4 +66,23 @@ var _ = Describe("ExclusiveCreate action", func() {
 		Expect(ExclusiveCreate(newLock(owner), owner).Do(context.Background(), k8sClient, scheme, ownerManager)).To(Succeed())
 		Expect(k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "myteam", Name: "postgresbinding-admin-lock"}, &corev1.ConfigMap{})).To(Succeed())
 	})
+
+	It("allows exactly one of two concurrent owners to claim a lock", func() {
+		first := newOwner("first")
+		second := newOwner("second")
+		k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+		errors := make(chan error, 2)
+		start := make(chan struct{})
+		for _, owner := range []*v1.PostgresBinding{first, second} {
+			go func() {
+				<-start
+				errors <- ExclusiveCreate(newLock(owner), owner).Do(context.Background(), k8sClient, scheme, ownerManager)
+			}()
+		}
+		close(start)
+
+		results := []error{<-errors, <-errors}
+		Expect(results).To(ContainElement(Succeed()))
+		Expect(results).To(ContainElement(MatchError(ContainSubstring("already claimed by"))))
+	})
 })

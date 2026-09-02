@@ -84,8 +84,8 @@ spec:
               workload:
                 description: |-
                   Workload identifies the Application or Naisjob granted access. Its name is
-                  also the name of the database role, so it is what shows up in pg_stat_activity
-                  and the audit log.
+                  the readable prefix of the login role shown in pg_stat_activity and the audit
+                  log.
                 properties:
                   name:
                     description: Name is the name of the Application or Naisjob.
@@ -107,6 +107,9 @@ spec:
             - secretName
             - workload
             type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
           status:
             description: status defines the observed state of PostgresBinding
             properties:

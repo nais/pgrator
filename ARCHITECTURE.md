@@ -1,16 +1,15 @@
 # pgrator — Architecture
 
-> Last updated: 2026-04-01 by repo-scout
-
 ## Project purpose
 
-`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It watches three custom resources:
+`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It watches four custom resources:
 
-| CRD          | API group         | What it creates                                                                                                                                           |
-|--------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Postgres`   | `nais.io/v1`      | CNPG `Cluster` (greenfield rebuild in progress; see `pkg/api/v1/postgres_types.go`) |
-| `Valkey`     | `nais.io/v1`      | Aiven `Valkey` CR + `ServiceIntegration`                                                                                                                  |
-| `OpenSearch` | `nais.io/v1`      | Aiven `OpenSearch` CR + `ServiceIntegration`                                                                                                              |
+| CRD               | API group    | What it creates                                                                               |
+|-------------------|--------------|-----------------------------------------------------------------------------------------------|
+| `Postgres`        | `nais.io/v1` | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources         |
+| `PostgresBinding` | `nais.io/v1` | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies                   |
+| `Valkey`          | `nais.io/v1` | Aiven `Valkey` CR + `ServiceIntegration`                                                       |
+| `OpenSearch`      | `nais.io/v1` | Aiven `OpenSearch` CR + `ServiceIntegration`                                                   |
 
 The operator translates simple, opinionated nais user specs into the full set of cloud-provider resources needed to run those services inside a Kubernetes cluster on GCP.
 
@@ -35,7 +34,7 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Task runner        | **mise**                                                                              | `.config/mise/config.toml`                                  |
 | Container          | Docker / Chainguard static base image                                                 | `Dockerfile`                                                |
 | Packaging          | Helm chart                                                                            | `charts/pgrator/`                                           |
-| CI/CD              | GitHub Actions (`nais/actions` reusable workflow)                                      | `.github/workflows/main.yml`                                |
+| CI/CD              | GitHub Actions                                                                        | `.github/workflows/main.yml`                                |
 | E2E testing        | [Chainsaw](https://github.com/kyverno/chainsaw) + kind                                | `.github/workflows/e2e.yml`, `tests/e2e/`                   |
 | Git hooks          | [Lefthook](https://github.com/evilmartians/lefthook)                                  | `lefthook.yml`                                              |
 | Deployment         | nais fasit (`nais/fasit-deploy`)                                                      | `.github/workflows/main.yml:249`                            |
@@ -57,9 +56,9 @@ pgrator/
 │   └── status.go          # BaseStatus (shared by all CRDs)
 ├── internal/
 │   ├── config/            # Env-var based config struct
-│   ├── controller/        # Resource-specific reconcilers (Postgres, Valkey, OpenSearch)
-│   │   ├── resourcecreator/  # Factories: builds child K8s/Aiven/GCP/CNPG objects
-│   │   └── testdata/         # Golden test data (per-resource test cases)
+│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBinding, Valkey, OpenSearch)
+│   │   └── testdata/      # Golden test data (per-resource test cases)
+│   ├── resourcecreator/   # Factories: builds child K8s/Aiven/GCP/CNPG objects
 │   ├── synchronizer/      # Generic reconcile loop + action system
 │   │   ├── synchronizer.go   # Core Reconcile() implementation
 │   │   ├── reconciler/       # Reconciler interface (Prepare/Update/Delete)
@@ -72,7 +71,7 @@ pgrator/
 │   ├── namegen/           # Stable short-name generator (hash-based)
 │   └── thirdparty/        # Hand-written Go types for external CRDs
 │       ├── aiven/v1alpha1/   # Aiven Valkey, ServiceIntegration, OpenSearch
-│       └── google/v1beta1/   # Google IAMPolicyMember, IAMServiceAccount
+│       └── google/            # Google IAM and Storage Config Connector types
 ├── config/
 │   ├── crd/bases/         # Generated CRD YAML (committed, copied to Helm)
 │   └── webhook/           # Webhook manifests
@@ -115,7 +114,7 @@ pgrator/
 ### Naming patterns
 - Controllers follow the `{Resource}Reconciler` naming (e.g., `PostgresReconciler`).
 - Each reconciler implements the generic `reconciler.Reconciler[T, P]` interface.
-- Resource creator functions live in `internal/controller/resourcecreator/` and are named `Create{Thing}Spec` / `Minimal{Thing}`.
+- Resource creator functions live in `internal/resourcecreator/` and are named `Create{Thing}` / `Minimal{Thing}`.
 - Action constructors are verb functions: `action.Create`, `action.Update`, `action.DeleteIfExists`, `action.Claim`, `action.Unclaim`, `action.Recreate`, `action.NoOp`.
 
 ---

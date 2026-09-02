@@ -27,6 +27,12 @@ BARMAN_PLUGIN_FILES=(
   barmancloud.cnpg.io_objectstores.yaml
 )
 
+FQDN_NETWORK_POLICY_VERSION="0.3"
+FQDN_NETWORK_POLICY_BASE_URL="https://raw.githubusercontent.com/GoogleCloudPlatform/gke-fqdnnetworkpolicies-golang/refs/tags/${FQDN_NETWORK_POLICY_VERSION}/config/crd/bases/"
+FQDN_NETWORK_POLICY_FILES=(
+  networking.gke.io_fqdnnetworkpolicies.yaml
+)
+
 function download_crd {
   local base_url
   local filename
@@ -52,4 +58,8 @@ done
 
 for fname in "${BARMAN_PLUGIN_FILES[@]}"; do
   download_crd "${BARMAN_PLUGIN_BASE_URL}" "${fname}"
+done
+
+for fname in "${FQDN_NETWORK_POLICY_FILES[@]}"; do
+  download_crd "${FQDN_NETWORK_POLICY_BASE_URL}" "${fname}"
 done

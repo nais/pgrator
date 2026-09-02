@@ -4,11 +4,12 @@ Kubernetes operator for the [nais](https://nais.io) platform that manages **Post
 
 ## Managed resources
 
-| CRD          | API group         | Backend                                                                                                                 | Creates                                                                                     |
-|--------------|-------------------|-------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| `Postgres`   | `nais.io/v1`      | [CloudNativePG](https://cloudnative-pg.io) (greenfield, reconciler under rebuild)                                        | CNPG `Cluster` (+ planned NetworkPolicy, backups)                                           |
-| `Valkey`     | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven Valkey instance + ServiceIntegration (metrics)                                        |
-| `OpenSearch` | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven OpenSearch instance + ServiceIntegration (metrics)                                    |
+| CRD               | API group    | Backend                                   | Creates                                                                                  |
+|-------------------|--------------|-------------------------------------------|------------------------------------------------------------------------------------------|
+| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources    |
+| `PostgresBinding` | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies              |
+| `Valkey`          | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven Valkey instance + ServiceIntegration (metrics)                                     |
+| `OpenSearch`      | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven OpenSearch instance + ServiceIntegration (metrics)                                 |
 
 ## Getting started
 
@@ -56,9 +57,9 @@ The `Postgres` CRD (`nais.io/v1`) provisions a [CloudNativePG](https://cloudnati
 
 ## CI/CD
 
-CI uses the centralized [`nais/actions`](https://github.com/nais/actions) reusable workflow (`mise-build-deploy-fasit.yaml`), which runs all mise tasks in parallel, builds and pushes the Docker image and Helm chart, and deploys via Fasit.
+GitHub Actions runs the repository's mise checks and tests, builds the image and Helm chart, and deploys from `main` via Fasit.
 
-E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
+Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
 
 ## Contributing
 

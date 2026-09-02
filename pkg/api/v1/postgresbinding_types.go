@@ -1,7 +1,10 @@
 package v1
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,8 +52,8 @@ type PostgresBindingSpec struct {
 	Postgres string `json:"postgres"`
 
 	// Workload identifies the Application or Naisjob granted access. Its name is
-	// also the name of the database role, so it is what shows up in pg_stat_activity
-	// and the audit log.
+	// the readable prefix of the login role shown in pg_stat_activity and the audit
+	// log.
 	// +kubebuilder:validation:Required
 	Workload PostgresBindingWorkload `json:"workload"`
 
@@ -83,12 +86,27 @@ const (
 // that shows up in pg_stat_activity and the audit log.
 //
 // Admin bindings reuse the durable owner so that database objects keep a stable
-// owner across deploys; every other role is named after the workload.
+// owner across deploys. Read and readwrite bindings use distinct login roles.
 func (p *PostgresBinding) RoleName() string {
 	if p.Spec.Role == PostgresBindingRoleAdmin {
 		return ownerRole
 	}
-	return p.Spec.Workload.Name
+
+	suffix := string(p.Spec.Role)
+	name := p.Spec.Workload.Name + "-" + suffix
+	if len(name) <= 63 {
+		return name
+	}
+
+	hash := sha256.Sum256([]byte(name))
+	hashText := fmt.Sprintf("%x", hash[:8])
+	prefixBytes := 63 - len(suffix) - len(hashText) - 2
+	prefix := p.Spec.Workload.Name
+	for len(prefix) > prefixBytes {
+		_, size := utf8.DecodeLastRuneInString(prefix)
+		prefix = prefix[:len(prefix)-size]
+	}
+	return fmt.Sprintf("%s-%s-%s", prefix, hashText, suffix)
 }
 
 // DatabaseRoleName is the CloudNativePG DatabaseRole name that produces SecretName.
@@ -126,6 +144,7 @@ type PostgresBinding struct {
 
 	// spec defines the desired state of PostgresBinding
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
 	Spec PostgresBindingSpec `json:"spec"`
 
 	// status defines the observed state of PostgresBinding

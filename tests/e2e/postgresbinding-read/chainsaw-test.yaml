@@ -4,9 +4,10 @@ metadata:
   name: postgresbinding-read
 spec:
   description: >-
-    A read binding gets its own login role limited to app_read, connection and
-    client-certificate Secrets, and NetworkPolicies to the pooler. The workload
-    reads the rotating CA certificate directly from the CNPG Secret.
+    Read and readwrite bindings for one workload get distinct login roles,
+    connection and client-certificate Secrets, and NetworkPolicies to the
+    pooler. The workload reads the rotating CA certificate directly from the
+    CNPG Secret.
   steps:
     - name: Create Postgres
       try:
@@ -50,7 +51,7 @@ spec:
               metadata:
                 name: mydb-rapport-read
               spec:
-                name: rapport
+                name: rapport-read
                 login: true
                 inRoles:
                   - app_read
@@ -64,8 +65,8 @@ spec:
         - script:
             content: |
               set -eu
-               get() { kubectl get secret rapport-mydb -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
-              test "$(get READ_PGUSER)"     = "rapport"
+              get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+              test "$(get READ_PGUSER)"     = "rapport-read"
               test "$(get READ_PGHOST)"     = "mydb-pooler.$NAMESPACE"
               test "$(get READ_PGDATABASE)" = "app"
               test "$(get READ_PGSSLMODE)"  = "verify-full"
@@ -87,6 +88,38 @@ spec:
                 name: mydb-rapport-read-client-cert
               type: kubernetes.io/tls
 
+    - name: Create a readwrite binding for the same workload
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: postgres-mydb-rapport-readwrite
+              spec:
+                postgres: mydb
+                workload:
+                  name: rapport
+                  type: job
+                secretName: mydb-rapport-readwrite-client-cert
+                role: readwrite
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-readwrite
+              spec:
+                name: rapport-readwrite
+                login: true
+                inRoles:
+                  - app_readwrite
+        - script:
+            content: |
+              set -eu
+              get() { kubectl get secret postgres-mydb-rapport-readwrite -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+              test "$(get READWRITE_PGUSER)" = "rapport-readwrite"
+
     - name: NetworkPolicy opens the workload's path to the pooler
       try:
         - assert:
@@ -94,7 +127,7 @@ spec:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: rapport-mydb
+                name: postgres-mydb-rapport-read
               spec:
                 podSelector:
                   matchLabels:
@@ -104,7 +137,7 @@ spec:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: rapport-mydb-egress
+                name: postgres-mydb-rapport-read-egress
               spec:
                 podSelector:
                   matchLabels:
@@ -116,7 +149,7 @@ spec:
             ref:
               apiVersion: nais.io/v1
               kind: PostgresBinding
-              name: rapport-mydb
+              name: postgres-mydb-rapport-read
         - error:
             resource:
               apiVersion: postgresql.cnpg.io/v1
@@ -128,19 +161,27 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: rapport-mydb
+                name: postgres-mydb-rapport-read
         - error:
             resource:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: rapport-mydb
+                name: postgres-mydb-rapport-read
         - error:
             resource:
               apiVersion: networking.k8s.io/v1
               kind: NetworkPolicy
               metadata:
-                name: rapport-mydb-egress
+                name: postgres-mydb-rapport-read-egress
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-readwrite
+              spec:
+                name: rapport-readwrite
 
     - name: The database survives
       try:

@@ -44,10 +44,10 @@ var _ = Describe("PostgresBinding webhook validation", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("rejects a name that cannot fit the egress NetworkPolicy suffix", func() {
-		binding := adminBinding(strings.Repeat("a", 247), "mydb")
+	It("allows a maximum-length Kubernetes resource name", func() {
+		binding := adminBinding(strings.Repeat("a", 253), "mydb")
 		_, err := newValidator().ValidateCreate(context.Background(), binding)
-		Expect(err).To(MatchError(ContainSubstring("metadata.name must be at most 246 characters")))
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("rejects another admin binding for the same Postgres", func() {
@@ -64,13 +64,28 @@ var _ = Describe("PostgresBinding webhook validation", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("rejects an update that would create a second admin binding", func() {
-		existing := adminBinding("migrator", "mydb")
+	DescribeTable("rejects spec identity changes",
+		func(change func(*PostgresBinding)) {
+			oldBinding := adminBinding("application", "mydb")
+			newBinding := oldBinding.DeepCopy()
+			change(newBinding)
+
+			_, err := newValidator().ValidateUpdate(context.Background(), oldBinding, newBinding)
+			Expect(err).To(MatchError("spec is immutable"))
+		},
+		Entry("Postgres", func(binding *PostgresBinding) { binding.Spec.Postgres = "otherdb" }),
+		Entry("workload name", func(binding *PostgresBinding) { binding.Spec.Workload.Name = "otherapp" }),
+		Entry("workload type", func(binding *PostgresBinding) { binding.Spec.Workload.Type = PostgresBindingWorkloadTypeJob }),
+		Entry("Secret name", func(binding *PostgresBinding) { binding.Spec.SecretName = "other-client-cert" }),
+		Entry("role", func(binding *PostgresBinding) { binding.Spec.Role = PostgresBindingRoleReadWrite }),
+	)
+
+	It("allows metadata-only updates", func() {
 		oldBinding := adminBinding("application", "mydb")
-		oldBinding.Spec.Role = PostgresBindingRoleReadWrite
 		newBinding := oldBinding.DeepCopy()
-		newBinding.Spec.Role = PostgresBindingRoleAdmin
-		_, err := newValidator(existing).ValidateUpdate(context.Background(), oldBinding, newBinding)
-		Expect(err).To(HaveOccurred())
+		newBinding.Labels = map[string]string{"updated": "true"}
+
+		_, err := newValidator(oldBinding).ValidateUpdate(context.Background(), oldBinding, newBinding)
+		Expect(err).NotTo(HaveOccurred())
 	})
 })
