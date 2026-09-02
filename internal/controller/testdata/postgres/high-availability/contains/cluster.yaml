@@ -1,0 +1,15 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: mydb
+    namespace: myteam
+  spec:
+    instances: 3
+    minSyncReplicas: 1
+    maxSyncReplicas: 1
+    imageCatalogRef:
+      major: 17

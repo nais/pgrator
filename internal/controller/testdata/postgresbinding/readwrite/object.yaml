@@ -1,0 +1,13 @@
+---
+apiVersion: nais.io/v1
+kind: PostgresBinding
+metadata:
+  name: myapp-mydb
+  namespace: myteam
+spec:
+  postgres: mydb
+  workload:
+    name: myapp
+    type: application
+  secretName: mydb-myapp-readwrite-client-cert
+  role: readwrite

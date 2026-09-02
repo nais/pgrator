@@ -8,9 +8,9 @@ These templates are used together with [cmd/docgen](../cmd/docgen) to generate d
 
 Templates and output follow the directory structure `<group>/<version>/<kind>/`.
 
-For example, the `Postgres` CRD (group `data.nais.io`, version `v1`) has:
-- Templates in `templates/data.nais.io/v1/postgres/`
-- Output in `output/data.nais.io/v1/postgres/`
+For example, the `Postgres` CRD (group `nais.io`, version `v1`) has:
+- Templates in `templates/nais.io/v1/postgres/`
+- Output in `output/nais.io/v1/postgres/`
 
 Each kind directory should contain:
 
@@ -20,8 +20,8 @@ Each kind directory should contain:
 These are only templates; the actual documentation is generated from code.
 For the `Postgres` CRD:
 
-- example is generated from [pkg/api/datav1/postgres_doc_example.go](../pkg/api/datav1/postgres_doc_example.go)
-- reference is generated from [pkg/api/datav1/postgres_types.go](../pkg/api/datav1/postgres_types.go).
+- example is generated from [pkg/api/v1/postgres_doc_example.go](../pkg/api/v1/postgres_doc_example.go)
+- reference is generated from [pkg/api/v1/postgres_types.go](../pkg/api/v1/postgres_types.go).
 
 ## CI/CD
 
@@ -32,13 +32,13 @@ The job named `documentation` in the GitHub Actions workflow [.github/workflows/
 CRDs usually live in the [pkg/api](../pkg/api) directory.
 Once a new first-party CRD has been added there, follow these steps to add documentation for it:
 
-1. Create a new subdirectory in `doc/templates/<group>/<version>/<kind>/` (e.g., `doc/templates/data.nais.io/v1/postgres/`).
+1. Create a new subdirectory in `doc/templates/<group>/<version>/<kind>/` (e.g., `doc/templates/nais.io/v1/postgres/`).
 2. Add `example.md` and `reference.md` template files in the new subdirectory with appropriate headers.
 3. Create an example function in the CRD package that returns a fully populated example resource.
 4. Register the example function in `ExampleRegistry` in [cmd/docgen/docgen.go](../cmd/docgen/docgen.go):
    ```go
    var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
-       {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: datav1.ExamplePostgresForDocumentation,
+       {Group: "nais.io", Version: "v1", Kind: "Postgres"}: v1.ExamplePostgresForDocumentation,
    }
    ```
 5. Modify the `documentation` job in [.github/workflows/main.yml](../.github/workflows/main.yml) to copy the generated files to the correct location.

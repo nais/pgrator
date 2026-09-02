@@ -32,8 +32,9 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		return fmt.Errorf("internal error: %w", err)
 	}
 
+	existingObj := existing.(client.Object)
 	key := client.ObjectKeyFromObject(a.obj)
-	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {
+	if err = c.Get(ctx, key, existingObj); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -53,7 +54,13 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
 
-	for _, condition := range a.conditionGetter(a.obj, scheme) {
+	// Use the previously fetched object for conditions: it carries the live
+	// status subresource, which c.Update() does not return.
+	conditionSource := existingObj
+	if existingObj.GetResourceVersion() == "" {
+		conditionSource = a.obj
+	}
+	for _, condition := range a.conditionGetter(conditionSource, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
 	}
 

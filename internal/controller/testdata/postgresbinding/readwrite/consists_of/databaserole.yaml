@@ -1,0 +1,19 @@
+---
+action: exclusiveCreateOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: mydb-myapp-readwrite
+    namespace: myteam
+  spec:
+    cluster:
+      name: mydb
+    databaseRoleReclaimPolicy: delete
+    name: myapp-readwrite
+    login: true
+    inRoles:
+      - app_readwrite
+    clientCertificate:
+      enabled: true

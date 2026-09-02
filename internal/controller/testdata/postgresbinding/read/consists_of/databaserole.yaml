@@ -1,0 +1,14 @@
+---
+action: exclusiveCreateOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: mydb-reporter-read
+    namespace: myteam
+  spec:
+    name: reporter-read
+    login: true
+    inRoles:
+      - app_read

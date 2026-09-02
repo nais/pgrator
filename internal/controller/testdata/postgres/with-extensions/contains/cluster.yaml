@@ -1,0 +1,13 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: mydb
+    namespace: myteam
+  spec:
+    postgresql:
+      extensions:
+        - name: postgis

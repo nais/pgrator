@@ -17,16 +17,15 @@ type Config struct {
 
 	GoogleProjectID string `env:"GOOGLE_PROJECT_ID" yaml:"googleProjectID"`
 
-	PostgresStorageClass string `env:"POSTGRES_STORAGE_CLASS" yaml:"postgresStorageClass"`
-	PostgresImage        string `env:"POSTGRES_IMAGE" yaml:"postgresImage"`
+	// APIServerIP is the CIDR of the Kubernetes API server, used to allow egress
+	// from CNPG pods (which must reach the API server) through their NetworkPolicy.
+	APIServerIP string `env:"API_SERVER_IP" yaml:"apiServerIP"`
 
 	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
 	Development bool `env:"DEVELOPMENT" yaml:"development"`
 
-	LeaderElectionEnabled   bool   `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
-	PrometheusRulesDisabled bool   `env:"PROMETHEUS_RULES_DISABLED" yaml:"prometheusRulesDisabled"`
-	ResyncIAMPermissions    bool   `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
-	WalGsBucket             string `env:"WAL_GS_BUCKET" yaml:"walGsBucket"`
+	LeaderElectionEnabled bool `env:"LEADER_ELECTION_ENABLED" yaml:"leaderElectionEnabled"`
+	ResyncIAMPermissions  bool `env:"RESYNC_IAM_PERMISSIONS" yaml:"resyncIAMPermissions"`
 
 	Aiven  Aiven  `yaml:"aiven"`
 	Tenant Tenant `yaml:"tenant"`
@@ -56,10 +55,6 @@ type CNPG struct {
 	StorageClass string `env:"CNPG_STORAGE_CLASS" yaml:"storageClass"`
 	// WalBucketPrefix is the prefix used for GCS buckets for barman-cloud WAL storage.
 	WalBucketPrefix string `env:"CNPG_WAL_BUCKET_PREFIX" yaml:"walBucketPrefix"`
-	// WalBucketNamespace is the namespace for creating wal storage buckets
-	WalBucketNamespace string `env:"CNPG_WAL_BUCKET_NAMESPACE" yaml:"walBucketNamespace"`
-	// WalBucketRole is the namespace for creating wal storage buckets
-	WalBucketRole string `env:"CNPG_WAL_BUCKET_ROLE" yaml:"walBucketRole"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

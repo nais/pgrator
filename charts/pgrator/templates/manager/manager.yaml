@@ -35,14 +35,8 @@ spec:
               value: {{ .Values.google.projectId }}
             - name: GOOGLE_LOCATION
               value: {{ .Values.google.location }}
-            - name: POSTGRES_STORAGE_CLASS
-              value: {{ .Values.postgresStorageClass }}
-            - name: POSTGRES_IMAGE
-              valueFrom:
-                configMapKeyRef:
-                  key: postgres_image
-                  name: postgres-image
-                  optional: true
+            - name: API_SERVER_IP
+              value: {{ .Values.apiServerIP }}
             - name: AIVEN_PROJECT
               value: {{ .Values.aiven.project | quote }}
             - name: AIVEN_PROJECT_VPC_ID
@@ -53,10 +47,6 @@ spec:
               value: {{ .Values.fasit.tenant.name }}
             - name: LEADER_ELECTION_ENABLED
               value: {{ .Values.controllerManager.leaderElection.enable | quote }}
-            {{- if .Values.walGsBucket }}
-            - name: WAL_GS_BUCKET
-              value: {{ .Values.walGsBucket }}
-            {{- end }}
             {{- if .Values.resyncIAMPermissions }}
             - name: RESYNC_IAM_PERMISSIONS
               value: "{{ .Values.resyncIAMPermissions }}"
@@ -72,14 +62,6 @@ spec:
             {{- if .Values.cnpg.walBucketPrefix }}
             - name: CNPG_WAL_BUCKET_PREFIX
               value: {{ .Values.cnpg.walBucketPrefix }}
-            {{- end }}
-            {{- if .Values.cnpg.walBucketNamespace }}
-            - name: CNPG_WAL_BUCKET_NAMESPACE
-              value: {{ .Values.cnpg.walBucketNamespace }}
-            {{- end }}
-            {{- if .Values.cnpg.walBucketRole }}
-            - name: CNPG_WAL_BUCKET_ROLE
-              value: {{ .Values.cnpg.walBucketRole }}
             {{- end }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}

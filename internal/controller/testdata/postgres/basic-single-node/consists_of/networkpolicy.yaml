@@ -1,0 +1,38 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: mydb
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    policyTypes:
+      - Egress
+      - Ingress
+    podSelector:
+      matchLabels:
+        cnpg.io/cluster: mydb
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                cnpg.io/cluster: mydb
+      - to:
+          - namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+      - to:
+          - ipBlock:
+              cidr: 172.16.0.2/32

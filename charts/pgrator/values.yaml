@@ -1,5 +1,4 @@
-postgresStorageClass: ""
-walGsBucket: ""
+apiServerIP: ""
 dryRun: false
 development: false
 
@@ -10,8 +9,6 @@ google:
 cnpg:
   imageCatalogName: "cloudnative-image-catalog"
   storageClass: "hyperdisk-balanced"
-  walBucketNamespace: "nais-cnpg-wal-storage"
-  walBucketRole: ""
   walBucketPrefix: ""
 
 # [MANAGER]: Manager Deployment Configurations
@@ -59,10 +56,8 @@ rbac:
   # The template auto-generates /finalizers and /status subresource rules
   # When adding resources, ensure that you're using the *plural* form of the resource name
   primaryResources:
-    - apiGroups: [data.nais.io]
-      resources: [postgres]
     - apiGroups: [nais.io]
-      resources: [valkeys, opensearches]
+      resources: [postgres, postgresbindings, valkeys, opensearches]
 
 # [METRICS]: Set to true to generate manifests for exporting metrics.
 # To disable metrics export set false, and ensure that the

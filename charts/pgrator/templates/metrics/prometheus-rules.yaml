@@ -10,7 +10,7 @@ spec:
     - name: pgrator-operator-reconciliation
       rules:
         - alert: PgratorHighReconcileErrors
-          expr: rate(controller_runtime_reconcile_errors_total{controller="postgres.data.nais.io"}[5m]) > 0
+          expr: rate(controller_runtime_reconcile_errors_total{controller="postgres.nais.io"}[5m]) > 0
           for: 10m
           labels:
             severity: warning
@@ -19,7 +19,7 @@ spec:
             description: "One or more reconcile errors occurred in the last 10 minutes."
 
         - alert: PgratorSlowReconcile
-          expr: histogram_quantile(0.9, sum(rate(controller_runtime_reconcile_time_seconds_bucket{controller="postgres.data.nais.io"}[10m])) by (le)) > 20
+          expr: histogram_quantile(0.9, sum(rate(controller_runtime_reconcile_time_seconds_bucket{controller="postgres.nais.io"}[10m])) by (le)) > 20
           for: 5m
           labels:
             severity: warning
@@ -28,7 +28,7 @@ spec:
             description: "90th percentile reconcile time exceeds 20s for one or more resource types."
 
         - alert: PgratorLowSuccessRate
-          expr: sum(rate(controller_runtime_reconcile_total{controller="postgres.data.nais.io",result="success"}[10m])) by (controller) / sum(rate(controller_runtime_reconcile_total{controller="postgres.data.nais.io"}[10m])) by (controller) < 0.5
+          expr: sum(rate(controller_runtime_reconcile_total{controller="postgres.nais.io",result="success"}[10m])) by (controller) / sum(rate(controller_runtime_reconcile_total{controller="postgres.nais.io"}[10m])) by (controller) < 0.5
           for: 10m
           labels:
             severity: warning

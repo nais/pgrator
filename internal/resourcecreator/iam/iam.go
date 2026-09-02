@@ -1,39 +1,44 @@
+// Package iam builds the Google IAM resources (via Config Connector) that let a
+// CloudNativePG cluster authenticate to its WAL bucket through GKE Workload
+// Identity. No static credentials are involved: barman-cloud is configured with
+// googleCredentials.gkeEnvironment, which makes it pick up an OAuth token from
+// the metadata server.
 package iam
 
 import (
 	"fmt"
 
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	WorkloadIdentityRole = "roles/iam.workloadIdentityUser"
 	StorageBucketRole    = "roles/storage.objectUser"
-	LogWriterRole        = "roles/logging.logWriter"
 )
 
 func MinimalPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	return &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{
-		TypeMeta: v1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "IAMPolicyMember",
-			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
+			APIVersion: iam_cnrm_cloud_google_com_v1beta1.GroupVersion.String(),
 		},
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
 	}
 }
 
+// CreateIAMServiceAccount creates the Google service account that the CNPG
+// instance pods impersonate through Workload Identity.
 func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount {
-	iamServiceAccount := &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
-		TypeMeta: v1.TypeMeta{
+	return &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "IAMServiceAccount",
-			APIVersion: "iam.cnrm.cloud.google.com/v1beta1",
+			APIVersion: iam_cnrm_cloud_google_com_v1beta1.GroupVersion.String(),
 		},
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
@@ -41,50 +46,36 @@ func CreateIAMServiceAccount(name, namespace string) *iam_cnrm_cloud_google_com_
 			DisplayName: fmt.Sprintf("Postgres Pod Service Account for team %q", namespace),
 		},
 	}
-
-	return iamServiceAccount
 }
 
-func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, GSAName, KSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := MinimalPolicyMember(name, teamNamespace)
-	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
-		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, KSAName),
+// CreateWorkloadIdentityPolicyMember binds the Kubernetes service account that
+// CloudNativePG creates for the cluster to the Google service account.
+func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, clusterGoogleProjectID, gsaName, ksaName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	policyMember := MinimalPolicyMember(name, teamNamespace)
+	policyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
+		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, ksaName),
 		Role:   WorkloadIdentityRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: ptr.To("iam.cnrm.cloud.google.com/v1beta1"),
+			APIVersion: new(iam_cnrm_cloud_google_com_v1beta1.GroupVersion.String()),
 			Kind:       "IAMServiceAccount",
-			Name:       GSAName,
+			Name:       gsaName,
 		},
 	}
-	return iamPolicyMember
+	return policyMember
 }
 
-func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, GSAName, bucketName, role string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := MinimalPolicyMember(name, namespace)
-	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
-		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
-		Role:   role,
+// CreateStorageBucketPolicyMember grants the Google service account access to
+// the WAL bucket in the team's Google project.
+func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+	policyMember := MinimalPolicyMember(name, namespace)
+	policyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
+		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
+		Role:   StorageBucketRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: ptr.To("storage.cnrm.cloud.google.com/v1beta1"),
+			APIVersion: new("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",
-			External:   &bucketName,
+			Name:       bucketName,
 		},
 	}
-
-	return iamPolicyMember
-}
-
-func CreateLogsWriterPolicyMember(name, namespace, teamGoogleProjectID, GSAName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
-	iamPolicyMember := MinimalPolicyMember(name, namespace)
-	iamPolicyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
-		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", GSAName, teamGoogleProjectID),
-		Role:   LogWriterRole,
-		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: ptr.To("resourcemanager.cnrm.cloud.google.com/v1beta1"),
-			Kind:       "Project",
-			External:   ptr.To(fmt.Sprintf("projects/%s", teamGoogleProjectID)),
-		},
-	}
-
-	return iamPolicyMember
+	return policyMember
 }

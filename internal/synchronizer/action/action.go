@@ -36,25 +36,6 @@ func (a *action) GetOwner() api.NaisObject {
 	return a.owner
 }
 
-type noOp struct {
-	action
-}
-
-func (n *noOp) Do(_ context.Context, _ client.Client, _ *runtime.Scheme, _ ownership.OwnerManager) error {
-	return nil
-}
-
-func NoOp(obj client.Object, owner api.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
-	return &noOp{
-		action: action{
-			obj:             obj,
-			owner:           owner,
-			conditionGetter: conditionGetter,
-			recorder:        recorder,
-		},
-	}
-}
-
 func copyMeta(dst, src runtime.Object) error {
 	srcacc, err := meta.Accessor(src)
 	if err != nil {

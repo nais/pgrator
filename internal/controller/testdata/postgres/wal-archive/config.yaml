@@ -1,0 +1,5 @@
+googleProjectID: cluster-gcp-project
+cnpg:
+  walBucketPrefix: wal-bucket-prefix
+google:
+  location: europe-north1

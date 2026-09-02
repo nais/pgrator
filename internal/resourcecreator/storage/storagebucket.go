@@ -1,35 +1,47 @@
+// Package storage builds the WAL archive storage for a CloudNativePG cluster:
+// the Google Cloud Storage bucket (via Config Connector) and the barman-cloud
+// ObjectStore that CloudNativePG's WAL archiver plugin points at.
 package storage
 
 import (
-	"github.com/nais/pgrator/internal/resourcecreator"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
-	data_nais_io_v1 "github.com/nais/pgrator/pkg/api/datav1"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
+	// daysUntilDelete is how long WAL segments and base backups are kept in the
+	// bucket before the lifecycle rule removes them.
 	daysUntilDelete = 30
+
+	// OwnerNameLabel and OwnerNamespaceLabel make the owning Postgres resource
+	// easy to identify in addition to its Kubernetes owner reference.
+	OwnerNameLabel      = "postgres.nais.io/name"
+	OwnerNamespaceLabel = "postgres.nais.io/namespace"
 )
 
-func MinimalStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName string, storageBucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
-	objectMeta := resourcecreator.CreateObjectMeta(postgres)
-	objectMeta.Name = storageBucketName
-	objectMeta.Namespace = storageBucketNamespace
-
+func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	return &storage_cnrm_cloud_google_com_v1beta1.StorageBucket{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "StorageBucket",
 			APIVersion: storage_cnrm_cloud_google_com_v1beta1.GroupVersion.String(),
 		},
-		ObjectMeta: objectMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketName,
+			Namespace: postgres.GetNamespace(),
+			Labels: map[string]string{
+				OwnerNameLabel:      postgres.GetName(),
+				OwnerNamespaceLabel: postgres.GetNamespace(),
+			},
+		},
 	}
 }
 
-func CreateStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName, storageBucketNamespace, storageBucketLocation string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
-	storageBucket := MinimalStorageBucket(postgres, storageBucketName, storageBucketNamespace)
-
-	storageBucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
-		Location:               storageBucketLocation,
+// CreateStorageBucket builds the WAL bucket in the Postgres team's namespace.
+func CreateStorageBucket(postgres *v1.Postgres, bucketName, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
+	bucket := minimalStorageBucket(postgres, bucketName)
+	bucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
+		Location:               location,
 		PublicAccessPrevention: storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
 		LifecycleRules: []storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRule{
 			{
@@ -42,6 +54,5 @@ func CreateStorageBucket(postgres *data_nais_io_v1.Postgres, storageBucketName, 
 			},
 		},
 	}
-
-	return storageBucket
+	return bucket
 }

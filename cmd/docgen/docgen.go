@@ -20,7 +20,6 @@ import (
 	yaml2 "github.com/ghodss/yaml"
 	"github.com/imdario/mergo"
 	"github.com/nais/pgrator/pkg/api"
-	"github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
@@ -40,10 +39,15 @@ var exampleResource any
 // Add new CRD examples here when adding new CRDs to the project.
 var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	{
-		Group:   datav1.GroupVersion.Group,
-		Version: datav1.GroupVersion.Version,
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
 		Kind:    "Postgres",
-	}: datav1.ExamplePostgresForDocumentation,
+	}: v1.ExamplePostgresForDocumentation,
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
+		Kind:    "PostgresBinding",
+	}: v1.ExamplePostgresBindingForDocumentation,
 	{
 		Group:   v1.GroupVersion.Group,
 		Version: v1.GroupVersion.Version,

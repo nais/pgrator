@@ -1,0 +1,22 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: iam.cnrm.cloud.google.com/v1beta1
+  kind: IAMPolicyMember
+  metadata:
+    name: cnpg-wal-mydb-3efb4e90
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    role: roles/storage.objectUser
+    member: serviceAccount:cnpg-mydb-b60fcdec@team-gcp-project.iam.gserviceaccount.com
+    resourceRef:
+      kind: StorageBucket
+      name: wal-bucket-prefix-myteam-mydb-feedab1ebeef

@@ -1,0 +1,89 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgresbinding-admin
+spec:
+  description: >-
+    An admin binding adopts the durable owner role and receives its own
+    CloudNativePG-managed client certificate.
+  steps:
+    - name: Create Postgres
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                majorVersion: "18"
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb
+
+    - name: Create an admin binding
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: eier-mydb
+              spec:
+                postgres: mydb
+                workload:
+                  name: eier
+                  type: application
+                secretName: mydb-eier-admin-client-cert
+                role: admin
+
+    - name: The binding adopts the durable owner role
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-eier-admin
+              spec:
+                name: app
+                login: true
+                databaseRoleReclaimPolicy: retain
+
+    - name: The binding points at the durable owner
+      try:
+        - script:
+            content: |
+              set -eu
+              user=$(kubectl get secret eier-mydb -n "$NAMESPACE" \
+                       -o jsonpath='{.data.PGUSER}' | base64 -d)
+              test "$user" = "app"
+
+    - name: Deleting the binding removes its credential but retains the database role
+      try:
+        - delete:
+            ref:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              name: eier-mydb
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: eier-mydb
+        - error:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-eier-admin
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: mydb-eier-admin-client-cert

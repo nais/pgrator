@@ -1,0 +1,82 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgres-basic
+spec:
+  description: >-
+    A Postgres resource produces the CNPG Cluster, the durable owner DatabaseRole,
+    the pooler and the NetworkPolicy, and the API server fills in the spec defaults.
+  steps:
+    - name: Create Postgres with only the required field
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                majorVersion: "18"
+
+    - name: CRD defaults are applied
+      try:
+        - assert:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                resources:
+                  diskSize: 10Gi
+                  cpu: 100m
+                  memory: 512Mi
+
+    - name: Cluster is created with certificate authentication
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb
+              spec:
+                instances: 2
+                enableSuperuserAccess: false
+                bootstrap:
+                  initdb:
+                    database: app
+                    owner: app
+                postgresql:
+                  pg_hba:
+                    # The pooler authenticates as itself and is mapped to the
+                    # requested role via pg_ident; everyone else must present their
+                    # own client certificate, and plaintext is rejected outright.
+                    - hostssl all all ${podselector:pooler} cert map=pooler
+                    - hostssl all all all cert
+                    - hostnossl all all all reject
+                  pg_ident:
+                    - pooler cnpg_pooler_pgbouncer all
+
+    - name: Pooler and NetworkPolicy are created
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Pooler
+              metadata:
+                name: mydb-pooler
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: mydb
+
+    - name: No Google resources without a WAL bucket configured
+      try:
+        - error:
+            resource:
+              apiVersion: iam.cnrm.cloud.google.com/v1beta1
+              kind: IAMServiceAccount
+              metadata:

@@ -1,19 +1,17 @@
 package metrics
 
 import (
+	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 )
 
 const (
 	testPhaseCompleted   = "Completed"
 	testPhasePreparing   = "Preparing"
-	testResourceType     = "postgres.data.nais.io"
+	testResourceType     = "postgres.nais.io"
 	testNamespace        = "my-team"
 	testName             = "my-db"
 	testMajorVersion     = "16"
@@ -43,12 +41,10 @@ func getLabelValue(m *dto.Metric, name string) string {
 	return ""
 }
 
-var _ = Describe("SetResourceInfo", func() {
-	BeforeEach(func() {
+func TestSetResourceInfo(t *testing.T) {
+	t.Run("sets a gauge with correct labels and value 1", func(t *testing.T) {
 		ResourceInfo.Reset()
-	})
 
-	It("sets a gauge with correct labels and value 1", func() {
 		labels := ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        testNamespace,
@@ -60,19 +56,37 @@ var _ = Describe("SetResourceInfo", func() {
 		SetResourceInfo(labels)
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(1))
+		if len(metrics) != 1 {
+			t.Fatalf("expected 1 metric, got %d", len(metrics))
+		}
 
 		m := metrics[0]
-		Expect(m.GetGauge().GetValue()).To(Equal(1.0))
-		Expect(getLabelValue(m, "resource_type")).To(Equal(testResourceType))
-		Expect(getLabelValue(m, "namespace")).To(Equal(testNamespace))
-		Expect(getLabelValue(m, "name")).To(Equal(testName))
-		Expect(getLabelValue(m, "major_version")).To(Equal(testMajorVersion))
-		Expect(getLabelValue(m, "high_availability")).To(Equal(testHighAvailability))
-		Expect(getLabelValue(m, "phase")).To(Equal(testPhaseCompleted))
+		if got := m.GetGauge().GetValue(); got != 1.0 {
+			t.Errorf("gauge value = %v, want 1.0", got)
+		}
+		if got := getLabelValue(m, "resource_type"); got != testResourceType {
+			t.Errorf("resource_type = %q, want %q", got, testResourceType)
+		}
+		if got := getLabelValue(m, "namespace"); got != testNamespace {
+			t.Errorf("namespace = %q, want %q", got, testNamespace)
+		}
+		if got := getLabelValue(m, "name"); got != testName {
+			t.Errorf("name = %q, want %q", got, testName)
+		}
+		if got := getLabelValue(m, "major_version"); got != testMajorVersion {
+			t.Errorf("major_version = %q, want %q", got, testMajorVersion)
+		}
+		if got := getLabelValue(m, "high_availability"); got != testHighAvailability {
+			t.Errorf("high_availability = %q, want %q", got, testHighAvailability)
+		}
+		if got := getLabelValue(m, "phase"); got != testPhaseCompleted {
+			t.Errorf("phase = %q, want %q", got, testPhaseCompleted)
+		}
 	})
 
-	It("creates a new time series when phase changes (old series still exists)", func() {
+	t.Run("creates a new time series when phase changes (old series still exists)", func(t *testing.T) {
+		ResourceInfo.Reset()
+
 		labels := ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        testNamespace,
@@ -87,10 +101,14 @@ var _ = Describe("SetResourceInfo", func() {
 		SetResourceInfo(labels)
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(2), "both Preparing and Completed label sets should exist")
+		if len(metrics) != 2 {
+			t.Errorf("expected both Preparing and Completed label sets to exist, got %d metrics", len(metrics))
+		}
 	})
 
-	It("handles empty optional labels (e.g. Valkey/OpenSearch)", func() {
+	t.Run("handles empty optional labels (e.g. Valkey/OpenSearch)", func(t *testing.T) {
+		ResourceInfo.Reset()
+
 		labels := ResourceLabels{
 			ResourceType: "valkey.nais.io",
 			Namespace:    testNamespace,
@@ -100,20 +118,24 @@ var _ = Describe("SetResourceInfo", func() {
 		SetResourceInfo(labels)
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(1))
+		if len(metrics) != 1 {
+			t.Fatalf("expected 1 metric, got %d", len(metrics))
+		}
 
 		m := metrics[0]
-		Expect(getLabelValue(m, "major_version")).To(BeEmpty())
-		Expect(getLabelValue(m, "high_availability")).To(BeEmpty())
+		if got := getLabelValue(m, "major_version"); got != "" {
+			t.Errorf("major_version = %q, want empty", got)
+		}
+		if got := getLabelValue(m, "high_availability"); got != "" {
+			t.Errorf("high_availability = %q, want empty", got)
+		}
 	})
-})
+}
 
-var _ = Describe("RemoveResourceInfo", func() {
-	BeforeEach(func() {
+func TestRemoveResourceInfo(t *testing.T) {
+	t.Run("removes only the matching resource, leaving others intact", func(t *testing.T) {
 		ResourceInfo.Reset()
-	})
 
-	It("removes only the matching resource, leaving others intact", func() {
 		SetResourceInfo(ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        "team-a",
@@ -131,7 +153,9 @@ var _ = Describe("RemoveResourceInfo", func() {
 			Phase:            testPhaseCompleted,
 		})
 
-		Expect(collectMetrics(ResourceInfo)).To(HaveLen(2))
+		if got := len(collectMetrics(ResourceInfo)); got != 2 {
+			t.Fatalf("expected 2 metrics before removal, got %d", got)
+		}
 
 		RemoveResourceInfo(ResourceLabels{
 			ResourceType: testResourceType,
@@ -140,11 +164,17 @@ var _ = Describe("RemoveResourceInfo", func() {
 		})
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(1))
-		Expect(getLabelValue(metrics[0], "namespace")).To(Equal("team-b"))
+		if len(metrics) != 1 {
+			t.Fatalf("expected 1 metric after removal, got %d", len(metrics))
+		}
+		if got := getLabelValue(metrics[0], "namespace"); got != "team-b" {
+			t.Errorf("namespace = %q, want %q", got, "team-b")
+		}
 	})
 
-	It("removes all phases for a resource via DeletePartialMatch", func() {
+	t.Run("removes all phases for a resource via DeletePartialMatch", func(t *testing.T) {
+		ResourceInfo.Reset()
+
 		SetResourceInfo(ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        "team-a",
@@ -162,7 +192,9 @@ var _ = Describe("RemoveResourceInfo", func() {
 			Phase:            testPhaseCompleted,
 		})
 
-		Expect(collectMetrics(ResourceInfo)).To(HaveLen(2))
+		if got := len(collectMetrics(ResourceInfo)); got != 2 {
+			t.Fatalf("expected 2 metrics before removal, got %d", got)
+		}
 
 		RemoveResourceInfo(ResourceLabels{
 			ResourceType: testResourceType,
@@ -170,16 +202,16 @@ var _ = Describe("RemoveResourceInfo", func() {
 			Name:         "db-1",
 		})
 
-		Expect(collectMetrics(ResourceInfo)).To(BeEmpty())
+		if got := len(collectMetrics(ResourceInfo)); got != 0 {
+			t.Errorf("expected 0 metrics after removal, got %d", got)
+		}
 	})
-})
+}
 
-var _ = Describe("remove-before-set pattern", func() {
-	BeforeEach(func() {
+func TestRemoveBeforeSetPattern(t *testing.T) {
+	t.Run("prevents stale phase series when remove is called before set", func(t *testing.T) {
 		ResourceInfo.Reset()
-	})
 
-	It("prevents stale phase series when remove is called before set", func() {
 		labels := ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        testNamespace,
@@ -199,11 +231,17 @@ var _ = Describe("remove-before-set pattern", func() {
 		SetResourceInfo(labels)
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(1), "no stale phase series should remain")
-		Expect(getLabelValue(metrics[0], "phase")).To(Equal(testPhaseCompleted))
+		if len(metrics) != 1 {
+			t.Fatalf("no stale phase series should remain, got %d metrics", len(metrics))
+		}
+		if got := getLabelValue(metrics[0], "phase"); got != testPhaseCompleted {
+			t.Errorf("phase = %q, want %q", got, testPhaseCompleted)
+		}
 	})
 
-	It("prevents stale version series on upgrade", func() {
+	t.Run("prevents stale version series on upgrade", func(t *testing.T) {
+		ResourceInfo.Reset()
+
 		SetResourceInfo(ResourceLabels{
 			ResourceType:     testResourceType,
 			Namespace:        testNamespace,
@@ -228,61 +266,71 @@ var _ = Describe("remove-before-set pattern", func() {
 		})
 
 		metrics := collectMetrics(ResourceInfo)
-		Expect(metrics).To(HaveLen(1), "no stale version series should remain")
-		Expect(getLabelValue(metrics[0], "major_version")).To(Equal(testMajorVersion))
-	})
-})
-
-var _ = Describe("ObserveReconcileDuration", func() {
-	BeforeEach(func() {
-		ReconcileDuration.Reset()
-	})
-
-	It("records histogram observations per result label", func() {
-		ObserveReconcileDuration(testResourceType, "success", 500*time.Millisecond)
-		ObserveReconcileDuration(testResourceType, "error", 100*time.Millisecond)
-
-		metrics := collectMetrics(ReconcileDuration)
-		Expect(metrics).To(HaveLen(2))
-
-		for _, m := range metrics {
-			result := getLabelValue(m, "result")
-			Expect(m.GetHistogram().GetSampleCount()).To(BeEquivalentTo(1), "result=%s", result)
-			switch result {
-			case "success":
-				Expect(m.GetHistogram().GetSampleSum()).To(BeNumerically("~", 0.5, 0.1))
-			case "error":
-				Expect(m.GetHistogram().GetSampleSum()).To(BeNumerically("~", 0.1, 0.01))
-			default:
-				Fail("unexpected result label: " + result)
-			}
+		if len(metrics) != 1 {
+			t.Fatalf("no stale version series should remain, got %d metrics", len(metrics))
+		}
+		if got := getLabelValue(metrics[0], "major_version"); got != testMajorVersion {
+			t.Errorf("major_version = %q, want %q", got, testMajorVersion)
 		}
 	})
-})
+}
 
-var _ = Describe("IncReconcileError", func() {
-	BeforeEach(func() {
-		ReconcileErrors.Reset()
-	})
+func TestObserveReconcileDuration(t *testing.T) {
+	ReconcileDuration.Reset()
 
-	It("increments counters per phase label", func() {
-		IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
-		IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
-		IncReconcileError(testResourceType, testNamespace, "PerformActions")
+	ObserveReconcileDuration(testResourceType, "success", 500*time.Millisecond)
+	ObserveReconcileDuration(testResourceType, "error", 100*time.Millisecond)
 
-		metrics := collectMetrics(ReconcileErrors)
-		Expect(metrics).To(HaveLen(2))
+	metrics := collectMetrics(ReconcileDuration)
+	if len(metrics) != 2 {
+		t.Fatalf("expected 2 metrics, got %d", len(metrics))
+	}
 
-		for _, m := range metrics {
-			phase := getLabelValue(m, "phase")
-			switch phase {
-			case testPhasePreparing:
-				Expect(m.GetCounter().GetValue()).To(Equal(2.0))
-			case "PerformActions":
-				Expect(m.GetCounter().GetValue()).To(Equal(1.0))
-			default:
-				Fail("unexpected phase: " + phase)
-			}
+	for _, m := range metrics {
+		result := getLabelValue(m, "result")
+		if got := m.GetHistogram().GetSampleCount(); got != 1 {
+			t.Errorf("result=%s: sample count = %d, want 1", result, got)
 		}
-	})
-})
+		switch result {
+		case "success":
+			if got := m.GetHistogram().GetSampleSum(); got < 0.4 || got > 0.6 {
+				t.Errorf("success sample sum = %v, want ~0.5", got)
+			}
+		case "error":
+			if got := m.GetHistogram().GetSampleSum(); got < 0.09 || got > 0.11 {
+				t.Errorf("error sample sum = %v, want ~0.1", got)
+			}
+		default:
+			t.Fatalf("unexpected result label: %s", result)
+		}
+	}
+}
+
+func TestIncReconcileError(t *testing.T) {
+	ReconcileErrors.Reset()
+
+	IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
+	IncReconcileError(testResourceType, testNamespace, testPhasePreparing)
+	IncReconcileError(testResourceType, testNamespace, "PerformActions")
+
+	metrics := collectMetrics(ReconcileErrors)
+	if len(metrics) != 2 {
+		t.Fatalf("expected 2 metrics, got %d", len(metrics))
+	}
+
+	for _, m := range metrics {
+		phase := getLabelValue(m, "phase")
+		switch phase {
+		case testPhasePreparing:
+			if got := m.GetCounter().GetValue(); got != 2.0 {
+				t.Errorf("phase=%s: counter value = %v, want 2.0", phase, got)
+			}
+		case "PerformActions":
+			if got := m.GetCounter().GetValue(); got != 1.0 {
+				t.Errorf("phase=%s: counter value = %v, want 1.0", phase, got)
+			}
+		default:
+			t.Fatalf("unexpected phase: %s", phase)
+		}
+	}
+}

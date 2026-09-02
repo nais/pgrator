@@ -1,0 +1,27 @@
+---
+action: create
+matcher: Subset
+object:
+  apiVersion: storage.cnrm.cloud.google.com/v1beta1
+  kind: StorageBucket
+  metadata:
+    name: wal-bucket-prefix-myteam-mydb-feedab1ebeef
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+      postgres.nais.io/namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    location: europe-north1
+    publicAccessPrevention: inherited
+    lifecycleRule:
+      - action:
+          type: Delete
+        condition:
+          age: 30

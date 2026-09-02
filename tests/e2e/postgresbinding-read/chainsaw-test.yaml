@@ -1,0 +1,193 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgresbinding-read
+spec:
+  description: >-
+    Read and readwrite bindings for one workload get distinct login roles,
+    connection and client-certificate Secrets, and NetworkPolicies to the
+    pooler. The workload reads the rotating CA certificate directly from the
+    CNPG Secret.
+  steps:
+    - name: Create Postgres
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                majorVersion: "18"
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb
+
+    - name: Create a read binding
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: postgres-mydb-rapport-read
+              spec:
+                postgres: mydb
+                workload:
+                  name: rapport
+                  type: job
+                secretName: mydb-rapport-read-client-cert
+                role: read
+
+    - name: Role is a login role that only inherits app_read
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-read
+              spec:
+                name: rapport-read
+                login: true
+                inRoles:
+                  - app_read
+                # The binding is the grant, so withdrawing it drops the role.
+                databaseRoleReclaimPolicy: delete
+                clientCertificate:
+                  enabled: true
+
+    - name: Connection Secret points at the pooler with the binding's own identity
+      try:
+        - script:
+            content: |
+              set -eu
+              get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+              test "$(get READ_PGUSER)"     = "rapport-read"
+              test "$(get READ_PGHOST)"     = "mydb-pooler.$NAMESPACE"
+              test "$(get READ_PGDATABASE)" = "app"
+              test "$(get READ_PGSSLMODE)"  = "verify-full"
+
+    - name: CloudNativePG owns the CA Secret mounted by the workload
+      try:
+        - script:
+            content: |
+              set -eu
+              test -n "$(kubectl get secret mydb-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
+
+    - name: CloudNativePG issues the client certificate for the role
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: mydb-rapport-read-client-cert
+              type: kubernetes.io/tls
+
+    - name: Create a readwrite binding for the same workload
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: postgres-mydb-rapport-readwrite
+              spec:
+                postgres: mydb
+                workload:
+                  name: rapport
+                  type: job
+                secretName: mydb-rapport-readwrite-client-cert
+                role: readwrite
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-readwrite
+              spec:
+                name: rapport-readwrite
+                login: true
+                inRoles:
+                  - app_readwrite
+        - script:
+            content: |
+              set -eu
+              get() { kubectl get secret postgres-mydb-rapport-readwrite -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
+              test "$(get READWRITE_PGUSER)" = "rapport-readwrite"
+
+    - name: NetworkPolicy opens the workload's path to the pooler
+      try:
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport-read
+              spec:
+                podSelector:
+                  matchLabels:
+                    cnpg.io/poolerName: mydb-pooler
+        - assert:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport-read-egress
+              spec:
+                podSelector:
+                  matchLabels:
+                    app: rapport
+
+    - name: Deleting the binding withdraws the access
+      try:
+        - delete:
+            ref:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              name: postgres-mydb-rapport-read
+        - error:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-read
+        - error:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: postgres-mydb-rapport-read
+        - error:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport-read
+        - error:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: postgres-mydb-rapport-read-egress
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              metadata:
+                name: mydb-rapport-readwrite
+              spec:
+                name: rapport-readwrite
+
+    - name: The database survives
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: mydb

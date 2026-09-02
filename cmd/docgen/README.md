@@ -19,9 +19,9 @@ go run cmd/docgen/docgen.go \
 
 Templates and output follow the directory structure `<group>/<version>/<kind>/`.
 
-For example, the `Postgres` CRD (group `data.nais.io`, version `v1`) with the above flags uses:
-- Templates: `doc/templates/data.nais.io/v1/postgres/`
-- Output: `doc/output/data.nais.io/v1/postgres/`
+For example, the `Postgres` CRD (group `nais.io`, version `v1`) with the above flags uses:
+- Templates: `doc/templates/nais.io/v1/postgres/`
+- Output: `doc/output/nais.io/v1/postgres/`
 
 ## Register example functions
 
@@ -29,6 +29,6 @@ Register the example function in `ExampleRegistry` in [docgen.go](docgen.go):
 
 ```go
 var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
-   {Group: "data.nais.io", Version: "v1", Kind: "Postgres"}: datav1.ExamplePostgresForDocumentation,
+   {Group: "nais.io", Version: "v1", Kind: "Postgres"}: v1.ExamplePostgresForDocumentation,
 }
 ```

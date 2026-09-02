@@ -4,11 +4,12 @@ Kubernetes operator for the [nais](https://nais.io) platform that manages **Post
 
 ## Managed resources
 
-| CRD          | API group         | Backend                                                                                                                 | Creates                                                                                     |
-|--------------|-------------------|-------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| `Postgres`   | `data.nais.io/v1` | [Zalando postgres-operator](https://github.com/zalando/postgres-operator) or [CloudNativePG](https://cloudnative-pg.io) | Postgres cluster, NetworkPolicy, IAM resources, ServiceAccount, RoleBinding, PrometheusRule |
-| `Valkey`     | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven Valkey instance + ServiceIntegration (metrics)                                        |
-| `OpenSearch` | `nais.io/v1`      | [Aiven](https://aiven.io)                                                                                               | Aiven OpenSearch instance + ServiceIntegration (metrics)                                    |
+| CRD               | API group    | Backend                                   | Creates                                                                                  |
+|-------------------|--------------|-------------------------------------------|------------------------------------------------------------------------------------------|
+| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources    |
+| `PostgresBinding` | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies              |
+| `Valkey`          | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven Valkey instance + ServiceIntegration (metrics)                                     |
+| `OpenSearch`      | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven OpenSearch instance + ServiceIntegration (metrics)                                 |
 
 ## Getting started
 
@@ -27,7 +28,7 @@ mise install
 # Run all checks and tests
 mise run all
 
-# Run only unit/integration tests
+# Run unit and integration tests in both Go modules
 mise run test
 
 # Run only linting
@@ -50,20 +51,15 @@ lefthook install
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed information about project structure, conventions, and design patterns.
 
-### Postgres engine selection
+### Postgres
 
-The `Postgres` CRD supports two backend engines:
-
-- **Zalando** (default) — uses the [Zalando postgres-operator](https://github.com/zalando/postgres-operator) with Spilo
-- **CNPG** — uses [CloudNativePG](https://cloudnative-pg.io) with barman-cloud backups
-
-Engine selection is immutable after creation. The operator detects existing resources and prevents engine changes.
+The `Postgres` CRD (`nais.io/v1`) provisions a [CloudNativePG](https://cloudnative-pg.io) cluster. The reconciler is being rebuilt greenfield (cert-based auth, PostgreSQL 18); see the type in `pkg/api/v1/postgres_types.go`.
 
 ## CI/CD
 
-CI uses the centralized [`nais/actions`](https://github.com/nais/actions) reusable workflow (`mise-build-deploy-fasit.yaml`), which runs all mise tasks in parallel, builds and pushes the Docker image and Helm chart, and deploys via Fasit.
+GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`.
 
-E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
+Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
 
 ## Contributing
 
@@ -72,7 +68,7 @@ E2E tests run separately in a [kind](https://kind.sigs.k8s.io/) cluster using [C
 1. **Install tools** — `mise install` sets up Go, golangci-lint, controller-gen, helm, and all other dependencies at pinned versions.
 2. **Make changes** — edit code, CRD types, or Helm chart.
 3. **Regenerate** — if you changed types in `pkg/api/`, run `mise run generate` to update CRDs and DeepCopy methods.
-4. **Test locally** — `mise run test` runs the full Ginkgo test suite with envtest (a real API server + etcd, no cluster needed).
+4. **Test locally** — `mise run test` runs standard Go tests in both the root and `pkg/api` modules. Controller integration tests use envtest (a real API server + etcd, no cluster needed).
 5. **Commit** — lefthook pre-commit hooks run fmt, lint, vet, and generate-check automatically.
 6. **Push** — pre-push hook runs tests. CI runs the full matrix in parallel.
 
@@ -103,17 +99,29 @@ my-test-case/
 ```
 
 Each expected file in `contains/` or `consists_of/` specifies:
-- `action`: `create`, `update`, `createOrUpdate`, `claim`, `recreate`
+- `action`: the concrete action type, for example `create`, `createOrUpdate`, `exclusiveCreate`, or `exclusiveCreateOrUpdate`
 - `matcher`: `Equal` (exact match) or `Subset` (only specified fields must match)
 - `object`: the expected Kubernetes resource
+
+### Writing Go tests
+
+Use the standard library `testing` package. Prefer table-driven tests with
+`t.Run` when several cases exercise the same contract; use a focused `TestXxx`
+function when setup or behavior differs materially. Test observable behavior,
+not implementation branches. Golden fixtures are the preferred contract tests
+for reconciler output.
 
 ### Running tests
 
 ```sh
-mise run test          # Integration tests (envtest — no cluster required)
+mise run test          # Root + pkg/api Go tests; sets up envtest automatically
 mise run test:e2e      # E2E tests (requires running mise run dev:tilt in a separate terminal)
 mise run test:ci       # Starts a cluster, runs E2E tests
 ```
+
+`go test ./...` can be used for a single module when `KUBEBUILDER_ASSETS` is
+already configured. The mise task is the authoritative full test command because
+Go does not traverse into the nested `pkg/api` module automatically.
 
 ### Code generation
 

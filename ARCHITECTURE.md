@@ -1,16 +1,15 @@
 # pgrator — Architecture
 
-> Last updated: 2026-04-01 by repo-scout
-
 ## Project purpose
 
-`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It watches three custom resources:
+`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It watches four custom resources:
 
-| CRD          | API group         | What it creates                                                                                                                                           |
-|--------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Postgres`   | `data.nais.io/v1` | Zalando `postgresql` CR **or** CNPG `Cluster`/`ScheduledBackup`/`Pooler`, NetworkPolicy, Google IAM resources, Kubernetes ServiceAccount, RoleBinding, PrometheusRule |
-| `Valkey`     | `nais.io/v1`      | Aiven `Valkey` CR + `ServiceIntegration`                                                                                                                  |
-| `OpenSearch` | `nais.io/v1`      | Aiven `OpenSearch` CR + `ServiceIntegration`                                                                                                              |
+| CRD               | API group    | What it creates                                                                               |
+|-------------------|--------------|-----------------------------------------------------------------------------------------------|
+| `Postgres`        | `nais.io/v1` | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources         |
+| `PostgresBinding` | `nais.io/v1` | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies                   |
+| `Valkey`          | `nais.io/v1` | Aiven `Valkey` CR + `ServiceIntegration`                                                       |
+| `OpenSearch`      | `nais.io/v1` | Aiven `OpenSearch` CR + `ServiceIntegration`                                                   |
 
 The operator translates simple, opinionated nais user specs into the full set of cloud-provider resources needed to run those services inside a Kubernetes cluster on GCP.
 
@@ -23,19 +22,19 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Language           | Go 1.26                                                                               | `go.mod:3`, `Dockerfile:2`                                  |
 | Operator framework | `sigs.k8s.io/controller-runtime` v0.23.3                                              | `go.mod:28`                                                 |
 | Kubernetes API     | `k8s.io/api` v0.35.3                                                                  | `go.mod:23-26`                                              |
-| Postgres backend   | `github.com/zalando/postgres-operator` v1.15.1 + `github.com/cloudnative-pg/cloudnative-pg` | `go.mod:21`, `go.mod`                    |
+| Postgres backend   | `github.com/cloudnative-pg/cloudnative-pg` + `plugin-barman-cloud`                    | `go.mod`                                 |
 | Aiven backend      | Internal thirdparty types (`internal/thirdparty/aiven/v1alpha1`)                      | types hand-written; no direct module dep                    |
 | Google IAM backend | Internal thirdparty types (`internal/thirdparty/google/v1beta1`)                      | `internal/thirdparty/google/v1beta1/*.go`                   |
 | Monitoring         | `prometheus-operator/pkg/apis/monitoring` v0.90.1                                     | `go.mod:18`                                                 |
 | Config             | `github.com/sethvargo/go-envconfig` v1.3.0                                            | `go.mod:19`, `internal/config/config.go`                    |
 | Logging            | `go.uber.org/zap` via `controller-runtime/log/zap`                                    | `cmd/main.go:58`                                            |
-| Testing            | Ginkgo v2 + Gomega + `controller-runtime/envtest`                                     | `go.mod:6,17`, `internal/controller/suite_test.go`          |
+| Testing            | Standard library `testing` + `controller-runtime/envtest`                             | `.config/mise/tasks/test.sh`, `internal/controller/suite_test.go` |
 | Linting            | golangci-lint 2.10.1                                                                  | `.config/mise/config.toml:7`, `.golangci.yml`               |
 | Code generation    | `controller-gen` (`sigs.k8s.io/controller-tools` v0.20.1)                             | `go.mod:29`, `.config/mise/config.toml`                     |
 | Task runner        | **mise**                                                                              | `.config/mise/config.toml`                                  |
 | Container          | Docker / Chainguard static base image                                                 | `Dockerfile`                                                |
 | Packaging          | Helm chart                                                                            | `charts/pgrator/`                                           |
-| CI/CD              | GitHub Actions (`nais/actions` reusable workflow)                                      | `.github/workflows/main.yml`                                |
+| CI/CD              | GitHub Actions                                                                        | `.github/workflows/main.yml`                                |
 | E2E testing        | [Chainsaw](https://github.com/kyverno/chainsaw) + kind                                | `.github/workflows/e2e.yml`, `tests/e2e/`                   |
 | Git hooks          | [Lefthook](https://github.com/evilmartians/lefthook)                                  | `lefthook.yml`                                              |
 | Deployment         | nais fasit (`nais/fasit-deploy`)                                                      | `.github/workflows/main.yml:249`                            |
@@ -51,16 +50,15 @@ pgrator/
 │   ├── main.go            # Operator entry point; wires controllers + webhooks
 │   └── docgen/docgen.go   # CLI tool: generates nais/doc reference markdown
 ├── pkg/api/               # Separate Go module (github.com/nais/pgrator/pkg/api)
-│   ├── v1/                # nais.io/v1 CRD types: Valkey, OpenSearch (+ webhooks)
-│   ├── datav1/            # data.nais.io/v1 CRD types: Postgres
+│   ├── v1/                # nais.io/v1 CRD types: Postgres, Valkey, OpenSearch (+ webhooks)
 │   ├── annotation.go      # Shared annotation constants
 │   ├── object.go          # NaisObject interface
 │   └── status.go          # BaseStatus (shared by all CRDs)
 ├── internal/
 │   ├── config/            # Env-var based config struct
-│   ├── controller/        # Resource-specific reconcilers (Postgres, Valkey, OpenSearch)
-│   │   ├── resourcecreator/  # Factories: builds child K8s/Aiven/GCP/CNPG objects
-│   │   └── testdata/         # Golden test data (per-resource test cases)
+│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBinding, Valkey, OpenSearch)
+│   │   └── testdata/      # Golden test data (per-resource test cases)
+│   ├── resourcecreator/   # Factories: builds child K8s/Aiven/GCP/CNPG objects
 │   ├── synchronizer/      # Generic reconcile loop + action system
 │   │   ├── synchronizer.go   # Core Reconcile() implementation
 │   │   ├── reconciler/       # Reconciler interface (Prepare/Update/Delete)
@@ -68,12 +66,12 @@ pgrator/
 │   │   ├── events/           # Kubernetes event recorder wrapper
 │   │   ├── ownership/        # Owner annotation management
 │   │   └── relatedobjectsmap/# Lookup map for related K8s objects
-│   ├── golden/            # Golden-file test harness
+│   ├── golden/            # Golden fixture parsing and object comparison
 │   ├── metrics/           # Custom Prometheus metrics (reconcile counts, errors, durations)
 │   ├── namegen/           # Stable short-name generator (hash-based)
 │   └── thirdparty/        # Hand-written Go types for external CRDs
 │       ├── aiven/v1alpha1/   # Aiven Valkey, ServiceIntegration, OpenSearch
-│       └── google/v1beta1/   # Google IAMPolicyMember, IAMServiceAccount
+│       └── google/            # Google IAM and Storage Config Connector types
 ├── config/
 │   ├── crd/bases/         # Generated CRD YAML (committed, copied to Helm)
 │   └── webhook/           # Webhook manifests
@@ -93,7 +91,7 @@ pgrator/
 
 ### Formatting and linting
 - **Formatter**: `gofmt` + `goimports` (enforced via `golangci-lint` formatters section).
-- **Linter**: `golangci-lint` v2 with an explicit allow-list: `copyloopvar`, `dupl`, `errcheck`, `ginkgolinter`, `goconst`, `gocyclo`, `govet`, `ineffassign`, `lll`, `misspell`, `nakedret`, `prealloc`, `revive`, `staticcheck`, `unconvert`, `unparam`, `unused`.
+- **Linter**: `golangci-lint` v2 with an explicit allow-list; see `.golangci.yml` for the authoritative list.
 - Config: `.golangci.yml`. Run separately for root module and `pkg/api` (two Go modules).
 - CI runs `fmt-check` and `generate-check` to verify nothing is out of date.
 
@@ -102,11 +100,12 @@ pgrator/
 - Interface compliance is asserted at compile time: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller.
 
 ### Testing
-- **Framework**: Ginkgo v2 (BDD) + Gomega matchers.
-- **Environment**: `controller-runtime/envtest` spins up a real API server + etcd for integration tests.
-- **Golden-file tests**: `internal/golden/` — each test case is a directory under `internal/controller/testdata/{resource}/{case}/` containing `object.yaml`, optional `prepared_data.yaml`, and expected action YAML files. Tests assert that `reconciler.Update()` produces exactly (or at least) the expected set of actions.
+- **Framework**: standard library `testing`; there are no project-owned Ginkgo/Gomega tests.
+- **Structure**: prefer table-driven subtests when cases share a behavioral contract, and focused `TestXxx` functions when setup or behavior differs materially.
+- **Environment**: `controller-runtime/envtest` spins up a real API server + etcd for controller integration tests. `mise run test` resolves and exports `KUBEBUILDER_ASSETS` automatically.
+- **Golden-file tests**: the table-driven runner in `internal/controller/suite_test.go` loads fixtures from `internal/controller/testdata/{resource}/{case}/`; parsing and object comparison live in `internal/golden/`. Tests assert that `reconciler.Update()` produces exactly (or at least) the expected action set.
+- **Modules**: `mise run test` runs both the root and nested `pkg/api` modules. A plain `go test ./...` does not cross the module boundary.
 - Test files follow the standard Go `_test.go` convention, co-located with the package under test.
-- Each package with tests has a `suite_test.go` that calls `RunSpecs`.
 
 ### Code generation
 - `controller-gen` generates `zz_generated.deepcopy.go` (object deepcopy) and CRD YAML manifests.
@@ -116,7 +115,7 @@ pgrator/
 ### Naming patterns
 - Controllers follow the `{Resource}Reconciler` naming (e.g., `PostgresReconciler`).
 - Each reconciler implements the generic `reconciler.Reconciler[T, P]` interface.
-- Resource creator functions live in `internal/controller/resourcecreator/` and are named `Create{Thing}Spec` / `Minimal{Thing}`.
+- Resource creator functions live in `internal/resourcecreator/` and are named `Create{Thing}` / `Minimal{Thing}`.
 - Action constructors are verb functions: `action.Create`, `action.Update`, `action.DeleteIfExists`, `action.Claim`, `action.Unclaim`, `action.Recreate`, `action.NoOp`.
 
 ---
@@ -128,7 +127,7 @@ pgrator/
 # Run all checks (vet + lint)
 mise run check
 
-# Run all tests (requires setup-envtest; sets KUBEBUILDER_ASSETS automatically)
+# Test both Go modules (sets KUBEBUILDER_ASSETS automatically for envtest)
 mise run test
 ```
 
@@ -151,7 +150,7 @@ mise run test
 | CI: check fmt          | `mise run ci:fmt`              | `.config/mise/tasks/ci/fmt.sh`             |
 | CI: check generate     | `mise run ci:generate`         | `.config/mise/tasks/ci/generate.sh`        |
 
-> **Note**: `mise run test` calls `setup-envtest` automatically to resolve `KUBEBUILDER_ASSETS`.
+> **Note**: `mise run test` calls `setup-envtest` automatically to resolve `KUBEBUILDER_ASSETS`, then runs `go test ./...` in both Go modules.
 > The K8s version for envtest is derived from the `controller-runtime` version in `go.mod` at tool-install time.
 
 ---
@@ -162,10 +161,9 @@ mise run test
 |---------------------------------------------------------|-----------------------------------------------------------|
 | `sigs.k8s.io/controller-runtime`                        | Manager, reconcile loop, envtest, client, webhooks        |
 | `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/client-go` | Kubernetes types and client                               |
-| `github.com/zalando/postgres-operator`                  | `Postgresql` CRD types used as reconcile target           |
+| `github.com/cloudnative-pg/cloudnative-pg`              | `Cluster` CRD types used as reconcile target              |
 | `prometheus-operator/pkg/apis/monitoring`               | `PrometheusRule`, `ServiceMonitor` CRD types              |
 | `github.com/sethvargo/go-envconfig`                     | Struct-tag-based env-var configuration                    |
-| `github.com/onsi/ginkgo/v2` + `gomega`                  | BDD test framework                                        |
 | `sigs.k8s.io/controller-tools` (controller-gen)         | CRD manifest + deepcopy code generation                   |
 | `github.com/imdario/mergo`                              | Struct merging (used in resource creators)                |
 | `go.uber.org/zap`                                       | Structured logging (via controller-runtime adapter)       |
@@ -193,13 +191,9 @@ All configuration is read at startup by `internal/config/config.go` via `sethvar
 | `AIVEN_METRICS_DESTINATION_ENDPOINT_ID` | **yes**  | Aiven metrics endpoint                                |
 | `TENANT_NAME`                           | **yes**  | Tenant/cluster name                                   |
 | `GOOGLE_PROJECT_ID`                     | no       | GCP project for IAM resources                         |
-| `POSTGRES_STORAGE_CLASS`                | no       | StorageClass for Postgres PVCs                        |
-| `POSTGRES_IMAGE`                        | no       | Docker image for Spilo (Postgres pod)                 |
-| `WAL_GS_BUCKET`                         | no       | GCS bucket for WAL archiving                          |
 | `METRICS_CERT_PATH`                     | no       | Dir containing `tls.crt`/`tls.key` for metrics server |
 | `DRY_RUN`                               | no       | Enable dry-run mode on the K8s client                 |
 | `LEADER_ELECTION_ENABLED`               | no       | Enable leader election                                |
-| `PROMETHEUS_RULES_DISABLED`             | no       | Disable PrometheusRule creation                       |
 | `RESYNC_IAM_PERMISSIONS`                | no       | Allow recreating IAMPolicyMember resources            |
 
 Helm chart exposes most of these via `charts/pgrator/values.yaml`.
@@ -215,10 +209,9 @@ Helm chart exposes most of these via `charts/pgrator/values.yaml`.
 | **Generic reconciler via `Synchronizer[T, P]`**: all three controllers plug into the same generic synchronizer; resource-specific logic is in `Prepare`/`Update`/`Delete`. | `internal/synchronizer/synchronizer.go`, `internal/synchronizer/reconciler/reconciler.go` |
 | **Action objects**: all mutations are expressed as `action.Action` values — none executed inline in reconcilers.                                                           | `internal/synchronizer/action/action.go`, `internal/controller/postgres_controller.go`    |
 | **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgres_controller.go:57`, `valkey_controller.go:35`                |
-| **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/controller/postgres_controller.go:75`, `internal/synchronizer/synchronizer.go`  |
+| **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/synchronizer/synchronizer.go`  |
 | **Structured logging via `logr`/`zap`**: no `fmt.Print*` in production paths; uses `ctrl.Log` / `logf.FromContext(ctx)`.                                                   | `cmd/main.go:58`, `internal/synchronizer/synchronizer.go:93`                              |
-| **Version-engine validation at two layers**: CRD enum allows all supported versions; a ValidatingAdmissionPolicy rejects invalid combos at admission; `validateVersionForEngine` in the controller acts as a safety net. CNPG requires ≥18, Zalando supports 16–17. | `charts/pgrator/templates/admission/validating-admission-policy.yaml`, `internal/controller/postgres_controller.go` |
-| **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/golden/golden.go`, `internal/controller/testdata/`                              |
+| **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/controller/suite_test.go`, `internal/controller/testdata/`                      |
 | **Ownership via annotations** (not OwnerReferences for cross-namespace resources): `<name>/owner` annotations track multi-owner shared resources.                          | `internal/synchronizer/ownership/ownership.go`                                            |
 
 ### Don't

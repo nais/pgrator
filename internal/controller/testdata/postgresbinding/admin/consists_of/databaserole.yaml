@@ -1,0 +1,13 @@
+---
+action: exclusiveCreateOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: mydb-myapp-admin
+    namespace: myteam
+  spec:
+    name: app
+    login: true
+    databaseRoleReclaimPolicy: retain
