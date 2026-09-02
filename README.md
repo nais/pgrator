@@ -99,7 +99,7 @@ my-test-case/
 ```
 
 Each expected file in `contains/` or `consists_of/` specifies:
-- `action`: the concrete action type, for example `create`, `createOrUpdate`, `exclusiveCreate`, or `exclusiveCreateOrUpdate`
+- `action`: the concrete action type, for example `create`, `createOrUpdate`, or `exclusiveCreateOrUpdate`
 - `matcher`: `Equal` (exact match) or `Subset` (only specified fields must match)
 - `object`: the expected Kubernetes resource
 

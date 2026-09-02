@@ -43,7 +43,6 @@ func (r *PostgresBindingReconciler) New() *v1.PostgresBinding {
 func (r *PostgresBindingReconciler) OwnedTypes() []reconciler.OwnedType {
 	return []reconciler.OwnedType{
 		{Type: &cnpgv1.DatabaseRole{}},
-		{Type: &core_v1.ConfigMap{}},
 		{Type: &core_v1.Secret{}},
 		{Type: &networking_v1.NetworkPolicy{}},
 	}
@@ -76,17 +75,11 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 }
 
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, _ PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	lock, err := rcbinding.CreateRoleLock(r.Scheme, obj)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating role lock: %w", err)
-	}
-	actions := []action.Action{action.ExclusiveCreate(lock, obj)}
-
 	role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 	}
-	actions = append(actions, action.ExclusiveCreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
+	actions := []action.Action{action.ExclusiveCreateOrUpdate(role, obj, existsConditionGetter, r.Recorder)}
 
 	configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj)
 	if err != nil {

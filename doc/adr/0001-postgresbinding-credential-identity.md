@@ -10,7 +10,7 @@ The credential identity is derived as `<postgres>-<workload>-<role>-client-cert`
 
 Every binding, including `admin`, creates a DatabaseRole and receives its own CNPG-managed client-certificate Secret. For `admin`, the DatabaseRole configures the existing database-owner role `app`; it does not join either shared read or readwrite group role. Non-admin login roles are distinct: `<workload>-read` and `<workload>-readwrite`. Names longer than PostgreSQL's 63-byte identifier limit retain a readable workload prefix and role suffix with a stable hash between them.
 
-Only one binding may own a PostgreSQL login role on a given `(namespace, postgres)` pair. Reconciliation atomically creates a deterministic Kubernetes reservation for that identity before creating child resources, so concurrent reconciles cannot both claim the same login role even when their DatabaseRole or Secret names differ. Child resources are likewise created atomically and updated only while the binding remains their controller owner. Admission still gives an early error for duplicate admin bindings, but correctness does not depend on a webhook list operation.
+Workload names are unique within a namespace across Applications and Naisjobs, so the workload name and binding role uniquely identify non-admin login roles. The admission webhook rejects duplicate admin bindings for the same Postgres instance. Child resources are created atomically and updated only while the binding remains their controller owner.
 
 The workload reads the server CA directly from CNPG's `<postgres>-ca` Secret so CA rotation is propagated automatically. Since that Secret also contains `ca.key`, naiserator must project only the `ca.crt` key into the workload volume; pgrator does not create a binding-specific copy.
 
@@ -25,6 +25,6 @@ When CNPG implements configurable client-certificate Secret names, pgrator will 
 ## Consequences
 
 - PostgresBinding carries the complete naiserator-selected client-certificate Secret name.
-- The PostgresBinding admission webhook performs a namespace-local lookup to report duplicate admin bindings early; the atomic reconciliation reservation enforces login-role ownership.
+- The PostgresBinding admission webhook performs a namespace-local lookup to reject duplicate admin bindings.
 - A PostgresBinding spec is immutable because changing any identity field would move ownership between credentials, roles, or workloads; replacement requires creating a new binding.
 - The Postgres reconciler must no longer be the owner of the admin DatabaseRole or client certificate once that responsibility moves to PostgresBinding.

@@ -57,20 +57,6 @@ func shortenedName(name, suffix string, limit int) string {
 	return fmt.Sprintf("%s-%s%s", prefix, hashText, suffix)
 }
 
-// CreateRoleLock builds the deterministic object that atomically reserves a
-// PostgreSQL login role on one Postgres cluster for one binding.
-func CreateRoleLock(scheme *runtime.Scheme, b *v1.PostgresBinding) (*core_v1.ConfigMap, error) {
-	hash := sha256.Sum256([]byte(b.Spec.Postgres + "\x00" + b.RoleName()))
-	lock := &core_v1.ConfigMap{
-		TypeMeta:   meta_v1.TypeMeta{Kind: "ConfigMap", APIVersion: "v1"},
-		ObjectMeta: objectMeta(b, fmt.Sprintf("postgresbinding-role-%x", hash[:8])),
-	}
-	if err := controllerutil.SetControllerReference(b, lock, scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on role lock: %w", err)
-	}
-	return lock, nil
-}
-
 // CreateDatabaseRole builds the DatabaseRole for a binding. Admin bindings adopt
 // the durable app owner so CNPG can issue a client certificate for it.
 func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.DatabaseRole, error) {

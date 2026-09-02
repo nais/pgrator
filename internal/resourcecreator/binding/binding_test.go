@@ -1,7 +1,6 @@
 package binding
 
 import (
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -32,29 +31,6 @@ func newScheme(t *testing.T) *runtime.Scheme {
 		t.Fatalf("AddToScheme: %v", err)
 	}
 	return scheme
-}
-
-func TestCreateRoleLockUsesSameReservationForSameLoginRole(t *testing.T) {
-	scheme := newScheme(t)
-	first := newBinding("first")
-	second := newBinding("second")
-	second.Spec.SecretName = "a-different-client-cert"
-
-	firstLock, err := CreateRoleLock(scheme, first)
-	if err != nil {
-		t.Fatalf("CreateRoleLock(first): %v", err)
-	}
-	secondLock, err := CreateRoleLock(scheme, second)
-	if err != nil {
-		t.Fatalf("CreateRoleLock(second): %v", err)
-	}
-
-	if secondLock.Name != firstLock.Name {
-		t.Errorf("secondLock.Name = %q, want %q", secondLock.Name, firstLock.Name)
-	}
-	if reflect.DeepEqual(secondLock.OwnerReferences, firstLock.OwnerReferences) {
-		t.Errorf("expected different owner references, got equal: %+v", secondLock.OwnerReferences)
-	}
 }
 
 func TestValidDeterministicLabelForMaxLengthBindingName(t *testing.T) {

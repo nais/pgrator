@@ -38,8 +38,8 @@ object:
 ```
 
 `action` must match the concrete action implementation returned by the
-reconciler. Current fixtures use `create`, `createOrUpdate`, `exclusiveCreate`,
-and `exclusiveCreateOrUpdate`.
+reconciler. Current fixtures use `create`, `createOrUpdate`, and
+`exclusiveCreateOrUpdate`.
 
 Matchers:
 

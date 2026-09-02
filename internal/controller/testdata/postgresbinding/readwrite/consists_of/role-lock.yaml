@@ -1,9 +1,0 @@
----
-action: exclusiveCreate
-matcher: Subset
-object:
-  apiVersion: v1
-  kind: ConfigMap
-  metadata:
-    name: postgresbinding-role-fd5c3b4cf6d6bf59
-    namespace: myteam
