@@ -6,10 +6,17 @@ object:
   kind: IAMPolicyMember
   metadata:
     name: cnpg-wal-mydb-3efb4e90
-    namespace: nais-cnpg-wal-storage
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
   spec:
-    role: projects/cnpg-wal-project/roles/CNRMRoleForCNPGClusters
+    role: roles/storage.objectUser
     member: serviceAccount:cnpg-mydb-b60fcdec@team-gcp-project.iam.gserviceaccount.com
     resourceRef:
       kind: StorageBucket
-      external: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
+      name: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e

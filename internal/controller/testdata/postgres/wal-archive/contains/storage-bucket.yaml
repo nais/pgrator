@@ -6,10 +6,17 @@ object:
   kind: StorageBucket
   metadata:
     name: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
-    namespace: nais-cnpg-wal-storage
+    namespace: myteam
     labels:
       postgres.nais.io/name: mydb
       postgres.nais.io/namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
   spec:
     location: europe-north1
     publicAccessPrevention: inherited

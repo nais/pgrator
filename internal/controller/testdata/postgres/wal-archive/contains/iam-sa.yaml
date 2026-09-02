@@ -7,5 +7,12 @@ object:
   metadata:
     name: cnpg-mydb-b60fcdec
     namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
   spec:
     displayName: 'Postgres Pod Service Account for team "myteam"'

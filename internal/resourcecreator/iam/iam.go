@@ -64,18 +64,17 @@ func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, cluste
 	return policyMember
 }
 
-// CreateStorageBucketPolicyMember grants the Google service account access to the
-// WAL bucket. It lives alongside the bucket in the central WAL bucket namespace,
-// not in the team namespace.
-func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaName, bucketName, role string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+// CreateStorageBucketPolicyMember grants the Google service account access to
+// the WAL bucket in the team's Google project.
+func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	policyMember := MinimalPolicyMember(name, namespace)
 	policyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
-		Role:   role,
+		Role:   StorageBucketRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
 			APIVersion: new("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",
-			External:   &bucketName,
+			Name:       bucketName,
 		},
 	}
 	return policyMember

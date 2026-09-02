@@ -69,7 +69,7 @@ type PostgresPreparedData struct {
 // Local development (kind/Tilt) runs without Config Connector, so everything
 // Google-specific is skipped there.
 func (r *PostgresReconciler) walArchivingEnabled() bool {
-	return r.Config.CNPG.WalBucketPrefix != "" && r.Config.CNPG.WalBucketNamespace != ""
+	return r.Config.CNPG.WalBucketPrefix != ""
 }
 
 // bucketName is derived from the Postgres UID so that a recreated resource never
@@ -159,23 +159,18 @@ func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 		{Type: &networking_v1.NetworkPolicy{}},
 	}
 	if r.walArchivingEnabled() {
-		types = append(types, reconciler.OwnedType{Type: &networking_gke_io_v1alpha3.FQDNNetworkPolicy{}})
+		types = append(types,
+			reconciler.OwnedType{Type: &networking_gke_io_v1alpha3.FQDNNetworkPolicy{}},
+			reconciler.OwnedType{Type: &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}},
+			reconciler.OwnedType{Type: &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}},
+			reconciler.OwnedType{Type: &storage_cnrm_cloud_google_com_v1beta1.StorageBucket{}},
+		)
 	}
 	return types
 }
 
-// AdditionalTypes lists resources the reconciler manages that are not owned via
-// ownerReferences. The StorageBucket and its IAM binding live in a central
-// namespace, so they must be tracked (and deleted) explicitly.
 func (r *PostgresReconciler) AdditionalTypes() []client.Object {
-	if !r.walArchivingEnabled() {
-		return nil
-	}
-	return []client.Object{
-		&iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{},
-		&iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{},
-		&storage_cnrm_cloud_google_com_v1beta1.StorageBucket{},
-	}
+	return nil
 }
 
 func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
@@ -235,6 +230,9 @@ func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresP
 	var actions []action.Action
 
 	gsa := rciam.CreateIAMServiceAccount(wal.GSAName, obj.GetNamespace())
+	if err := controllerutil.SetControllerReference(obj, gsa, r.Scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on IAMServiceAccount: %w", err)
+	}
 	switch existing := relatedObjects.GetMatching(gsa); {
 	case existing == nil:
 		actions = append(actions, action.Create(gsa, obj, cnrmConditionsGetter, r.Recorder))
@@ -256,13 +254,19 @@ func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresP
 		wal.GSAName,
 		rccnpg.ClusterName(obj),
 	)
+	if err := controllerutil.SetControllerReference(obj, wiPolicy, r.Scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Workload Identity IAMPolicyMember: %w", err)
+	}
 	wiActions, err := r.policyMemberActions(wiPolicy, obj, relatedObjects)
 	if err != nil {
 		return nil, err
 	}
 	actions = append(actions, wiActions)
 
-	bucket := rcstorage.CreateStorageBucket(obj, wal.BucketName, r.Config.CNPG.WalBucketNamespace, r.Config.Google.Location)
+	bucket := rcstorage.CreateStorageBucket(obj, wal.BucketName, r.Config.Google.Location)
+	if err := controllerutil.SetControllerReference(obj, bucket, r.Scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on StorageBucket: %w", err)
+	}
 	if existing := relatedObjects.GetMatching(bucket); existing != nil {
 		// Config Connector writes state back onto the object; preserve it so we do
 		// not fight the CNRM controller on every reconcile.
@@ -275,12 +279,14 @@ func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresP
 
 	bucketPolicy := rciam.CreateStorageBucketPolicyMember(
 		storageBucketPolicyName(obj),
-		r.Config.CNPG.WalBucketNamespace,
+		obj.GetNamespace(),
 		preparedData.TeamGoogleProjectID,
 		wal.GSAName,
 		wal.BucketName,
-		r.Config.CNPG.WalBucketRole,
 	)
+	if err := controllerutil.SetControllerReference(obj, bucketPolicy, r.Scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on bucket IAMPolicyMember: %w", err)
+	}
 	bucketPolicyAction, err := r.policyMemberActions(bucketPolicy, obj, relatedObjects)
 	if err != nil {
 		return nil, err
@@ -354,25 +360,8 @@ func objectStoreMeta(obj *v1.Postgres) meta_v1.ObjectMeta {
 	}
 }
 
-// Delete removes the resources that ownerReference garbage collection cannot
-// reach. The Cluster, DatabaseRole, Pooler, ObjectStore, ScheduledBackup and
-// NetworkPolicy all live in the team namespace and are collected automatically;
-// the WAL bucket and its IAM binding live in the central WAL bucket namespace
-// and are deleted here.
-func (r *PostgresReconciler) Delete(obj *v1.Postgres, preparedData PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	if !r.walArchivingEnabled() {
-		return nil, ctrl.Result{}, nil
-	}
-
-	bucketName := r.bucketName(obj)
-
-	bucket := rcstorage.MinimalStorageBucket(obj, bucketName, r.Config.CNPG.WalBucketNamespace)
-	bucketPolicy := rciam.MinimalPolicyMember(storageBucketPolicyName(obj), r.Config.CNPG.WalBucketNamespace)
-
-	return []action.Action{
-		action.DeleteIfExists(bucketPolicy, obj, cnrmConditionsGetter, r.Recorder),
-		action.DeleteIfExists(bucket, obj, cnrmConditionsGetter, r.Recorder),
-	}, ctrl.Result{}, nil
+func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	return nil, ctrl.Result{}, nil
 }
 
 func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {

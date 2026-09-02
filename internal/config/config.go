@@ -55,10 +55,6 @@ type CNPG struct {
 	StorageClass string `env:"CNPG_STORAGE_CLASS" yaml:"storageClass"`
 	// WalBucketPrefix is the prefix used for GCS buckets for barman-cloud WAL storage.
 	WalBucketPrefix string `env:"CNPG_WAL_BUCKET_PREFIX" yaml:"walBucketPrefix"`
-	// WalBucketNamespace is the namespace for creating wal storage buckets
-	WalBucketNamespace string `env:"CNPG_WAL_BUCKET_NAMESPACE" yaml:"walBucketNamespace"`
-	// WalBucketRole is the namespace for creating wal storage buckets
-	WalBucketRole string `env:"CNPG_WAL_BUCKET_ROLE" yaml:"walBucketRole"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

@@ -14,16 +14,13 @@ const (
 	// bucket before the lifecycle rule removes them.
 	daysUntilDelete = 30
 
-	// OwnerNameLabel and OwnerNamespaceLabel record which Postgres resource a
-	// bucket belongs to. The bucket lives in a central namespace and therefore
-	// cannot carry an ownerReference, so these labels are what makes an orphaned
-	// bucket traceable back to its origin.
+	// OwnerNameLabel and OwnerNamespaceLabel make the owning Postgres resource
+	// easy to identify in addition to its Kubernetes owner reference.
 	OwnerNameLabel      = "postgres.nais.io/name"
 	OwnerNamespaceLabel = "postgres.nais.io/namespace"
 )
 
-// MinimalStorageBucket returns the bucket identity only, for deletion.
-func MinimalStorageBucket(postgres *v1.Postgres, bucketName, bucketNamespace string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
+func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	return &storage_cnrm_cloud_google_com_v1beta1.StorageBucket{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "StorageBucket",
@@ -31,7 +28,7 @@ func MinimalStorageBucket(postgres *v1.Postgres, bucketName, bucketNamespace str
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      bucketName,
-			Namespace: bucketNamespace,
+			Namespace: postgres.GetNamespace(),
 			Labels: map[string]string{
 				OwnerNameLabel:      postgres.GetName(),
 				OwnerNamespaceLabel: postgres.GetNamespace(),
@@ -40,11 +37,9 @@ func MinimalStorageBucket(postgres *v1.Postgres, bucketName, bucketNamespace str
 	}
 }
 
-// CreateStorageBucket builds the WAL bucket. It lives in a central namespace
-// rather than the team namespace, so it cannot carry an ownerReference back to
-// the Postgres resource; the reconciler deletes it explicitly on teardown.
-func CreateStorageBucket(postgres *v1.Postgres, bucketName, bucketNamespace, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
-	bucket := MinimalStorageBucket(postgres, bucketName, bucketNamespace)
+// CreateStorageBucket builds the WAL bucket in the Postgres team's namespace.
+func CreateStorageBucket(postgres *v1.Postgres, bucketName, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
+	bucket := minimalStorageBucket(postgres, bucketName)
 	bucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
 		Location:               location,
 		PublicAccessPrevention: storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,

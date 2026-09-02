@@ -9,8 +9,6 @@ google:
 cnpg:
   imageCatalogName: "cloudnative-image-catalog"
   storageClass: "hyperdisk-balanced"
-  walBucketNamespace: "nais-cnpg-wal-storage"
-  walBucketRole: ""
   walBucketPrefix: ""
 
 # [MANAGER]: Manager Deployment Configurations

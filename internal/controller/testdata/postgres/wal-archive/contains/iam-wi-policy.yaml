@@ -7,6 +7,13 @@ object:
   metadata:
     name: cnpg-wi-user-mydb-243afc71
     namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
   spec:
     role: roles/iam.workloadIdentityUser
     member: serviceAccount:cluster-gcp-project.svc.id.goog[myteam/mydb]

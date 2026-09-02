@@ -111,10 +111,9 @@ helm_resource(
 # 6. Prerequisite namespaces
 # ---------------------------------------------------------------------------
 namespace_create("serviceaccounts")
-namespace_create("nais-cnpg-wal-storage")
 namespace_create("cnpg-team", labels=["google-cloud-project: test-project"])
 k8s_resource(
-    objects=["serviceaccounts:namespace", "nais-cnpg-wal-storage:namespace", "cnpg-team:namespace"],
+    objects=["serviceaccounts:namespace", "cnpg-team:namespace"],
     new_name="namespaces",
     labels=["setup"],
 )
@@ -181,7 +180,6 @@ helm_resource(
         # switches off the whole Google path (bucket, IAM, Workload Identity,
         # barman-cloud) instead of failing on a missing project ID.
         "--set=cnpg.walBucketPrefix=",
-        "--set=cnpg.walBucketNamespace=",
         # kind has no hyperdisk-balanced; empty means "use the cluster default"
         # (and is a known key in minimumDiskPerStorageClass).
         "--set=cnpg.storageClass=",
