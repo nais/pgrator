@@ -3,369 +3,218 @@ package v1
 import (
 	"context"
 	"strings"
+	"testing"
 
 	"github.com/nais/pgrator/pkg/api"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("OpenSearch Webhook Validation", func() {
-	var validator *OpenSearchValidator
+func newOpenSearch(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchVersion, storageGB int) *OpenSearch {
+	return &OpenSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: OpenSearchSpec{
+			Tier:      tier,
+			Memory:    memory,
+			Version:   version,
+			StorageGB: storageGB,
+		},
+	}
+}
 
-	BeforeEach(func() {
-		validator = &OpenSearchValidator{}
+func TestOpenSearchValidatorValidateCreate(t *testing.T) {
+	validConfigurations := []struct {
+		name       string
+		objectName string
+		namespace  string
+		tier       OpenSearchTier
+		memory     OpenSearchMemory
+		version    OpenSearchVersion
+		storageGB  int
+	}{
+		{name: "SingleNode 4GB with valid storage", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80},
+		{name: "HighAvailability 8GB with valid storage", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory8GB, version: OpenSearchVersionV2_19, storageGB: 525},
+		{name: "hobbyist plan with exact storage", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory2GB, version: OpenSearchVersionV1, storageGB: 16},
+		{name: "storage at boundary (min) for HA 16GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory16GB, version: OpenSearchVersionV3_3, storageGB: 1050},
+		{name: "storage at boundary (max) for HA 16GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory16GB, version: OpenSearchVersionV3_3, storageGB: 5250},
+		{name: "SingleNode 8GB storage with increment", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory8GB, version: OpenSearchVersionV2, storageGB: 185},
+		{name: "HighAvailability storage with 30GB increment", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 270},
+		{name: "name at max generated-service length", objectName: strings.Repeat("a", 44), namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80},
+	}
+
+	validator := &OpenSearchValidator{}
+	for _, tt := range validConfigurations {
+		t.Run("valid/"+tt.name, func(t *testing.T) {
+			obj := newOpenSearch(tt.objectName, tt.namespace, tt.tier, tt.memory, tt.version, tt.storageGB)
+			_, err := validator.ValidateCreate(context.Background(), obj)
+			requireNoError(t, err)
+		})
+	}
+
+	invalidConfigurations := []struct {
+		name       string
+		objectName string
+		namespace  string
+		tier       OpenSearchTier
+		memory     OpenSearchMemory
+		version    OpenSearchVersion
+		storageGB  int
+		wantError  string
+	}{
+		{name: "HighAvailability with 2GB memory (not supported)", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory2GB, version: OpenSearchVersionV2, storageGB: 100, wantError: "invalid tier/memory combination"},
+		{name: "storage below minimum for SingleNode 4GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 50, wantError: "storage must be at least 80GB"},
+		{name: "storage above maximum for SingleNode 4GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 500, wantError: "storage must be at most 400GB"},
+		{name: "storage not in valid increments for SingleNode 4GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 85, wantError: "storage must be in increments of 10GB"},
+		{name: "hobbyist plan with wrong storage", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory2GB, version: OpenSearchVersionV1, storageGB: 32, wantError: "storage must be at most 16GB"},
+		{name: "name too long for generated service name", objectName: "this-is-a-very-long-opensearch-instance-name-that-exceeds-limit", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80, wantError: "metadata.name is too long"},
+		{name: "HighAvailability storage not in 30GB increments", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 250, wantError: "storage must be in increments of 30GB"},
+		{name: "name exceeds max generated-service length", objectName: strings.Repeat("a", 45), namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80, wantError: "metadata.name is too long; max length is 44 characters"},
+		{name: "namespace leaves no room for generated service name", objectName: "my-opensearch", namespace: strings.Repeat("n", 60), tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80, wantError: "metadata.namespace is too long"},
+	}
+
+	for _, tt := range invalidConfigurations {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			obj := newOpenSearch(tt.objectName, tt.namespace, tt.tier, tt.memory, tt.version, tt.storageGB)
+			_, err := validator.ValidateCreate(context.Background(), obj)
+			requireErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
+func TestOpenSearchValidatorValidateCreateMaxContentLength(t *testing.T) {
+	validQuantities := []string{"100Mi", "1Gi", "1", "2147483647", "2G", "2047Mi"}
+	validator := &OpenSearchValidator{}
+
+	for _, quantity := range validQuantities {
+		t.Run("valid/"+quantity, func(t *testing.T) {
+			q := resource.MustParse(quantity)
+			obj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80)
+			obj.Spec.Http = &OpenSearchHttp{MaxContentLength: &q}
+
+			_, err := validator.ValidateCreate(context.Background(), obj)
+			requireNoError(t, err)
+		})
+	}
+
+	invalidQuantities := []struct {
+		name      string
+		quantity  string
+		wantError string
+	}{
+		{name: "zero bytes", quantity: "0", wantError: "http.maxContentLength must be at least 1 byte"},
+		{name: "exceeds max", quantity: "3Gi", wantError: "http.maxContentLength must be at most 2147483647 bytes"},
+		{name: "exactly 2Gi exceeds int32 max", quantity: "2Gi", wantError: "http.maxContentLength must be at most 2147483647 bytes"},
+	}
+
+	for _, tt := range invalidQuantities {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			q := resource.MustParse(tt.quantity)
+			obj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80)
+			obj.Spec.Http = &OpenSearchHttp{MaxContentLength: &q}
+
+			_, err := validator.ValidateCreate(context.Background(), obj)
+			requireErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
+func TestOpenSearchValidatorValidateUpdate(t *testing.T) {
+	validator := &OpenSearchValidator{}
+
+	t.Run("allows valid storage update", func(t *testing.T) {
+		oldObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80)
+		newObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 90)
+
+		_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
+		requireNoError(t, err)
 	})
 
-	Describe("ValidateCreate", func() {
-		DescribeTable("valid configurations",
-			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchVersion, storageGB int) {
-				opensearch := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      name,
-						Namespace: namespace,
-					},
-					Spec: OpenSearchSpec{
-						Tier:      tier,
-						Memory:    memory,
-						Version:   version,
-						StorageGB: storageGB,
-					},
-				}
+	validUpgrades := []struct {
+		name       string
+		oldVersion OpenSearchVersion
+		newVersion OpenSearchVersion
+	}{
+		{name: "V1 to V2", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV2},
+		{name: "V1 to V2.19", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV2_19},
+		{name: "V2 to V2.19", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV2_19},
+		{name: "V2.19 to V3.3", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV3_3},
+		{name: "same version V1", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV1},
+		{name: "same version V2", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV2},
+		{name: "same version V2.19", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV2_19},
+		{name: "same version V3.3", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV3_3},
+	}
 
-				_, err := validator.ValidateCreate(context.Background(), opensearch)
-				Expect(err).NotTo(HaveOccurred())
-			},
-			Entry("SingleNode 4GB with valid storage",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80),
-			Entry("HighAvailability 8GB with valid storage",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory8GB, OpenSearchVersionV2_19, 525),
-			Entry("hobbyist plan with exact storage",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchVersionV1, 16),
-			Entry("storage at boundary (min) for HA 16GB",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchVersionV3_3, 1050),
-			Entry("storage at boundary (max) for HA 16GB",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory16GB, OpenSearchVersionV3_3, 5250),
-			Entry("SingleNode 8GB storage with increment",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory8GB, OpenSearchVersionV2, 185),
-			Entry("HighAvailability storage with 30GB increment",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 270),
-			Entry("Name is at max length (63-len('opensearch-')-len(namespace))=44",
-				strings.Repeat("a", 44), "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80),
-		)
-
-		DescribeTable("invalid configurations",
-			func(name, namespace string, tier OpenSearchTier, memory OpenSearchMemory, version OpenSearchVersion, storageGB int, expectedError string) {
-				opensearch := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      name,
-						Namespace: namespace,
-					},
-					Spec: OpenSearchSpec{
-						Tier:      tier,
-						Memory:    memory,
-						Version:   version,
-						StorageGB: storageGB,
-					},
-				}
-
-				_, err := validator.ValidateCreate(context.Background(), opensearch)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(expectedError))
-			},
-			Entry("HighAvailability with 2GB memory (not supported)",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory2GB, OpenSearchVersionV2, 100,
-				"invalid tier/memory combination"),
-			Entry("storage below minimum for SingleNode 4GB",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 50,
-				"storage must be at least 80GB"),
-			Entry("storage above maximum for SingleNode 4GB",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 500,
-				"storage must be at most 400GB"),
-			Entry("storage not in valid increments for SingleNode 4GB",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 85,
-				"storage must be in increments of 10GB"),
-			Entry("hobbyist plan with wrong storage",
-				"my-opensearch", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory2GB, OpenSearchVersionV1, 32,
-				"storage must be at most 16GB"),
-			Entry("name too long for generated service name",
-				"this-is-a-very-long-opensearch-instance-name-that-exceeds-limit", "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
-				"metadata.name is too long"),
-			Entry("HighAvailability storage not in 30GB increments",
-				"my-opensearch", "my-team",
-				OpenSearchTierHighAvailability, OpenSearchMemory4GB, OpenSearchVersionV2, 250,
-				"storage must be in increments of 30GB"),
-			Entry("Name exceeds max length (63-len('opensearch-')-len(namespace))=44",
-				strings.Repeat("a", 45), "my-team",
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
-				"metadata.name is too long; max length is 44 characters"),
-			Entry("Namespace exceeds max length (63-len('opensearch-')-len(namespace))<=0",
-				"my-opensearch", strings.Repeat("n", 60),
-				OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80,
-				"metadata.namespace is too long"),
-		)
-
-		DescribeTable("valid http.maxContentLength configurations",
-			func(quantity string) {
-				q := resource.MustParse(quantity)
-				opensearch := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   OpenSearchVersionV2,
-						StorageGB: 80,
-						Http: &OpenSearchHttp{
-							MaxContentLength: &q,
-						},
-					},
-				}
-
-				_, err := validator.ValidateCreate(context.Background(), opensearch)
-				Expect(err).NotTo(HaveOccurred())
-			},
-			Entry("100Mi", "100Mi"),
-			Entry("1Gi", "1Gi"),
-			Entry("1", "1"),
-			Entry("just under 2Gi (2147483647 bytes)", "2147483647"),
-			Entry("2G", "2G"),
-			Entry("2047Mi", "2047Mi"),
-		)
-
-		DescribeTable("invalid http.maxContentLength configurations",
-			func(quantity string, expectedError string) {
-				q := resource.MustParse(quantity)
-				opensearch := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   OpenSearchVersionV2,
-						StorageGB: 80,
-						Http: &OpenSearchHttp{
-							MaxContentLength: &q,
-						},
-					},
-				}
-
-				_, err := validator.ValidateCreate(context.Background(), opensearch)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(expectedError))
-			},
-			Entry("0 bytes", "0", "http.maxContentLength must be at least 1 byte"),
-			Entry("exceeds max (3Gi)", "3Gi", "http.maxContentLength must be at most 2147483647 bytes"),
-			Entry("exactly 2Gi (exceeds int32 max)", "2Gi", "http.maxContentLength must be at most 2147483647 bytes"),
-		)
-	})
-
-	Describe("ValidateUpdate", func() {
-		It("should allow valid storage update", func() {
-			oldObj := &OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-				},
-				Spec: OpenSearchSpec{
-					Tier:      OpenSearchTierSingleNode,
-					Memory:    OpenSearchMemory4GB,
-					Version:   OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-
-			newObj := &OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-				},
-				Spec: OpenSearchSpec{
-					Tier:      OpenSearchTierSingleNode,
-					Memory:    OpenSearchMemory4GB,
-					Version:   OpenSearchVersionV2,
-					StorageGB: 90,
-				},
-			}
+	for _, tt := range validUpgrades {
+		t.Run("valid version upgrade/"+tt.name, func(t *testing.T) {
+			oldObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, tt.oldVersion, 80)
+			newObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, tt.newVersion, 80)
 
 			_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
-			Expect(err).NotTo(HaveOccurred())
+			requireNoError(t, err)
 		})
+	}
 
-		DescribeTable("valid version upgrades",
-			func(oldVersion, newVersion OpenSearchVersion) {
-				oldObj := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   oldVersion,
-						StorageGB: 80,
-					},
-				}
+	invalidUpgrades := []struct {
+		name       string
+		oldVersion OpenSearchVersion
+		newVersion OpenSearchVersion
+		wantError  string
+	}{
+		{name: "V1 to V3.3 (skipping versions)", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV3_3, wantError: "validation failed: cannot change OpenSearch version from 1 to 3.3: new version must be one of [2, 2.19]"},
+		{name: "V2 to V3.3 (skipping V2.19)", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV3_3, wantError: "validation failed: cannot change OpenSearch version from 2 to 3.3: new version must be one of [2.19]"},
+		{name: "V3.3 to V2 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV2, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 2: no further upgrades available"},
+		{name: "V3.3 to V1 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 1: no further upgrades available"},
+		{name: "V2.19 to V1 (downgrade)", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 2.19 to 1: new version must be one of [3.3]"},
+		{name: "V2 to V1 (downgrade)", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 2 to 1: new version must be one of [2.19]"},
+	}
 
-				newObj := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   newVersion,
-						StorageGB: 80,
-					},
-				}
+	for _, tt := range invalidUpgrades {
+		t.Run("invalid version upgrade/"+tt.name, func(t *testing.T) {
+			oldObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, tt.oldVersion, 80)
+			newObj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, tt.newVersion, 80)
 
-				_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
-				Expect(err).NotTo(HaveOccurred())
-			},
-			Entry("V1 to V2", OpenSearchVersionV1, OpenSearchVersionV2),
-			Entry("V1 to V2.19", OpenSearchVersionV1, OpenSearchVersionV2_19),
-			Entry("V2 to V2.19", OpenSearchVersionV2, OpenSearchVersionV2_19),
-			Entry("V2.19 to V3.3", OpenSearchVersionV2_19, OpenSearchVersionV3_3),
-			Entry("same version V1", OpenSearchVersionV1, OpenSearchVersionV1),
-			Entry("same version V2", OpenSearchVersionV2, OpenSearchVersionV2),
-			Entry("same version V2.19", OpenSearchVersionV2_19, OpenSearchVersionV2_19),
-			Entry("same version V3.3", OpenSearchVersionV3_3, OpenSearchVersionV3_3),
-		)
+			_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
+			requireErrorEqual(t, err, tt.wantError)
+		})
+	}
+}
 
-		DescribeTable("invalid version upgrades",
-			func(oldVersion, newVersion OpenSearchVersion, expectedError string) {
-				oldObj := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   oldVersion,
-						StorageGB: 80,
-					},
-				}
+func TestOpenSearchValidatorValidateDelete(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		wantError   string
+	}{
+		{
+			name:        "allows deletion when annotation is present and true",
+			annotations: map[string]string{api.AllowDeletionAnnotation: "true"},
+		},
+		{
+			name:      "refuses deletion when annotation is missing",
+			wantError: "nais.io/allowDeletion",
+		},
+		{
+			name:        "refuses deletion when annotation is set to false",
+			annotations: map[string]string{api.AllowDeletionAnnotation: "false"},
+			wantError:   "nais.io/allowDeletion",
+		},
+	}
 
-				newObj := &OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-opensearch",
-						Namespace: "my-team",
-					},
-					Spec: OpenSearchSpec{
-						Tier:      OpenSearchTierSingleNode,
-						Memory:    OpenSearchMemory4GB,
-						Version:   newVersion,
-						StorageGB: 80,
-					},
-				}
-
-				_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal(expectedError))
-			},
-			Entry("V1 to V3.3 (skipping versions)",
-				OpenSearchVersionV1, OpenSearchVersionV3_3,
-				"validation failed: cannot change OpenSearch version from 1 to 3.3: new version must be one of [2, 2.19]"),
-			Entry("V2 to V3.3 (skipping V2.19)",
-				OpenSearchVersionV2, OpenSearchVersionV3_3,
-				"validation failed: cannot change OpenSearch version from 2 to 3.3: new version must be one of [2.19]"),
-			Entry("V3.3 to V2 (downgrade)",
-				OpenSearchVersionV3_3, OpenSearchVersionV2,
-				"validation failed: cannot change OpenSearch version from 3.3 to 2: no further upgrades available"),
-			Entry("V3.3 to V1 (downgrade)",
-				OpenSearchVersionV3_3, OpenSearchVersionV1,
-				"validation failed: cannot change OpenSearch version from 3.3 to 1: no further upgrades available"),
-			Entry("V2.19 to V1 (downgrade)",
-				OpenSearchVersionV2_19, OpenSearchVersionV1,
-				"validation failed: cannot change OpenSearch version from 2.19 to 1: new version must be one of [3.3]"),
-			Entry("V2 to V1 (downgrade)",
-				OpenSearchVersionV2, OpenSearchVersionV1,
-				"validation failed: cannot change OpenSearch version from 2 to 1: new version must be one of [2.19]"),
-		)
-	})
-
-	Describe("ValidateDelete", func() {
-		It("should allow deletion when annotation is present and true", func() {
-			obj := &OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "true",
-					},
-				},
-				Spec: OpenSearchSpec{
-					Tier:      OpenSearchTierSingleNode,
-					Memory:    OpenSearchMemory4GB,
-					Version:   OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
+	validator := &OpenSearchValidator{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := newOpenSearch("my-opensearch", "my-team", OpenSearchTierSingleNode, OpenSearchMemory4GB, OpenSearchVersionV2, 80)
+			obj.Annotations = tt.annotations
 
 			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should refuse deletion when annotation is missing", func() {
-			obj := &OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-				},
-				Spec: OpenSearchSpec{
-					Tier:      OpenSearchTierSingleNode,
-					Memory:    OpenSearchMemory4GB,
-					Version:   OpenSearchVersionV2,
-					StorageGB: 80,
-				},
+			if tt.wantError != "" {
+				requireErrorContains(t, err, tt.wantError)
+				return
 			}
-
-			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("nais.io/allowDeletion"))
+			requireNoError(t, err)
 		})
-
-		It("should refuse deletion when annotation is set to false", func() {
-			obj := &OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "false",
-					},
-				},
-				Spec: OpenSearchSpec{
-					Tier:      OpenSearchTierSingleNode,
-					Memory:    OpenSearchMemory4GB,
-					Version:   OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-
-			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("nais.io/allowDeletion"))
-		})
-	})
-})
+	}
+}

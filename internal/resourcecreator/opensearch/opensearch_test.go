@@ -1,49 +1,38 @@
 package opensearch
 
 import (
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"testing"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
-var _ = Describe("OpenSearch Resource Creator", func() {
-	Describe("ServiceName", func() {
-		It("should return namespaced name in format opensearch-{team}-{name}", func() {
+func TestServiceName(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		instance  string
+		want      string
+	}{
+		{name: "basic team and instance", namespace: "my-team", instance: "my-opensearch", want: "opensearch-my-team-my-opensearch"},
+		{name: "different team and instance names", namespace: "production", instance: "search", want: "opensearch-production-search"},
+		{name: "names with hyphens", namespace: "my-awesome-team", instance: "my-app-search", want: "opensearch-my-awesome-team-my-app-search"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			obj := &v1.OpenSearch{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
+					Name:      tt.instance,
+					Namespace: tt.namespace,
 				},
 			}
 
-			result := ServiceName(obj)
-			Expect(result).To(Equal("opensearch-my-team-my-opensearch"))
-		})
-
-		It("should handle different team and instance names", func() {
-			obj := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "search",
-					Namespace: "production",
-				},
+			got := ServiceName(obj)
+			if got != tt.want {
+				t.Errorf("ServiceName() = %q, want %q", got, tt.want)
 			}
-
-			result := ServiceName(obj)
-			Expect(result).To(Equal("opensearch-production-search"))
 		})
-
-		It("should handle names with hyphens", func() {
-			obj := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-app-search",
-					Namespace: "my-awesome-team",
-				},
-			}
-
-			result := ServiceName(obj)
-			Expect(result).To(Equal("opensearch-my-awesome-team-my-app-search"))
-		})
-	})
-})
+	}
+}

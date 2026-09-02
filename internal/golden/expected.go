@@ -6,8 +6,6 @@ import (
 
 	"github.com/nais/pgrator/internal/golden/matchers"
 	"github.com/nais/pgrator/internal/synchronizer/action"
-	"github.com/onsi/gomega"
-	"github.com/onsi/gomega/types"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,95 +16,93 @@ type Expected struct {
 	Matcher string        `json:"matcher"`
 	Object  client.Object `json:"object"`
 
-	matcher      types.GomegaMatcher
-	testCaseName string
+	lastDiff string
 }
 
-var _ types.GomegaMatcher = &Expected{}
-
-func (e *Expected) Match(actual any) (success bool, err error) {
-	return e.matcher.Match(actual)
-}
-
-func (e *Expected) FailureMessage(actual any) (message string) {
-	return e.matcher.FailureMessage(actual)
-}
-
-func (e *Expected) NegatedFailureMessage(actual any) (message string) {
-	return e.matcher.NegatedFailureMessage(actual)
-}
-
-func (e *Expected) compareKey() compareKey {
-	obj := e.Object
-	return compareKey{
-		Action:    e.Action,
-		Kind:      obj.GetObjectKind().GroupVersionKind().Kind,
-		Name:      obj.GetName(),
-		Namespace: obj.GetNamespace(),
+func (e *Expected) Match(actual any) (bool, error) {
+	a, ok := actual.(action.Action)
+	if !ok {
+		return false, fmt.Errorf("expected action.Action, got %T", actual)
 	}
-}
+	if actualType := typeName(a); actualType != e.Action {
+		e.lastDiff = fmt.Sprintf("action type = %q, want %q", actualType, e.Action)
+		return false, nil
+	}
 
-func (e *Expected) makeMatcher() {
-	objectMatcher, err := matchers.MakeMatcher(matchers.MatchType(e.Matcher))
+	diff, err := matchers.Diff(a.GetObject(), e.Object, matchers.MatchType(e.Matcher))
 	if err != nil {
-		panic(fmt.Sprintf("Programmer error in test %s: %v", e.testCaseName, err))
+		return false, err
 	}
+	e.lastDiff = diff
+	return diff == "", nil
+}
 
-	e.matcher = gomega.SatisfyAll(
-		gomega.WithTransform(getTypeName, gomega.Equal(e.Action)),
-		gomega.WithTransform(getActionObject, objectMatcher(e.Object)),
-	)
+func (e *Expected) FailureMessage(any) string {
+	if e.lastDiff == "" {
+		return "values did not match"
+	}
+	return "object mismatch (-actual +expected):\n" + e.lastDiff
 }
 
 func ParseExpected(scheme *runtime.Scheme, datum map[string]any, testCaseName string) (*Expected, error) {
-	objectData := datum["object"].(map[string]any)
+	objectData, ok := datum["object"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("test case %q: object must be a map", testCaseName)
+	}
 
 	obj, err := ParseObject(scheme, objectData)
 	if err != nil {
 		return nil, err
 	}
 
-	e := &Expected{
-		Matcher:      datum["matcher"].(string),
-		Action:       datum["action"].(string),
-		Object:       obj.(client.Object),
-		testCaseName: testCaseName,
+	matcher, ok := datum["matcher"].(string)
+	if !ok {
+		return nil, fmt.Errorf("test case %q: matcher must be a string", testCaseName)
 	}
-	e.makeMatcher()
+	if _, err := matchers.Diff(nil, nil, matchers.MatchType(matcher)); err != nil {
+		return nil, fmt.Errorf("test case %q: %w", testCaseName, err)
+	}
 
-	return e, nil
+	actionName, ok := datum["action"].(string)
+	if !ok {
+		return nil, fmt.Errorf("test case %q: action must be a string", testCaseName)
+	}
+
+	return &Expected{
+		Matcher: matcher,
+		Action:  actionName,
+		Object:  obj.(client.Object),
+	}, nil
 }
 
 func ParseObject(scheme *runtime.Scheme, objectData map[string]any) (runtime.Object, error) {
-	apiVersion := objectData["apiVersion"]
-	groupVersion, err := schema.ParseGroupVersion(apiVersion.(string))
+	apiVersion, ok := objectData["apiVersion"].(string)
+	if !ok {
+		return nil, fmt.Errorf("apiVersion must be a string")
+	}
+	groupVersion, err := schema.ParseGroupVersion(apiVersion)
 	if err != nil {
 		return nil, err
 	}
-	kind := objectData["kind"]
-	gvk := groupVersion.WithKind(kind.(string))
+	kind, ok := objectData["kind"].(string)
+	if !ok {
+		return nil, fmt.Errorf("kind must be a string")
+	}
 
-	obj, err := scheme.New(gvk)
+	obj, err := scheme.New(groupVersion.WithKind(kind))
 	if err != nil {
 		return nil, err
 	}
-
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(objectData, obj)
-	if err != nil {
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(objectData, obj); err != nil {
 		return nil, err
 	}
 	return obj, nil
 }
 
-func getTypeName(actual any) string {
-	t := reflect.TypeOf(actual)
+func typeName(value any) string {
+	t := reflect.TypeOf(value)
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t.Name()
-}
-
-func getActionObject(actual any) client.Object {
-	a := actual.(action.Action)
-	return a.GetObject()
 }

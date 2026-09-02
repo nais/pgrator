@@ -7,7 +7,6 @@ import (
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -55,7 +54,7 @@ func CreateStorageBucket(postgres *v1.Postgres, bucketName, bucketNamespace, loc
 					Type: storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleActionTypeDelete,
 				},
 				Condition: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleCondition{
-					Age: ptr.To(daysUntilDelete),
+					Age: new(daysUntilDelete),
 				},
 			},
 		},

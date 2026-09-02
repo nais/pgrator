@@ -11,7 +11,6 @@ import (
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -74,7 +73,7 @@ func CreateSpec(
 		Project:               aiven.Project,
 		Plan:                  plan,
 		ProjectVPCID:          aiven.ProjectVPCID,
-		TerminationProtection: ptr.To(true),
+		TerminationProtection: new(true),
 		Tags: map[string]string{
 			"team":   valkey.GetNamespace(),
 			"app":    valkey.GetName(),

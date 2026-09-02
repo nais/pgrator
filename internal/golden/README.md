@@ -1,36 +1,32 @@
-# Golden File Test Framework
+# Golden File Test Data
 
-A framework for testing reconciler output against expected Kubernetes objects defined as YAML files.
+Controller tests compare reconciler actions with expected Kubernetes objects defined as YAML.
 
-## Directory Structure
+## Directory structure
 
-Each reconciler gets a test data directory containing test cases as subdirectories:
-
+```text
+internal/controller/testdata/<resource-type>/
+  <case-name>/
+    object.yaml
+    prepared_data.yaml       # optional
+    config.yaml              # optional
+    consists_of/             # exact action set
+      <name>.yaml
+    contains/                # required subset of actions
+      <name>.yaml
+    related_objects/         # optional reconciler inputs
+      <name>.yaml
 ```
-testdata/<resource-type>/
-  <test-case-name>/
-    object.yaml              # The input NaisObject to reconcile
-    prepared_data.yaml       # Optional prepared data passed to the reconciler
-    consists_of/             # Expected actions (exact match - all must be present, no extras allowed)
-      <name>.yaml
-    contains/                # Expected actions (subset match - additional actions are allowed)
-      <name>.yaml
-    related_objects/         # Optional related objects available during reconciliation
-      <name>.yaml
-```
 
-Use either `consists_of/` or `contains/`, not both.
-`consists_of/` asserts the reconciler produces exactly the listed actions.
-`contains/` asserts the reconciler produces at least the listed actions.
+Use either `consists_of/` or `contains/`, not both. `consists_of/` requires the
+complete action set to match; `contains/` permits additional actions.
 
-## Expected Action YAML Format
-
-Each file in `consists_of/` or `contains/` defines one expected action:
+## Expected action format
 
 ```yaml
 ---
-action: create          # Action type name (e.g. "create", "update", "delete")
-matcher: Equal          # "Equal" for exact match, "Subset" for partial match
+action: create
+matcher: Equal
 object:
   apiVersion: v1
   kind: ConfigMap
@@ -41,37 +37,18 @@ object:
     key: value
 ```
 
-### Matchers
+`action` must match the concrete action implementation returned by the
+reconciler. Current fixtures use `create`, `createOrUpdate`, `exclusiveCreate`,
+and `exclusiveCreateOrUpdate`.
 
-- `Equal` — the produced object must match the expected object exactly (zero-valued fields in expected are ignored).
-- `Subset` — fields present in the expected object must match; extra fields on the actual object are ignored.
+Matchers:
 
-### Regex in String Fields
+- `Equal` compares the complete object.
+- `Subset` ignores zero-valued fields and missing map entries in the expected object; use it only when those omitted fields are not part of the contract.
+- A string beginning with `regexp:` is interpreted as a regular expression.
 
-Any string value prefixed with `regexp:` is treated as a regex pattern:
-
-```yaml
-metadata:
-  name: "regexp: ^my-app-[a-z0-9]+$"
-```
-
-## Usage in Tests
-
-```go
-func TestControllers(t *testing.T) {
-    g := golden.NewGolden(t, myReconciler, "testdata/myresource")
-    g.DefineTests()
-
-    RunSpecs(t, "Suite")
-}
-
-var _ = BeforeSuite(func() {
-    // Register schemes...
-    err := g.ParseData(scheme)
-    Expect(err).NotTo(HaveOccurred())
-})
-```
-
-`NewGolden` loads test data from disk.
-`DefineTests` registers Ginkgo test cases (call before `RunSpecs`).
-`ParseData` resolves YAML into typed objects using the scheme (call in `BeforeSuite` after scheme setup).
+The standard-library test runner and fixture loader live in
+`internal/controller/suite_test.go`. Add a fixture directory to create another
+table-driven subtest; no suite registration is required. Run all fixtures with
+`mise run test`, or the controller package alone with `go test ./internal/controller`
+when `KUBEBUILDER_ASSETS` is already configured.

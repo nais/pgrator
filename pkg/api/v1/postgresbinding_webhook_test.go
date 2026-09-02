@@ -3,89 +3,112 @@ package v1
 import (
 	"context"
 	"strings"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-var _ = Describe("PostgresBinding webhook validation", func() {
-	adminBinding := func(name, postgres string) *PostgresBinding {
-		return &PostgresBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"},
-			Spec: PostgresBindingSpec{
-				Postgres: postgres,
-				Workload: PostgresBindingWorkload{
-					Name: name,
-					Type: PostgresBindingWorkloadTypeApplication,
-				},
-				SecretName: name + "-admin-client-cert",
-				Role:       PostgresBindingRoleAdmin,
+func adminBinding(name, postgres string) *PostgresBinding {
+	return &PostgresBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"},
+		Spec: PostgresBindingSpec{
+			Postgres: postgres,
+			Workload: PostgresBindingWorkload{
+				Name: name,
+				Type: PostgresBindingWorkloadTypeApplication,
 			},
-		}
+			SecretName: name + "-admin-client-cert",
+			Role:       PostgresBindingRoleAdmin,
+		},
+	}
+}
+
+func newPostgresBindingValidator(t *testing.T, objects ...*PostgresBinding) *PostgresBindingValidator {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	requireNoError(t, AddToScheme(scheme))
+	clientObjects := make([]client.Object, len(objects))
+	for i, object := range objects {
+		clientObjects[i] = object
+	}
+	return &PostgresBindingValidator{
+		reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clientObjects...).Build(),
+	}
+}
+
+func TestPostgresBindingValidatorValidateCreate(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing []*PostgresBinding
+		binding  *PostgresBinding
+		wantErr  string
+	}{
+		{
+			name:    "allows the first admin binding for a Postgres",
+			binding: adminBinding("migrator", "mydb"),
+		},
+		{
+			name:    "allows a maximum-length Kubernetes resource name",
+			binding: adminBinding(strings.Repeat("a", 253), "mydb"),
+		},
+		{
+			name:     "rejects another admin binding for the same Postgres",
+			existing: []*PostgresBinding{adminBinding("migrator", "mydb")},
+			binding:  adminBinding("other-migrator", "mydb"),
+			wantErr:  `Postgres "mydb" already has admin binding "migrator"`,
+		},
+		{
+			name:     "allows admin bindings for different Postgres resources",
+			existing: []*PostgresBinding{adminBinding("migrator", "mydb")},
+			binding:  adminBinding("other-migrator", "otherdb"),
+		},
 	}
 
-	newValidator := func(objects ...*PostgresBinding) *PostgresBindingValidator {
-		scheme := runtime.NewScheme()
-		Expect(AddToScheme(scheme)).To(Succeed())
-		clientObjects := make([]client.Object, len(objects))
-		for i, object := range objects {
-			clientObjects[i] = object
-		}
-		return &PostgresBindingValidator{reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clientObjects...).Build()}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newPostgresBindingValidator(t, tt.existing...).ValidateCreate(context.Background(), tt.binding)
+			if tt.wantErr != "" {
+				requireErrorContains(t, err, tt.wantErr)
+				return
+			}
+			requireNoError(t, err)
+		})
+	}
+}
+
+func TestPostgresBindingValidatorValidateUpdate(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*PostgresBinding)
+	}{
+		{name: "Postgres", change: func(binding *PostgresBinding) { binding.Spec.Postgres = "otherdb" }},
+		{name: "workload name", change: func(binding *PostgresBinding) { binding.Spec.Workload.Name = "otherapp" }},
+		{name: "workload type", change: func(binding *PostgresBinding) { binding.Spec.Workload.Type = PostgresBindingWorkloadTypeJob }},
+		{name: "Secret name", change: func(binding *PostgresBinding) { binding.Spec.SecretName = "other-client-cert" }},
+		{name: "role", change: func(binding *PostgresBinding) { binding.Spec.Role = PostgresBindingRoleReadWrite }},
 	}
 
-	It("allows the first admin binding for a Postgres", func() {
-		binding := adminBinding("migrator", "mydb")
-		_, err := newValidator().ValidateCreate(context.Background(), binding)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	It("allows a maximum-length Kubernetes resource name", func() {
-		binding := adminBinding(strings.Repeat("a", 253), "mydb")
-		_, err := newValidator().ValidateCreate(context.Background(), binding)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	It("rejects another admin binding for the same Postgres", func() {
-		existing := adminBinding("migrator", "mydb")
-		candidate := adminBinding("other-migrator", "mydb")
-		_, err := newValidator(existing).ValidateCreate(context.Background(), candidate)
-		Expect(err).To(MatchError(ContainSubstring(`Postgres "mydb" already has admin binding "migrator"`)))
-	})
-
-	It("allows admin bindings for different Postgres resources", func() {
-		existing := adminBinding("migrator", "mydb")
-		candidate := adminBinding("other-migrator", "otherdb")
-		_, err := newValidator(existing).ValidateCreate(context.Background(), candidate)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	DescribeTable("rejects spec identity changes",
-		func(change func(*PostgresBinding)) {
+	for _, tt := range tests {
+		t.Run("rejects "+tt.name+" changes", func(t *testing.T) {
 			oldBinding := adminBinding("application", "mydb")
 			newBinding := oldBinding.DeepCopy()
-			change(newBinding)
+			tt.change(newBinding)
 
-			_, err := newValidator().ValidateUpdate(context.Background(), oldBinding, newBinding)
-			Expect(err).To(MatchError("spec is immutable"))
-		},
-		Entry("Postgres", func(binding *PostgresBinding) { binding.Spec.Postgres = "otherdb" }),
-		Entry("workload name", func(binding *PostgresBinding) { binding.Spec.Workload.Name = "otherapp" }),
-		Entry("workload type", func(binding *PostgresBinding) { binding.Spec.Workload.Type = PostgresBindingWorkloadTypeJob }),
-		Entry("Secret name", func(binding *PostgresBinding) { binding.Spec.SecretName = "other-client-cert" }),
-		Entry("role", func(binding *PostgresBinding) { binding.Spec.Role = PostgresBindingRoleReadWrite }),
-	)
+			_, err := newPostgresBindingValidator(t).ValidateUpdate(context.Background(), oldBinding, newBinding)
+			requireErrorEqual(t, err, "spec is immutable")
+		})
+	}
 
-	It("allows metadata-only updates", func() {
+	t.Run("allows metadata-only updates", func(t *testing.T) {
 		oldBinding := adminBinding("application", "mydb")
 		newBinding := oldBinding.DeepCopy()
 		newBinding.Labels = map[string]string{"updated": "true"}
 
-		_, err := newValidator(oldBinding).ValidateUpdate(context.Background(), oldBinding, newBinding)
-		Expect(err).NotTo(HaveOccurred())
+		_, err := newPostgresBindingValidator(t, oldBinding).ValidateUpdate(context.Background(), oldBinding, newBinding)
+		requireNoError(t, err)
 	})
-})
+}

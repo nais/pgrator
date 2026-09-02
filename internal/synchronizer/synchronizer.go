@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -119,7 +118,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// server response, clobbering any in-memory annotation changes.
 	originalAnnotations := maps.Clone(obj.GetAnnotations())
 
-	obj.GetStatus().SetReconcileTime(ptr.To(meta_v1.NewTime(time.Now())))
+	obj.GetStatus().SetReconcileTime(new(meta_v1.NewTime(time.Now())))
 	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
 	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
 

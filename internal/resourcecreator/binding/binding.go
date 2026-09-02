@@ -18,7 +18,6 @@ import (
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -91,7 +90,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 				InRoles: groupRoles(b.Spec.Role),
 			},
 			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{
-				Enabled: ptr.To(true),
+				Enabled: new(true),
 			},
 		},
 	}
@@ -197,11 +196,11 @@ func CreateNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networ
 				{
 					From: []networking_v1.NetworkPolicyPeer{
 						{
-							PodSelector: ptr.To(workloadSelector(b.Spec.Workload)),
+							PodSelector: new(workloadSelector(b.Spec.Workload)),
 						},
 					},
 					Ports: []networking_v1.NetworkPolicyPort{
-						{Port: ptr.To(intstr.FromInt32(5432))},
+						{Port: new(intstr.FromInt32(5432))},
 					},
 				},
 			},
@@ -239,7 +238,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 						},
 					},
 					Ports: []networking_v1.NetworkPolicyPort{
-						{Port: ptr.To(intstr.FromInt32(5432))},
+						{Port: new(intstr.FromInt32(5432))},
 					},
 				},
 				{

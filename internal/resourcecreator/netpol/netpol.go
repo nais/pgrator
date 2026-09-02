@@ -9,7 +9,6 @@ import (
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -90,7 +89,7 @@ func Create(scheme *runtime.Scheme, postgres *v1.Postgres, clusterName, apiServe
 						naisSystemPeer("alloy"),
 					},
 					Ports: []networking_v1.NetworkPolicyPort{
-						{Port: ptr.To(intstr.FromString("metrics"))},
+						{Port: new(intstr.FromString("metrics"))},
 					},
 				},
 			},

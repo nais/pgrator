@@ -2,971 +2,603 @@ package controller
 
 import (
 	"context"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"testing"
 
 	"github.com/nais/pgrator/internal/config"
 	rcopensearch "github.com/nais/pgrator/internal/resourcecreator/opensearch"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/events"
-	"github.com/nais/pgrator/internal/synchronizer/reconciler"
+	reconcilerpkg "github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	kevents "k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
-	_ reconciler.Reconciler[*v1.OpenSearch, OpenSearchPreparedData] = &OpenSearchReconciler{}
-	_ reconciler.FinalizerNamer                                     = &OpenSearchReconciler{}
+	_ reconcilerpkg.Reconciler[*v1.OpenSearch, OpenSearchPreparedData] = &OpenSearchReconciler{}
+	_ reconcilerpkg.FinalizerNamer                                     = &OpenSearchReconciler{}
 )
 
 const stateRunning = "RUNNING"
 
-var _ = Describe("OpenSearch Controller", func() {
-	Describe("CreateAivenOpenSearchSpec", func() {
-		const (
-			testOpenSearchName = "my-opensearch"
-			testTeamName       = "my-team"
-		)
-		aiven := config.Aiven{
-			Project:      "test-project",
-			ProjectVPCID: "vpc-123",
+func TestCreateAivenOpenSearchSpec(t *testing.T) {
+	const (
+		testOpenSearchName = "my-opensearch"
+		testTeamName       = "my-team"
+	)
+	aiven := config.Aiven{Project: "test-project", ProjectVPCID: "vpc-123"}
+	tenant := config.Tenant{Name: "test-tenant"}
+
+	t.Run("creates basic opensearch with correct fields", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: testOpenSearchName, Namespace: testTeamName, Labels: map[string]string{"team": testTeamName}},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
 		}
-		tenant := config.Tenant{
-			Name: "test-tenant",
-		}
 
-		It("should create basic opensearch with correct fields", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testOpenSearchName,
-					Namespace: testTeamName,
-					Labels: map[string]string{
-						"team": testTeamName,
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.Project).To(Equal("test-project"))
-			Expect(result.Spec.Plan).To(Equal("startup-4"))
-			Expect(result.Spec.ProjectVPCID).To(Equal("vpc-123"))
-			Expect(result.Spec.DiskSpace).To(Equal("80GiB"))
-			Expect(result.Spec.TerminationProtection).NotTo(BeNil())
-			Expect(*result.Spec.TerminationProtection).To(BeTrue())
-			Expect(result.Spec.UserConfig).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearchVersion).NotTo(BeNil())
-			Expect(*result.Spec.UserConfig.OpenSearchVersion).To(Equal("2"))
-			Expect(result.Spec.Tags["team"]).To(Equal(testTeamName))
-			Expect(result.Spec.Tags["app"]).To(Equal(testOpenSearchName))
-			Expect(result.Spec.Tags["tenant"]).To(Equal("test-tenant"))
-			// Verify Aiven resource uses namespaced name
-			Expect(result.Name).To(Equal("opensearch-" + testTeamName + "-" + testOpenSearchName))
-		})
-
-		It("should set correct version for V2_19", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "versioned-opensearch",
-					Namespace: "version-team",
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2_19,
-					StorageGB: 80,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.UserConfig).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearchVersion).NotTo(BeNil())
-			Expect(*result.Spec.UserConfig.OpenSearchVersion).To(Equal("2.19"))
-		})
-
-		It("should set correct version for V3_3", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "v3-opensearch",
-					Namespace: "v3-team",
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierHighAvailability,
-					Memory:    v1.OpenSearchMemory8GB,
-					Version:   v1.OpenSearchVersionV3_3,
-					StorageGB: 525,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.Plan).To(Equal("business-8"))
-			Expect(result.Spec.DiskSpace).To(Equal("525GiB"))
-			Expect(result.Spec.UserConfig).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearchVersion).NotTo(BeNil())
-			Expect(*result.Spec.UserConfig.OpenSearchVersion).To(Equal("3.3"))
-		})
-
-		It("should not set opensearch settings when no optional fields are specified", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "basic-opensearch",
-					Namespace: "basic-team",
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.UserConfig).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearch).To(BeNil())
-		})
-
-		It("should set opensearch settings when optional fields are specified", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "configured-opensearch",
-					Namespace: "config-team",
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-					ShardIndexingPressure: &v1.OpenSearchShardIndexingPressure{
-						Enabled:  true,
-						Enforced: true,
-					},
-					Indices: &v1.OpenSearchIndices{
-						QueryBoolMaxClauseCount: new(2048),
-					},
-					Http: &v1.OpenSearchHttp{
-						MaxContentLength: new(resource.MustParse("200Mi")),
-					},
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.UserConfig).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearch).NotTo(BeNil())
-			Expect(result.Spec.UserConfig.OpenSearch.ShardIndexingPressure).NotTo(BeNil())
-			Expect(*result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enabled).To(BeTrue())
-			Expect(*result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enforced).To(BeTrue())
-			Expect(*result.Spec.UserConfig.OpenSearch.IndicesQueryBoolMaxClauseCount).To(Equal(2048))
-			Expect(*result.Spec.UserConfig.OpenSearch.HttpMaxContentLength).To(Equal(209715200))
-		})
-
-		It("should create hobbyist plan for 2GB memory", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "hobbyist-opensearch",
-					Namespace: "dev-team",
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory2GB,
-					Version:   v1.OpenSearchVersionV1,
-					StorageGB: 16,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Spec.Plan).To(Equal("hobbyist"))
-			Expect(result.Spec.DiskSpace).To(Equal("16GiB"))
-		})
-
-		It("should preserve labels from source opensearch", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "labeled-opensearch",
-					Namespace: "labeled-team",
-					Labels: map[string]string{
-						"team":         "labeled-team",
-						"custom-label": "custom-value",
-						"another":      "label",
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-
-			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Labels["team"]).To(Equal("labeled-team"))
-			Expect(result.Labels["custom-label"]).To(Equal("custom-value"))
-			Expect(result.Labels["another"]).To(Equal("label"))
-			Expect(result.Labels["opensearch.nais.io/name"]).To(Equal("labeled-opensearch"))
-			Expect(result.Name).To(Equal("opensearch-labeled-team-labeled-opensearch"))
-		})
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireEqual(t, result.Spec.Project, "test-project", "project")
+		requireEqual(t, result.Spec.Plan, "startup-4", "plan")
+		requireEqual(t, result.Spec.ProjectVPCID, "vpc-123", "project vpc")
+		requireEqual(t, result.Spec.DiskSpace, "80GiB", "disk space")
+		requireNotNil(t, result.Spec.TerminationProtection, "terminationProtection")
+		requireTrue(t, *result.Spec.TerminationProtection, "terminationProtection should be true")
+		requireNotNil(t, result.Spec.UserConfig, "user config")
+		requireNotNil(t, result.Spec.UserConfig.OpenSearchVersion, "opensearch version")
+		requireEqual(t, *result.Spec.UserConfig.OpenSearchVersion, "2", "opensearch version")
+		requireEqual(t, result.Spec.Tags["team"], testTeamName, "team tag")
+		requireEqual(t, result.Spec.Tags["app"], testOpenSearchName, "app tag")
+		requireEqual(t, result.Spec.Tags["tenant"], "test-tenant", "tenant tag")
+		requireEqual(t, result.Name, "opensearch-"+testTeamName+"-"+testOpenSearchName, "namespaced name")
 	})
 
-	Describe("CreateOpenSearchServiceIntegrationSpec", func() {
-		It("should create service integration with correct fields", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-opensearch",
-					Namespace: "my-team",
-					Labels: map[string]string{
-						"team": "my-team",
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			cfg := config.Aiven{
-				Project:                      "test-project",
-				MetricsDestinationEndpointID: "metrics-service",
-			}
+	t.Run("sets correct version for V2_19", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "versioned-opensearch", Namespace: "version-team"},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2_19, StorageGB: 80},
+		}
 
-			result, err := rcopensearch.CreateServiceIntegrationSpec(scheme.Scheme, opensearch, cfg)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(result.Name).To(Equal("opensearch-my-team-my-opensearch"))
-			Expect(result.Namespace).To(Equal("my-team"))
-			Expect(result.Spec.Project).To(Equal("test-project"))
-			Expect(result.Spec.IntegrationType).To(Equal("prometheus"))
-			Expect(result.Spec.SourceServiceName).To(Equal("opensearch-my-team-my-opensearch"))
-			Expect(result.Spec.DestinationEndpointID).To(Equal("metrics-service"))
-		})
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireNotNil(t, result.Spec.UserConfig, "user config")
+		requireNotNil(t, result.Spec.UserConfig.OpenSearchVersion, "opensearch version")
+		requireEqual(t, *result.Spec.UserConfig.OpenSearchVersion, "2.19", "opensearch version")
 	})
 
-	Describe("aivenOpenSearchConditionGetter", func() {
-		It("should return ObservedState=True when state is non-empty", func() {
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: stateRunning,
+	t.Run("sets correct version for V3_3", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "v3-opensearch", Namespace: "v3-team"},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierHighAvailability, Memory: v1.OpenSearchMemory8GB, Version: v1.OpenSearchVersionV3_3, StorageGB: 525},
+		}
+
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireEqual(t, result.Spec.Plan, "business-8", "plan")
+		requireEqual(t, result.Spec.DiskSpace, "525GiB", "disk space")
+		requireNotNil(t, result.Spec.UserConfig, "user config")
+		requireNotNil(t, result.Spec.UserConfig.OpenSearchVersion, "opensearch version")
+		requireEqual(t, *result.Spec.UserConfig.OpenSearchVersion, "3.3", "opensearch version")
+	})
+
+	t.Run("does not set optional opensearch settings when omitted", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "basic-opensearch", Namespace: "basic-team"},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireNotNil(t, result.Spec.UserConfig, "user config")
+		requireNil(t, result.Spec.UserConfig.OpenSearch, "opensearch settings should be nil")
+	})
+
+	t.Run("sets optional opensearch settings when specified", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "configured-opensearch", Namespace: "config-team"},
+			Spec: v1.OpenSearchSpec{
+				Tier:                  v1.OpenSearchTierSingleNode,
+				Memory:                v1.OpenSearchMemory4GB,
+				Version:               v1.OpenSearchVersionV2,
+				StorageGB:             80,
+				ShardIndexingPressure: &v1.OpenSearchShardIndexingPressure{Enabled: true, Enforced: true},
+				Indices:               &v1.OpenSearchIndices{QueryBoolMaxClauseCount: new(2048)},
+				Http:                  &v1.OpenSearchHttp{MaxContentLength: new(resource.MustParse("200Mi"))},
+			},
+		}
+
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireNotNil(t, result.Spec.UserConfig, "user config")
+		requireNotNil(t, result.Spec.UserConfig.OpenSearch, "opensearch settings")
+		requireNotNil(t, result.Spec.UserConfig.OpenSearch.ShardIndexingPressure, "shard indexing pressure")
+		requireTrue(t, *result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enabled, "enabled")
+		requireTrue(t, *result.Spec.UserConfig.OpenSearch.ShardIndexingPressure.Enforced, "enforced")
+		requireEqual(t, *result.Spec.UserConfig.OpenSearch.IndicesQueryBoolMaxClauseCount, 2048, "max clause count")
+		requireEqual(t, *result.Spec.UserConfig.OpenSearch.HttpMaxContentLength, 209715200, "max content length")
+	})
+
+	t.Run("creates hobbyist plan for 2GB memory", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "hobbyist-opensearch", Namespace: "dev-team"},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory2GB, Version: v1.OpenSearchVersionV1, StorageGB: 16},
+		}
+
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireEqual(t, result.Spec.Plan, "hobbyist", "plan")
+		requireEqual(t, result.Spec.DiskSpace, "16GiB", "disk space")
+	})
+
+	t.Run("preserves labels from source opensearch", func(t *testing.T) {
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "labeled-opensearch",
+				Namespace: "labeled-team",
+				Labels: map[string]string{
+					"team":         "labeled-team",
+					"custom-label": "custom-value",
+					"another":      "label",
 				},
-			}
+			},
+			Spec: v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+
+		result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+		requireNoError(t, err)
+		requireEqual(t, result.Labels["team"], "labeled-team", "team label")
+		requireEqual(t, result.Labels["custom-label"], "custom-value", "custom label")
+		requireEqual(t, result.Labels["another"], "label", "another label")
+		requireEqual(t, result.Labels["opensearch.nais.io/name"], "labeled-opensearch", "name label")
+		requireEqual(t, result.Name, "opensearch-labeled-team-labeled-opensearch", "namespaced name")
+	})
+}
+
+func TestCreateOpenSearchServiceIntegrationSpec(t *testing.T) {
+	opensearch := &v1.OpenSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-opensearch", Namespace: "my-team", Labels: map[string]string{"team": "my-team"}},
+		Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+	}
+	cfg := config.Aiven{Project: "test-project", MetricsDestinationEndpointID: "metrics-service"}
+
+	result, err := rcopensearch.CreateServiceIntegrationSpec(scheme.Scheme, opensearch, cfg)
+	requireNoError(t, err)
+	requireEqual(t, result.Name, "opensearch-my-team-my-opensearch", "name")
+	requireEqual(t, result.Namespace, "my-team", "namespace")
+	requireEqual(t, result.Spec.Project, "test-project", "project")
+	requireEqual(t, result.Spec.IntegrationType, "prometheus", "integration type")
+	requireEqual(t, result.Spec.SourceServiceName, "opensearch-my-team-my-opensearch", "source service")
+	requireEqual(t, result.Spec.DestinationEndpointID, "metrics-service", "destination endpoint")
+}
+
+func TestAivenOpenSearchConditionGetter(t *testing.T) {
+	testCases := []struct {
+		name        string
+		state       string
+		wantStatus  metav1.ConditionStatus
+		wantMessage string
+	}{
+		{name: "non-empty state", state: stateRunning, wantStatus: metav1.ConditionTrue, wantMessage: "OpenSearch is in state: RUNNING"},
+		{name: "empty state", state: "", wantStatus: metav1.ConditionFalse, wantMessage: "OpenSearch is in state: "},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{Status: aiven_v1alpha1.ServiceStatus{State: tc.state}}
 			aivenOpenSearch.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("OpenSearch"))
 
 			conditions := aivenOpenSearchConditionGetter(aivenOpenSearch, scheme.Scheme)
+			requireEqual(t, len(conditions), 1, "condition count")
 
-			Expect(conditions).To(HaveLen(1))
 			observedState := meta.FindStatusCondition(conditions, "opensearch.aiven.io/ObservedState")
-			Expect(observedState).NotTo(BeNil())
-			Expect(observedState.Status).To(Equal(metav1.ConditionTrue))
-			Expect(observedState.Reason).To(Equal("Reconciled"))
-			Expect(observedState.Message).To(Equal("OpenSearch is in state: RUNNING"))
+			requireNotNil(t, observedState, "observed state condition")
+			requireEqual(t, observedState.Status, tc.wantStatus, "status")
+			requireEqual(t, observedState.Reason, "Reconciled", "reason")
+			requireEqual(t, observedState.Message, tc.wantMessage, "message")
 		})
+	}
+}
 
-		It("should return ObservedState=False when state is empty", func() {
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{
-				Status: aiven_v1alpha1.ServiceStatus{
-					State: "",
-				},
-			}
-			aivenOpenSearch.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("OpenSearch"))
+func TestOpenSearchServiceIntegrationConditionGetter(t *testing.T) {
+	integration := &aiven_v1alpha1.ServiceIntegration{
+		Status: aiven_v1alpha1.ServiceIntegrationStatus{
+			Conditions: []metav1.Condition{{Type: stateRunning, Status: metav1.ConditionTrue, Reason: "CheckRunning", Message: "Integration is running"}},
+		},
+	}
+	integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
 
-			conditions := aivenOpenSearchConditionGetter(aivenOpenSearch, scheme.Scheme)
+	conditions := openSearchServiceIntegrationConditionGetter(integration, scheme.Scheme)
+	requireNil(t, conditions, "service integration conditions should be nil")
+}
 
-			Expect(conditions).To(HaveLen(1))
-			observedState := meta.FindStatusCondition(conditions, "opensearch.aiven.io/ObservedState")
-			Expect(observedState).NotTo(BeNil())
-			Expect(observedState.Status).To(Equal(metav1.ConditionFalse))
-			Expect(observedState.Reason).To(Equal("Reconciled"))
-			Expect(observedState.Message).To(Equal("OpenSearch is in state: "))
-		})
-	})
+func TestOpenSearchStateChangeReconciliation(t *testing.T) {
+	const opensearchStateTestNamespace = "opensearch-state-test"
+	ensureNamespace(t, opensearchStateTestNamespace)
+	controllerReconciler := newOpenSearchSynchronizer(scheme.Scheme)
 
-	Describe("openSearchServiceIntegrationConditionGetter", func() {
-		It("should return nil", func() {
-			integration := &aiven_v1alpha1.ServiceIntegration{
-				Status: aiven_v1alpha1.ServiceIntegrationStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    stateRunning,
-							Status:  metav1.ConditionTrue,
-							Reason:  "CheckRunning",
-							Message: "Integration is running",
-						},
-					},
-				},
-			}
-			integration.SetGroupVersionKind(aiven_v1alpha1.GroupVersion.WithKind("ServiceIntegration"))
+	t.Run("updates condition when state changes from empty to RUNNING", func(t *testing.T) {
+		opensearchName := "state-change-test"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: opensearchStateTestNamespace}
+		aivenOpenSearchName := "opensearch-" + opensearchStateTestNamespace + "-" + opensearchName
 
-			conditions := openSearchServiceIntegrationConditionGetter(integration, scheme.Scheme)
-
-			Expect(conditions).To(BeNil())
-		})
-	})
-
-	Describe("OpenSearch state change reconciliation", func() {
-		const (
-			opensearchStateTestNamespace = "opensearch-state-test"
-		)
-
-		var controllerReconciler *synchronizer.Synchronizer[*v1.OpenSearch, OpenSearchPreparedData]
-
-		BeforeEach(func() {
-			By("using a fresh recorder to avoid blocking on full channel from previous tests")
-			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
-
-			By("creating the synchronizer for opensearch")
-			opensearchReconciler := &OpenSearchReconciler{
-				Aiven: config.Aiven{
-					Project:                      "test-project",
-					ProjectVPCID:                 "test-vpc-id",
-					MetricsDestinationEndpointID: "test-metrics-service",
-				},
-				Tenant:   config.Tenant{Name: "test-tenant"},
-				Recorder: recorder,
-				Scheme:   k8sClient.Scheme(),
-			}
-			controllerReconciler = synchronizer.NewSynchronizer(k8sClient, k8sClient.Scheme(), opensearchReconciler, recorder)
-
-			By("creating the test namespace")
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: opensearchStateTestNamespace,
-				},
-			}
-			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: opensearchStateTestNamespace}, ns)
-			if apierrors.IsNotFound(err) {
-				Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
-			}
-		})
-
-		It("should update condition when Aiven OpenSearch state changes from empty to RUNNING", func() {
-			opensearchName := "state-change-test"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: opensearchStateTestNamespace}
-			aivenOpenSearchName := "opensearch-" + opensearchStateTestNamespace + "-" + opensearchName
-
-			By("creating an OpenSearch resource")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: opensearchStateTestNamespace,
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(context.Background(), opensearch)).To(Succeed())
-
-			By("reconciling the OpenSearch resource (initial)")
-			_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the Aiven OpenSearch was created")
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
-			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch)).To(Succeed())
-
-			By("checking initial condition (state is empty)")
-			Expect(k8sClient.Get(context.Background(), opensearchKey, opensearch)).To(Succeed())
-			initialCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
-			Expect(initialCondition).NotTo(BeNil())
-			Expect(initialCondition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(initialCondition.Message).To(Equal("OpenSearch is in state: "))
-			Expect(initialCondition.LastTransitionTime.IsZero()).To(BeFalse())
-
-			By("simulating Aiven OpenSearch state change to RUNNING")
-			aivenOpenSearch.Status.State = stateRunning
-			Expect(k8sClient.Status().Update(context.Background(), aivenOpenSearch)).To(Succeed())
-
-			By("reconciling the OpenSearch resource again")
-			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the condition was updated with new state")
-			Expect(k8sClient.Get(context.Background(), opensearchKey, opensearch)).To(Succeed())
-			updatedCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
-			Expect(updatedCondition).NotTo(BeNil())
-			Expect(updatedCondition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(updatedCondition.Message).To(Equal("OpenSearch is in state: RUNNING"))
-			// Transition time should be set (not zero) since status changed from False to True
-			Expect(updatedCondition.LastTransitionTime.IsZero()).To(BeFalse())
-
-			By("cleaning up")
-			Expect(k8sClient.Delete(context.Background(), opensearch)).To(Succeed())
-		})
-
-		It("should not update transition time when state changes from REBALANCING to RUNNING", func() {
-			opensearchName := "state-no-transition-test"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: opensearchStateTestNamespace}
-			aivenOpenSearchName := "opensearch-" + opensearchStateTestNamespace + "-" + opensearchName
-
-			By("creating an OpenSearch resource")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: opensearchStateTestNamespace,
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(context.Background(), opensearch)).To(Succeed())
-
-			By("reconciling the OpenSearch resource (initial)")
-			_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the Aiven OpenSearch was created")
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
-			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch)).To(Succeed())
-
-			By("simulating Aiven OpenSearch state set to REBALANCING")
-			aivenOpenSearch.Status.State = "REBALANCING"
-			Expect(k8sClient.Status().Update(context.Background(), aivenOpenSearch)).To(Succeed())
-
-			By("reconciling to pick up REBALANCING state")
-			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("capturing the transition time after REBALANCING")
-			Expect(k8sClient.Get(context.Background(), opensearchKey, opensearch)).To(Succeed())
-			rebalancingCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
-			Expect(rebalancingCondition).NotTo(BeNil())
-			Expect(rebalancingCondition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(rebalancingCondition.Message).To(Equal("OpenSearch is in state: REBALANCING"))
-			rebalancingTransitionTime := rebalancingCondition.LastTransitionTime
-
-			By("simulating Aiven OpenSearch state change to RUNNING")
-			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch)).To(Succeed())
-			aivenOpenSearch.Status.State = stateRunning
-			Expect(k8sClient.Status().Update(context.Background(), aivenOpenSearch)).To(Succeed())
-
-			By("reconciling the OpenSearch resource again")
-			_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the condition message changed but transition time stayed the same")
-			Expect(k8sClient.Get(context.Background(), opensearchKey, opensearch)).To(Succeed())
-			runningCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
-			Expect(runningCondition).NotTo(BeNil())
-			Expect(runningCondition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(runningCondition.Message).To(Equal("OpenSearch is in state: RUNNING"))
-			// Transition time should NOT be updated since status remained True
-			Expect(runningCondition.LastTransitionTime.Time).To(Equal(rebalancingTransitionTime.Time))
-
-			By("cleaning up")
-			Expect(k8sClient.Delete(context.Background(), opensearch)).To(Succeed())
-		})
-	})
-
-	Describe("MinimalAivenOpenSearch", func() {
-		It("should create minimal Aiven OpenSearch with correct metadata using namespaced name", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-opensearch",
-					Namespace: "test-ns",
-					Labels: map[string]string{
-						"team": "test-team",
-					},
-				},
-			}
-
-			result := rcopensearch.Minimal(opensearch)
-
-			Expect(result.Name).To(Equal("opensearch-test-ns-test-opensearch"))
-			Expect(result.Namespace).To(Equal("test-ns"))
-			Expect(result.Kind).To(Equal("OpenSearch"))
-			Expect(result.APIVersion).To(Equal("aiven.io/v1alpha1"))
-		})
-	})
-
-	Describe("MinimalOpenSearchServiceIntegration", func() {
-		It("should create minimal ServiceIntegration with correct metadata", func() {
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-opensearch",
-					Namespace: "test-ns",
-				},
-			}
-
-			result := rcopensearch.MinimalServiceIntegration(opensearch)
-
-			Expect(result.Name).To(Equal("opensearch-test-ns-test-opensearch"))
-			Expect(result.Namespace).To(Equal("test-ns"))
-			Expect(result.Kind).To(Equal("ServiceIntegration"))
-			Expect(result.APIVersion).To(Equal("aiven.io/v1alpha1"))
-		})
-	})
-
-	Describe("Memory and Tier plan mapping", func() {
-		tiers := []struct {
-			tier         v1.OpenSearchTier
-			memory       v1.OpenSearchMemory
-			expectedPlan string
-		}{
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory2GB, "hobbyist"},
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory4GB, "startup-4"},
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory8GB, "startup-8"},
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory16GB, "startup-16"},
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory32GB, "startup-32"},
-			{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory64GB, "startup-64"},
-			{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory4GB, "business-4"},
-			{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory8GB, "business-8"},
-			{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory16GB, "business-16"},
-			{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory32GB, "business-32"},
-			{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory64GB, "business-64"},
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: opensearchStateTestNamespace},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
 		}
+		requireNoError(t, k8sClient.Create(context.Background(), opensearch))
+		t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), opensearch) })
 
-		aiven := config.Aiven{
-			Project: "test-project",
-		}
-		tenant := config.Tenant{
-			Name: "test-tenant",
-		}
+		_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
 
-		for _, tc := range tiers {
-			It("should map "+string(tc.tier)+"/"+string(tc.memory)+" to "+tc.expectedPlan, func() {
-				// Use appropriate storage for the plan
-				storage := 80
-				if tc.memory == v1.OpenSearchMemory2GB {
-					storage = 16
-				} else if tc.tier == v1.OpenSearchTierHighAvailability {
-					switch tc.memory {
-					case v1.OpenSearchMemory4GB:
-						storage = 240
-					case v1.OpenSearchMemory8GB:
-						storage = 525
-					case v1.OpenSearchMemory16GB:
-						storage = 1050
-					case v1.OpenSearchMemory32GB:
-						storage = 2100
-					case v1.OpenSearchMemory64GB:
-						storage = 4200
-					}
-				} else {
-					switch tc.memory {
-					case v1.OpenSearchMemory8GB:
-						storage = 175
-					case v1.OpenSearchMemory16GB:
-						storage = 350
-					case v1.OpenSearchMemory32GB:
-						storage = 700
-					case v1.OpenSearchMemory64GB:
-						storage = 1400
-					}
-				}
+		aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch))
 
-				opensearch := &v1.OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-opensearch",
-						Namespace: "test-ns",
-					},
-					Spec: v1.OpenSearchSpec{
-						Tier:      tc.tier,
-						Memory:    tc.memory,
-						Version:   v1.OpenSearchVersionV2,
-						StorageGB: storage,
-					},
-				}
+		requireNoError(t, k8sClient.Get(context.Background(), opensearchKey, opensearch))
+		initialCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
+		requireNotNil(t, initialCondition, "initial condition")
+		requireEqual(t, initialCondition.Status, metav1.ConditionFalse, "initial status")
+		requireEqual(t, initialCondition.Message, "OpenSearch is in state: ", "initial message")
+		requireFalse(t, initialCondition.LastTransitionTime.IsZero(), "initial transition time should be set")
 
-				result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
-				Expect(err).NotTo(HaveOccurred())
+		aivenOpenSearch.Status.State = stateRunning
+		requireNoError(t, k8sClient.Status().Update(context.Background(), aivenOpenSearch))
 
-				Expect(result.Spec.Plan).To(Equal(tc.expectedPlan))
-			})
-		}
+		_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		requireNoError(t, k8sClient.Get(context.Background(), opensearchKey, opensearch))
+		updatedCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
+		requireNotNil(t, updatedCondition, "updated condition")
+		requireEqual(t, updatedCondition.Status, metav1.ConditionTrue, "updated status")
+		requireEqual(t, updatedCondition.Message, "OpenSearch is in state: RUNNING", "updated message")
+		requireFalse(t, updatedCondition.LastTransitionTime.IsZero(), "updated transition time should be set")
 	})
 
-	When("reconciling an OpenSearch resource", Serial, Ordered, func() {
-		const (
-			testNamespace = "os-sync-integration-ns"
-		)
+	t.Run("does not update transition time when status remains true", func(t *testing.T) {
+		opensearchName := "state-no-transition-test"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: opensearchStateTestNamespace}
+		aivenOpenSearchName := "opensearch-" + opensearchStateTestNamespace + "-" + opensearchName
 
-		var reconciler *synchronizer.Synchronizer[*v1.OpenSearch, OpenSearchPreparedData]
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: opensearchStateTestNamespace},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(context.Background(), opensearch))
+		t.Cleanup(func() { _ = k8sClient.Delete(context.Background(), opensearch) })
 
-		BeforeAll(func() {
-			By("using a fresh recorder to avoid blocking on full channel from previous tests")
-			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
+		_, err := controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
 
-			By("creating a synchronizer for opensearch")
-			opensearchReconciler := &OpenSearchReconciler{
-				Aiven: config.Aiven{
-					Project:                      "test-project",
-					ProjectVPCID:                 "test-vpc-id",
-					MetricsDestinationEndpointID: "test-metrics-service",
-				},
-				Tenant:   config.Tenant{Name: "test-tenant"},
-				Recorder: recorder,
-				Scheme:   scheme.Scheme,
+		aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch))
+
+		aivenOpenSearch.Status.State = "REBALANCING"
+		requireNoError(t, k8sClient.Status().Update(context.Background(), aivenOpenSearch))
+
+		_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		requireNoError(t, k8sClient.Get(context.Background(), opensearchKey, opensearch))
+		rebalancingCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
+		requireNotNil(t, rebalancingCondition, "rebalancing condition")
+		requireEqual(t, rebalancingCondition.Status, metav1.ConditionTrue, "rebalancing status")
+		requireEqual(t, rebalancingCondition.Message, "OpenSearch is in state: REBALANCING", "rebalancing message")
+		rebalancingTransitionTime := rebalancingCondition.LastTransitionTime
+
+		requireNoError(t, k8sClient.Get(context.Background(), types.NamespacedName{Name: aivenOpenSearchName, Namespace: opensearchStateTestNamespace}, aivenOpenSearch))
+		aivenOpenSearch.Status.State = stateRunning
+		requireNoError(t, k8sClient.Status().Update(context.Background(), aivenOpenSearch))
+
+		_, err = controllerReconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		requireNoError(t, k8sClient.Get(context.Background(), opensearchKey, opensearch))
+		runningCondition := meta.FindStatusCondition(opensearch.GetStatus().GetConditions(), "opensearch.aiven.io/ObservedState")
+		requireNotNil(t, runningCondition, "running condition")
+		requireEqual(t, runningCondition.Status, metav1.ConditionTrue, "running status")
+		requireEqual(t, runningCondition.Message, "OpenSearch is in state: RUNNING", "running message")
+		requireEqual(t, runningCondition.LastTransitionTime.Time, rebalancingTransitionTime.Time, "transition time should not change")
+	})
+}
+
+func TestMinimalAivenOpenSearch(t *testing.T) {
+	opensearch := &v1.OpenSearch{ObjectMeta: metav1.ObjectMeta{Name: "test-opensearch", Namespace: "test-ns", Labels: map[string]string{"team": "test-team"}}}
+	result := rcopensearch.Minimal(opensearch)
+	requireEqual(t, result.Name, "opensearch-test-ns-test-opensearch", "name")
+	requireEqual(t, result.Namespace, "test-ns", "namespace")
+	requireEqual(t, result.Kind, "OpenSearch", "kind")
+	requireEqual(t, result.APIVersion, "aiven.io/v1alpha1", "apiVersion")
+}
+
+func TestMinimalOpenSearchServiceIntegration(t *testing.T) {
+	opensearch := &v1.OpenSearch{ObjectMeta: metav1.ObjectMeta{Name: "test-opensearch", Namespace: "test-ns"}}
+	result := rcopensearch.MinimalServiceIntegration(opensearch)
+	requireEqual(t, result.Name, "opensearch-test-ns-test-opensearch", "name")
+	requireEqual(t, result.Namespace, "test-ns", "namespace")
+	requireEqual(t, result.Kind, "ServiceIntegration", "kind")
+	requireEqual(t, result.APIVersion, "aiven.io/v1alpha1", "apiVersion")
+}
+
+func TestOpenSearchMemoryAndTierPlanMapping(t *testing.T) {
+	tiers := []struct {
+		tier         v1.OpenSearchTier
+		memory       v1.OpenSearchMemory
+		expectedPlan string
+	}{
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory2GB, "hobbyist"},
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory4GB, "startup-4"},
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory8GB, "startup-8"},
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory16GB, "startup-16"},
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory32GB, "startup-32"},
+		{v1.OpenSearchTierSingleNode, v1.OpenSearchMemory64GB, "startup-64"},
+		{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory4GB, "business-4"},
+		{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory8GB, "business-8"},
+		{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory16GB, "business-16"},
+		{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory32GB, "business-32"},
+		{v1.OpenSearchTierHighAvailability, v1.OpenSearchMemory64GB, "business-64"},
+	}
+
+	aiven := config.Aiven{Project: "test-project"}
+	tenant := config.Tenant{Name: "test-tenant"}
+
+	for _, tc := range tiers {
+		t.Run(string(tc.tier)+"/"+string(tc.memory), func(t *testing.T) {
+			storage := 80
+			if tc.memory == v1.OpenSearchMemory2GB {
+				storage = 16
+			} else if tc.tier == v1.OpenSearchTierHighAvailability {
+				switch tc.memory {
+				case v1.OpenSearchMemory4GB:
+					storage = 240
+				case v1.OpenSearchMemory8GB:
+					storage = 525
+				case v1.OpenSearchMemory16GB:
+					storage = 1050
+				case v1.OpenSearchMemory32GB:
+					storage = 2100
+				case v1.OpenSearchMemory64GB:
+					storage = 4200
+				}
+			} else {
+				switch tc.memory {
+				case v1.OpenSearchMemory8GB:
+					storage = 175
+				case v1.OpenSearchMemory16GB:
+					storage = 350
+				case v1.OpenSearchMemory32GB:
+					storage = 700
+				case v1.OpenSearchMemory64GB:
+					storage = 1400
+				}
 			}
-			reconciler = synchronizer.NewSynchronizer(k8sClient, scheme.Scheme, opensearchReconciler, recorder)
 
-			By("creating the resource namespace")
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: testNamespace,
-				},
+			opensearch := &v1.OpenSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-opensearch", Namespace: "test-ns"},
+				Spec:       v1.OpenSearchSpec{Tier: tc.tier, Memory: tc.memory, Version: v1.OpenSearchVersionV2, StorageGB: storage},
 			}
-			Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+			result, err := rcopensearch.CreateSpec(scheme.Scheme, opensearch, aiven, tenant)
+			requireNoError(t, err)
+			requireEqual(t, result.Spec.Plan, tc.expectedPlan, "plan")
 		})
+	}
+}
 
-		When("the resource is created", func() {
-			It("should set .Status.ReconcilePhase to Completed after first reconcile (finalizer addition)", func() {
-				testOpenSearchName := "sync-first-reconcile"
+func TestOpenSearchReconcileLifecycle(t *testing.T) {
+	const testNamespace = "os-sync-integration-ns"
+	ensureNamespace(t, testNamespace)
+	reconciler := newOpenSearchSynchronizer(scheme.Scheme)
 
-				By("creating the resource")
-				opensearch := &v1.OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      testOpenSearchName,
-						Namespace: testNamespace,
-					},
-					Spec: v1.OpenSearchSpec{
-						Tier:      v1.OpenSearchTierSingleNode,
-						Memory:    v1.OpenSearchMemory4GB,
-						Version:   v1.OpenSearchVersionV2,
-						StorageGB: 80,
-					},
-				}
-				Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+	t.Run("sets reconcile status completed after first reconcile", func(t *testing.T) {
+		testOpenSearchName := "sync-first-reconcile"
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: testOpenSearchName, Namespace: testNamespace},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, opensearch) })
 
-				req := ctrl.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      opensearch.Name,
-						Namespace: opensearch.Namespace,
-					},
-				}
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: opensearch.Name, Namespace: opensearch.Namespace}}
+		_, err := reconciler.Reconcile(ctx, req)
+		requireNoError(t, err)
 
-				By("reconciling the created resource (first reconcile adds finalizer)")
-				_, err := reconciler.Reconcile(ctx, req)
-				Expect(err).NotTo(HaveOccurred())
-
-				By("verifying that .Status.ReconcilePhase is Completed")
-				updatedOpenSearch := &v1.OpenSearch{}
-				Expect(k8sClient.Get(ctx, req.NamespacedName, updatedOpenSearch)).To(Succeed())
-				Expect(updatedOpenSearch.Status).NotTo(BeNil())
-				Expect(updatedOpenSearch.Status.ReconcilePhase).To(Equal("Completed"))
-
-				By("verifying that the finalizer was added")
-				Expect(updatedOpenSearch.GetFinalizers()).To(ContainElement("opensearch.nais.io/finalizer"))
-
-				By("verifying that ObservedGeneration matches the resource generation")
-				Expect(updatedOpenSearch.Status.ObservedGeneration).To(Equal(updatedOpenSearch.Generation))
-			})
-
-			It("should reach Completed after spec update triggers reconciliation", func() {
-				testOpenSearchName := "sync-spec-update"
-
-				By("creating the resource")
-				opensearch := &v1.OpenSearch{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      testOpenSearchName,
-						Namespace: testNamespace,
-					},
-					Spec: v1.OpenSearchSpec{
-						Tier:      v1.OpenSearchTierSingleNode,
-						Memory:    v1.OpenSearchMemory4GB,
-						Version:   v1.OpenSearchVersionV2,
-						StorageGB: 80,
-					},
-				}
-				Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
-
-				req := ctrl.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      opensearch.Name,
-						Namespace: opensearch.Namespace,
-					},
-				}
-
-				By("reconciling the created resource (first reconcile adds finalizer)")
-				_, err := reconciler.Reconcile(ctx, req)
-				Expect(err).NotTo(HaveOccurred())
-
-				By("verifying first reconcile completed successfully")
-				firstOpenSearch := &v1.OpenSearch{}
-				Expect(k8sClient.Get(ctx, req.NamespacedName, firstOpenSearch)).To(Succeed())
-				Expect(firstOpenSearch.Status.ReconcilePhase).To(Equal("Completed"))
-				initialGeneration := firstOpenSearch.Generation
-
-				By("updating the spec to trigger a new reconciliation")
-				firstOpenSearch.Spec.StorageGB = 90
-				Expect(k8sClient.Update(ctx, firstOpenSearch)).To(Succeed())
-
-				By("verifying the generation increased")
-				Expect(k8sClient.Get(ctx, req.NamespacedName, firstOpenSearch)).To(Succeed())
-				Expect(firstOpenSearch.Generation).To(BeNumerically(">", initialGeneration))
-
-				By("reconciling after spec change (no finalizer change this time)")
-				_, err = reconciler.Reconcile(ctx, req)
-				Expect(err).NotTo(HaveOccurred())
-
-				By("verifying that .Status.ReconcilePhase is Completed")
-				updatedOpenSearch := &v1.OpenSearch{}
-				Expect(k8sClient.Get(ctx, req.NamespacedName, updatedOpenSearch)).To(Succeed())
-				Expect(updatedOpenSearch.Status).NotTo(BeNil())
-				Expect(updatedOpenSearch.Status.ReconcilePhase).To(Equal("Completed"))
-
-				By("verifying that ObservedGeneration matches the new generation")
-				Expect(updatedOpenSearch.Status.ObservedGeneration).To(Equal(updatedOpenSearch.Generation))
-			})
-		})
+		updatedOpenSearch := &v1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, req.NamespacedName, updatedOpenSearch))
+		requireNotNil(t, updatedOpenSearch.Status, "status")
+		requireEqual(t, updatedOpenSearch.Status.ReconcilePhase, "Completed", "reconcile phase")
+		requireSliceContains(t, updatedOpenSearch.GetFinalizers(), "opensearch.nais.io/finalizer")
+		requireEqual(t, updatedOpenSearch.Status.ObservedGeneration, updatedOpenSearch.Generation, "observed generation")
 	})
 
-	When("deleting an OpenSearch resource", Serial, Ordered, func() {
-		const (
-			deleteTestNamespace = "opensearch-delete-test"
-		)
+	t.Run("reaches completed after spec update reconciliation", func(t *testing.T) {
+		testOpenSearchName := "sync-spec-update"
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: testOpenSearchName, Namespace: testNamespace},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, opensearch) })
 
-		var syncReconciler *synchronizer.Synchronizer[*v1.OpenSearch, OpenSearchPreparedData]
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: opensearch.Name, Namespace: opensearch.Namespace}}
+		_, err := reconciler.Reconcile(ctx, req)
+		requireNoError(t, err)
 
-		BeforeAll(func() {
-			recorder := events.NewRecorder(kevents.NewFakeRecorder(100))
-			opensearchReconciler := &OpenSearchReconciler{
-				Aiven: config.Aiven{
-					Project:                      "test-project",
-					ProjectVPCID:                 "test-vpc-id",
-					MetricsDestinationEndpointID: "test-metrics-service",
-				},
-				Tenant:   config.Tenant{Name: "test-tenant"},
-				Recorder: recorder,
-				Scheme:   scheme.Scheme,
-			}
-			syncReconciler = synchronizer.NewSynchronizer(k8sClient, scheme.Scheme, opensearchReconciler, recorder)
+		firstOpenSearch := &v1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, req.NamespacedName, firstOpenSearch))
+		requireEqual(t, firstOpenSearch.Status.ReconcilePhase, "Completed", "reconcile phase after first reconcile")
+		initialGeneration := firstOpenSearch.Generation
 
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: deleteTestNamespace,
-				},
-			}
-			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
-		})
+		firstOpenSearch.Spec.StorageGB = 90
+		requireNoError(t, k8sClient.Update(ctx, firstOpenSearch))
 
-		It("should refuse deletion without allowDeletion annotation", func() {
-			opensearchName := "delete-no-annotation"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+		requireNoError(t, k8sClient.Get(ctx, req.NamespacedName, firstOpenSearch))
+		requireTrue(t, firstOpenSearch.Generation > initialGeneration, "generation should increase after spec update")
 
-			By("creating and reconciling an OpenSearch resource")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: deleteTestNamespace,
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, req)
+		requireNoError(t, err)
 
-			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("deleting the OpenSearch resource without the annotation")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
-
-			By("reconciling - should refuse deletion")
-			_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("refusing to delete"))
-
-			By("verifying the finalizer is still present (resource not deleted)")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(opensearch.GetFinalizers()).To(ContainElement("opensearch.nais.io/finalizer"))
-		})
-
-		It("should disable terminationProtection before deleting child resources", func() {
-			opensearchName := "delete-with-protection"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
-			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
-
-			By("creating and reconciling an OpenSearch resource")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: deleteTestNamespace,
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "true",
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
-
-			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("verifying the Aiven OpenSearch was created with terminationProtection=true")
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
-			Expect(aivenOpenSearch.Spec.TerminationProtection).NotTo(BeNil())
-			Expect(*aivenOpenSearch.Spec.TerminationProtection).To(BeTrue())
-
-			By("deleting the OpenSearch resource")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
-
-			By("reconciling - should disable terminationProtection and requeue")
-			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
-
-			By("verifying terminationProtection was disabled on the Aiven resource")
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
-			Expect(*aivenOpenSearch.Spec.TerminationProtection).To(BeFalse())
-
-			By("verifying the finalizer is still present")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(opensearch.GetFinalizers()).To(ContainElement("opensearch.nais.io/finalizer"))
-
-			By("reconciling again - should now delete child resources and remove finalizer")
-			result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeZero())
-
-			By("verifying the Aiven OpenSearch resource was deleted")
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-
-			By("verifying the OpenSearch CR was garbage collected (finalizer removed)")
-			err = k8sClient.Get(ctx, opensearchKey, opensearch)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should skip terminationProtection dance when Aiven resource doesn't exist", func() {
-			opensearchName := "delete-no-aiven"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
-
-			By("creating an OpenSearch resource with the delete annotation")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: deleteTestNamespace,
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "true",
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
-
-			By("reconciling to add finalizer and create Aiven resource")
-			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("manually deleting the Aiven resource to simulate external deletion")
-			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, aivenOpenSearch)).To(Succeed())
-
-			By("deleting the OpenSearch CR")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
-
-			By("reconciling - should complete immediately since Aiven resource is gone")
-			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeZero())
-
-			By("verifying the OpenSearch CR was garbage collected")
-			err = k8sClient.Get(ctx, opensearchKey, opensearch)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("should delete when terminationProtection is already disabled", func() {
-			opensearchName := "delete-no-protection"
-			opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
-			aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
-
-			By("creating and reconciling an OpenSearch resource")
-			opensearch := &v1.OpenSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      opensearchName,
-					Namespace: deleteTestNamespace,
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "true",
-					},
-				},
-				Spec: v1.OpenSearchSpec{
-					Tier:      v1.OpenSearchTierSingleNode,
-					Memory:    v1.OpenSearchMemory4GB,
-					Version:   v1.OpenSearchVersionV2,
-					StorageGB: 80,
-				},
-			}
-			Expect(k8sClient.Create(ctx, opensearch)).To(Succeed())
-
-			_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("manually disabling terminationProtection")
-			aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)).To(Succeed())
-			aivenOpenSearch.Spec.TerminationProtection = ptr.To(false)
-			Expect(k8sClient.Update(ctx, aivenOpenSearch)).To(Succeed())
-
-			By("deleting the OpenSearch CR")
-			Expect(k8sClient.Get(ctx, opensearchKey, opensearch)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, opensearch)).To(Succeed())
-
-			By("reconciling - should delete immediately (no requeue)")
-			result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeZero())
-
-			By("verifying the Aiven resource was deleted")
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-
-			By("verifying the OpenSearch CR was garbage collected")
-			err = k8sClient.Get(ctx, opensearchKey, opensearch)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		})
+		updatedOpenSearch := &v1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, req.NamespacedName, updatedOpenSearch))
+		requireNotNil(t, updatedOpenSearch.Status, "status")
+		requireEqual(t, updatedOpenSearch.Status.ReconcilePhase, "Completed", "reconcile phase")
+		requireEqual(t, updatedOpenSearch.Status.ObservedGeneration, updatedOpenSearch.Generation, "observed generation")
 	})
-})
+}
+
+func TestOpenSearchDeletion(t *testing.T) {
+	const deleteTestNamespace = "opensearch-delete-test"
+	ensureNamespace(t, deleteTestNamespace)
+	syncReconciler := newOpenSearchSynchronizer(scheme.Scheme)
+
+	t.Run("refuses deletion without allowDeletion annotation", func(t *testing.T) {
+		opensearchName := "delete-no-annotation"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: deleteTestNamespace},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+		t.Cleanup(func() { _ = k8sClient.Delete(ctx, opensearch) })
+
+		_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireNoError(t, k8sClient.Delete(ctx, opensearch))
+
+		_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireErrorContains(t, err, "refusing to delete")
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireSliceContains(t, opensearch.GetFinalizers(), "opensearch.nais.io/finalizer")
+	})
+
+	t.Run("disables terminationProtection before deleting child resources", func(t *testing.T) {
+		opensearchName := "delete-with-protection"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+		aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: deleteTestNamespace, Annotations: map[string]string{api.AllowDeletionAnnotation: "true"}},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+
+		_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch))
+		requireNotNil(t, aivenOpenSearch.Spec.TerminationProtection, "terminationProtection")
+		requireTrue(t, *aivenOpenSearch.Spec.TerminationProtection, "terminationProtection should be true")
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireNoError(t, k8sClient.Delete(ctx, opensearch))
+
+		result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+		requireTrue(t, result.RequeueAfter > 0, "expected requeue while disabling termination protection")
+
+		requireNoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch))
+		requireFalse(t, *aivenOpenSearch.Spec.TerminationProtection, "terminationProtection should be disabled")
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireSliceContains(t, opensearch.GetFinalizers(), "opensearch.nais.io/finalizer")
+
+		result, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+		requireEqual(t, result.RequeueAfter, 0, "requeue after should be zero")
+
+		err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
+		requireTrue(t, apierrors.IsNotFound(err), "aiven opensearch should be deleted")
+
+		err = k8sClient.Get(ctx, opensearchKey, opensearch)
+		requireTrue(t, apierrors.IsNotFound(err), "opensearch should be garbage collected")
+	})
+
+	t.Run("skips terminationProtection dance when Aiven resource does not exist", func(t *testing.T) {
+		opensearchName := "delete-no-aiven"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: deleteTestNamespace, Annotations: map[string]string{api.AllowDeletionAnnotation: "true"}},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+
+		_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+		aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch))
+		requireNoError(t, k8sClient.Delete(ctx, aivenOpenSearch))
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireNoError(t, k8sClient.Delete(ctx, opensearch))
+
+		result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+		requireEqual(t, result.RequeueAfter, 0, "requeue after should be zero")
+
+		err = k8sClient.Get(ctx, opensearchKey, opensearch)
+		requireTrue(t, apierrors.IsNotFound(err), "opensearch should be garbage collected")
+	})
+
+	t.Run("deletes when terminationProtection is already disabled", func(t *testing.T) {
+		opensearchName := "delete-no-protection"
+		opensearchKey := types.NamespacedName{Name: opensearchName, Namespace: deleteTestNamespace}
+		aivenOpenSearchName := "opensearch-" + deleteTestNamespace + "-" + opensearchName
+
+		opensearch := &v1.OpenSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: opensearchName, Namespace: deleteTestNamespace, Annotations: map[string]string{api.AllowDeletionAnnotation: "true"}},
+			Spec:       v1.OpenSearchSpec{Tier: v1.OpenSearchTierSingleNode, Memory: v1.OpenSearchMemory4GB, Version: v1.OpenSearchVersionV2, StorageGB: 80},
+		}
+		requireNoError(t, k8sClient.Create(ctx, opensearch))
+
+		_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+
+		aivenOpenSearch := &aiven_v1alpha1.OpenSearch{}
+		requireNoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch))
+		aivenOpenSearch.Spec.TerminationProtection = new(false)
+		requireNoError(t, k8sClient.Update(ctx, aivenOpenSearch))
+
+		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
+		requireNoError(t, k8sClient.Delete(ctx, opensearch))
+
+		result, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		requireNoError(t, err)
+		requireEqual(t, result.RequeueAfter, 0, "requeue after should be zero")
+
+		err = k8sClient.Get(ctx, types.NamespacedName{Name: aivenOpenSearchName, Namespace: deleteTestNamespace}, aivenOpenSearch)
+		requireTrue(t, apierrors.IsNotFound(err), "aiven opensearch should be deleted")
+
+		err = k8sClient.Get(ctx, opensearchKey, opensearch)
+		requireTrue(t, apierrors.IsNotFound(err), "opensearch should be garbage collected")
+	})
+}
+
+func newOpenSearchSynchronizer(sch *runtime.Scheme) *synchronizer.Synchronizer[*v1.OpenSearch, OpenSearchPreparedData] {
+	testRecorder := events.NewRecorder(kevents.NewFakeRecorder(100))
+	opensearchReconciler := &OpenSearchReconciler{
+		Aiven: config.Aiven{
+			Project:                      "test-project",
+			ProjectVPCID:                 "test-vpc-id",
+			MetricsDestinationEndpointID: "test-metrics-service",
+		},
+		Tenant:   config.Tenant{Name: "test-tenant"},
+		Recorder: testRecorder,
+		Scheme:   sch,
+	}
+	return synchronizer.NewSynchronizer(k8sClient, sch, opensearchReconciler, testRecorder)
+}

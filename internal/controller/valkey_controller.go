@@ -16,7 +16,6 @@ import (
 	core_v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -134,7 +133,7 @@ func (r *ValkeyReconciler) Delete(obj *v1.Valkey, _ ValkeyPreparedData, relatedO
 	}
 
 	if existingValkey.Spec.TerminationProtection != nil && *existingValkey.Spec.TerminationProtection {
-		existingValkey.Spec.TerminationProtection = ptr.To(false)
+		existingValkey.Spec.TerminationProtection = new(false)
 		r.Recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DisablingTerminationProtection", "Disabling termination protection before deletion")
 
 		actions := []action.Action{

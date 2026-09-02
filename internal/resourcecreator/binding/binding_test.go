@@ -1,96 +1,143 @@
 package binding
 
 import (
+	"reflect"
 	"sort"
 	"strings"
+	"testing"
 
 	v1 "github.com/nais/pgrator/pkg/api/v1"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-var _ = Describe("binding resources", func() {
-	newBinding := func(name string) *v1.PostgresBinding {
-		return &v1.PostgresBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam", UID: types.UID(name)},
-			Spec: v1.PostgresBindingSpec{
-				Postgres:   "mydb",
-				Workload:   v1.PostgresBindingWorkload{Name: "myapp"},
-				SecretName: "mydb-myapp-read-client-cert",
-				Role:       v1.PostgresBindingRoleRead,
-			},
-		}
+func newBinding(name string) *v1.PostgresBinding {
+	return &v1.PostgresBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam", UID: types.UID(name)},
+		Spec: v1.PostgresBindingSpec{
+			Postgres:   "mydb",
+			Workload:   v1.PostgresBindingWorkload{Name: "myapp"},
+			SecretName: "mydb-myapp-read-client-cert",
+			Role:       v1.PostgresBindingRoleRead,
+		},
+	}
+}
+
+func newScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	return scheme
+}
+
+func TestCreateRoleLockUsesSameReservationForSameLoginRole(t *testing.T) {
+	scheme := newScheme(t)
+	first := newBinding("first")
+	second := newBinding("second")
+	second.Spec.SecretName = "a-different-client-cert"
+
+	firstLock, err := CreateRoleLock(scheme, first)
+	if err != nil {
+		t.Fatalf("CreateRoleLock(first): %v", err)
+	}
+	secondLock, err := CreateRoleLock(scheme, second)
+	if err != nil {
+		t.Fatalf("CreateRoleLock(second): %v", err)
 	}
 
-	It("uses the same role reservation for bindings targeting the same login role", func() {
-		scheme := runtime.NewScheme()
-		Expect(v1.AddToScheme(scheme)).To(Succeed())
-		first := newBinding("first")
-		second := newBinding("second")
-		second.Spec.SecretName = "a-different-client-cert"
+	if secondLock.Name != firstLock.Name {
+		t.Errorf("secondLock.Name = %q, want %q", secondLock.Name, firstLock.Name)
+	}
+	if reflect.DeepEqual(secondLock.OwnerReferences, firstLock.OwnerReferences) {
+		t.Errorf("expected different owner references, got equal: %+v", secondLock.OwnerReferences)
+	}
+}
 
-		firstLock, err := CreateRoleLock(scheme, first)
-		Expect(err).NotTo(HaveOccurred())
-		secondLock, err := CreateRoleLock(scheme, second)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(secondLock.Name).To(Equal(firstLock.Name))
-		Expect(secondLock.OwnerReferences).NotTo(Equal(firstLock.OwnerReferences))
-	})
+func TestValidDeterministicLabelForMaxLengthBindingName(t *testing.T) {
+	scheme := newScheme(t)
+	binding := newBinding(strings.Repeat("a", 253))
 
-	It("uses a valid deterministic label for a maximum-length binding name", func() {
-		scheme := runtime.NewScheme()
-		Expect(v1.AddToScheme(scheme)).To(Succeed())
-		binding := newBinding(strings.Repeat("a", 253))
+	secret, err := CreateConfigSecret(scheme, binding)
+	if err != nil {
+		t.Fatalf("CreateConfigSecret: %v", err)
+	}
+	label := secret.Labels[nameLabel]
+	wantLabel := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-32859a3ab65ac529"
+	if label != wantLabel {
+		t.Errorf("label = %q, want %q", label, wantLabel)
+	}
+	if errs := validation.IsValidLabelValue(label); len(errs) != 0 {
+		t.Errorf("IsValidLabelValue(%q) = %v, want no errors", label, errs)
+	}
 
-		secret, err := CreateConfigSecret(scheme, binding)
-		Expect(err).NotTo(HaveOccurred())
-		label := secret.Labels[nameLabel]
-		Expect(label).To(Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-32859a3ab65ac529"))
-		Expect(validation.IsValidLabelValue(label)).To(BeEmpty())
+	egress, err := CreateEgressNetworkPolicy(scheme, binding)
+	if err != nil {
+		t.Fatalf("CreateEgressNetworkPolicy: %v", err)
+	}
+	if len(egress.Name) != 253 {
+		t.Errorf("egress.Name length = %d, want 253", len(egress.Name))
+	}
+	if !strings.HasSuffix(egress.Name, "-ace6074bdfd5c870-egress") {
+		t.Errorf("egress.Name = %q, want suffix -ace6074bdfd5c870-egress", egress.Name)
+	}
+	if errs := validation.IsDNS1123Subdomain(egress.Name); len(errs) != 0 {
+		t.Errorf("IsDNS1123Subdomain(%q) = %v, want no errors", egress.Name, errs)
+	}
+}
 
-		egress, err := CreateEgressNetworkPolicy(scheme, binding)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(egress.Name).To(HaveLen(253))
-		Expect(egress.Name).To(HaveSuffix("-ace6074bdfd5c870-egress"))
-		Expect(validation.IsDNS1123Subdomain(egress.Name)).To(BeEmpty())
-	})
+func TestConfigSecretUsesRoleSpecificEnvVarPrefixes(t *testing.T) {
+	scheme := newScheme(t)
 
-	It("uses role-specific environment variable prefixes", func() {
-		scheme := runtime.NewScheme()
-		Expect(v1.AddToScheme(scheme)).To(Succeed())
+	tests := []struct {
+		role   v1.PostgresBindingRole
+		prefix string
+	}{
+		{role: v1.PostgresBindingRoleAdmin, prefix: ""},
+		{role: v1.PostgresBindingRoleRead, prefix: "READ_"},
+		{role: v1.PostgresBindingRoleReadWrite, prefix: "READWRITE_"},
+	}
 
-		for role, prefix := range map[v1.PostgresBindingRole]string{
-			v1.PostgresBindingRoleAdmin:     "",
-			v1.PostgresBindingRoleRead:      "READ_",
-			v1.PostgresBindingRoleReadWrite: "READWRITE_",
-		} {
+	for _, tt := range tests {
+		t.Run(string(tt.role), func(t *testing.T) {
 			binding := &v1.PostgresBinding{
 				ObjectMeta: metav1.ObjectMeta{Name: "mybinding", Namespace: "myteam"},
 				Spec: v1.PostgresBindingSpec{
 					Postgres: "mydb",
 					Workload: v1.PostgresBindingWorkload{Name: "myapp"},
-					Role:     role,
+					Role:     tt.role,
 				},
 			}
 			secret, err := CreateConfigSecret(scheme, binding)
-			Expect(err).NotTo(HaveOccurred())
+			if err != nil {
+				t.Fatalf("CreateConfigSecret: %v", err)
+			}
 
 			keys := make([]string, 0, len(secret.StringData))
 			for key := range secret.StringData {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
-			Expect(keys).To(Equal([]string{
-				prefix + "PGDATABASE",
-				prefix + "PGHOST",
-				prefix + "PGPORT",
-				prefix + "PGSSLMODE",
-				prefix + "PGUSER",
-			}))
-		}
-	})
-})
+
+			want := []string{
+				tt.prefix + "PGDATABASE",
+				tt.prefix + "PGHOST",
+				tt.prefix + "PGPORT",
+				tt.prefix + "PGSSLMODE",
+				tt.prefix + "PGUSER",
+			}
+			if len(keys) != len(want) {
+				t.Fatalf("keys = %v, want %v", keys, want)
+			}
+			for i := range keys {
+				if keys[i] != want[i] {
+					t.Errorf("keys = %v, want %v", keys, want)
+					break
+				}
+			}
+		})
+	}
+}

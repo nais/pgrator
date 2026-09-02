@@ -10,7 +10,6 @@ import (
 
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -57,7 +56,7 @@ func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, cluste
 		Member: fmt.Sprintf("serviceAccount:%s.svc.id.goog[%s/%s]", clusterGoogleProjectID, pgNamespace, ksaName),
 		Role:   WorkloadIdentityRole,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: ptr.To(iam_cnrm_cloud_google_com_v1beta1.GroupVersion.String()),
+			APIVersion: new(iam_cnrm_cloud_google_com_v1beta1.GroupVersion.String()),
 			Kind:       "IAMServiceAccount",
 			Name:       gsaName,
 		},
@@ -74,7 +73,7 @@ func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaNa
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
 		Role:   role,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
-			APIVersion: ptr.To("storage.cnrm.cloud.google.com/v1beta1"),
+			APIVersion: new("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",
 			External:   &bucketName,
 		},

@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -176,7 +175,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 
 	var storageClass *string
 	if cfg.CNPG.StorageClass != "" {
-		storageClass = ptr.To(cfg.CNPG.StorageClass)
+		storageClass = new(cfg.CNPG.StorageClass)
 	}
 
 	memory := postgres.Spec.Resources.Memory
@@ -196,7 +195,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 
 			ImageCatalogRef: &cnpgv1.ImageCatalogRef{
 				TypedLocalObjectReference: corev1.TypedLocalObjectReference{
-					APIGroup: ptr.To("postgresql.cnpg.io"),
+					APIGroup: new("postgresql.cnpg.io"),
 					Kind:     "ClusterImageCatalog",
 					Name:     cfg.CNPG.ImageCatalogName,
 				},
@@ -290,12 +289,12 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 				NodeSelector: map[string]string{
 					"cloud.google.com/compute-class": computeClass,
 				},
-				EnablePodAntiAffinity: ptr.To(true),
+				EnablePodAntiAffinity: new(true),
 				TopologyKey:           "kubernetes.io/hostname",
 				Tolerations:           []corev1.Toleration{dedicatedPostgresToleration},
 			},
 
-			EnableSuperuserAccess: ptr.To(false),
+			EnableSuperuserAccess: new(false),
 		},
 	}
 
@@ -313,8 +312,8 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 		cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
 			{
 				Name:          BarmanPluginName,
-				Enabled:       ptr.To(true),
-				IsWALArchiver: ptr.To(true),
+				Enabled:       new(true),
+				IsWALArchiver: new(true),
 				Parameters: map[string]string{
 					"barmanObjectName": wal.BucketName,
 				},
@@ -370,7 +369,7 @@ func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler
 		Spec: cnpgv1.PoolerSpec{
 			Cluster:   cnpgv1.LocalObjectReference{Name: ClusterName(postgres)},
 			Type:      cnpgv1.PoolerTypeRW,
-			Instances: ptr.To(poolerInstances),
+			Instances: new(poolerInstances),
 			Template: &cnpgv1.PodTemplateSpec{
 				ObjectMeta: cnpgv1.Metadata{
 					Labels: map[string]string{"apiserver-access": "enabled"},

@@ -1,49 +1,38 @@
 package valkey
 
 import (
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"testing"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 )
 
-var _ = Describe("Valkey Resource Creator", func() {
-	Describe("ServiceName", func() {
-		It("should return namespaced name in format valkey-{team}-{name}", func() {
+func TestServiceName(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		instance  string
+		want      string
+	}{
+		{name: "basic team and instance", namespace: "my-team", instance: "my-valkey", want: "valkey-my-team-my-valkey"},
+		{name: "different team and instance names", namespace: "production", instance: "cache", want: "valkey-production-cache"},
+		{name: "names with hyphens", namespace: "my-awesome-team", instance: "my-app-cache", want: "valkey-my-awesome-team-my-app-cache"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			obj := &v1.Valkey{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
+					Name:      tt.instance,
+					Namespace: tt.namespace,
 				},
 			}
 
-			result := ServiceName(obj)
-			Expect(result).To(Equal("valkey-my-team-my-valkey"))
-		})
-
-		It("should handle different team and instance names", func() {
-			obj := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cache",
-					Namespace: "production",
-				},
+			got := ServiceName(obj)
+			if got != tt.want {
+				t.Errorf("ServiceName() = %q, want %q", got, tt.want)
 			}
-
-			result := ServiceName(obj)
-			Expect(result).To(Equal("valkey-production-cache"))
 		})
-
-		It("should handle names with hyphens", func() {
-			obj := &v1.Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-app-cache",
-					Namespace: "my-awesome-team",
-				},
-			}
-
-			result := ServiceName(obj)
-			Expect(result).To(Equal("valkey-my-awesome-team-my-app-cache"))
-		})
-	})
-})
+	}
+}

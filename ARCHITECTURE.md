@@ -28,7 +28,7 @@ The operator translates simple, opinionated nais user specs into the full set of
 | Monitoring         | `prometheus-operator/pkg/apis/monitoring` v0.90.1                                     | `go.mod:18`                                                 |
 | Config             | `github.com/sethvargo/go-envconfig` v1.3.0                                            | `go.mod:19`, `internal/config/config.go`                    |
 | Logging            | `go.uber.org/zap` via `controller-runtime/log/zap`                                    | `cmd/main.go:58`                                            |
-| Testing            | Ginkgo v2 + Gomega + `controller-runtime/envtest`                                     | `go.mod:6,17`, `internal/controller/suite_test.go`          |
+| Testing            | Standard library `testing` + `controller-runtime/envtest`                             | `.config/mise/tasks/test.sh`, `internal/controller/suite_test.go` |
 | Linting            | golangci-lint 2.10.1                                                                  | `.config/mise/config.toml:7`, `.golangci.yml`               |
 | Code generation    | `controller-gen` (`sigs.k8s.io/controller-tools` v0.20.1)                             | `go.mod:29`, `.config/mise/config.toml`                     |
 | Task runner        | **mise**                                                                              | `.config/mise/config.toml`                                  |
@@ -66,7 +66,7 @@ pgrator/
 │   │   ├── events/           # Kubernetes event recorder wrapper
 │   │   ├── ownership/        # Owner annotation management
 │   │   └── relatedobjectsmap/# Lookup map for related K8s objects
-│   ├── golden/            # Golden-file test harness
+│   ├── golden/            # Golden fixture parsing and object comparison
 │   ├── metrics/           # Custom Prometheus metrics (reconcile counts, errors, durations)
 │   ├── namegen/           # Stable short-name generator (hash-based)
 │   └── thirdparty/        # Hand-written Go types for external CRDs
@@ -91,7 +91,7 @@ pgrator/
 
 ### Formatting and linting
 - **Formatter**: `gofmt` + `goimports` (enforced via `golangci-lint` formatters section).
-- **Linter**: `golangci-lint` v2 with an explicit allow-list: `copyloopvar`, `dupl`, `errcheck`, `ginkgolinter`, `goconst`, `gocyclo`, `govet`, `ineffassign`, `lll`, `misspell`, `nakedret`, `prealloc`, `revive`, `staticcheck`, `unconvert`, `unparam`, `unused`.
+- **Linter**: `golangci-lint` v2 with an explicit allow-list; see `.golangci.yml` for the authoritative list.
 - Config: `.golangci.yml`. Run separately for root module and `pkg/api` (two Go modules).
 - CI runs `fmt-check` and `generate-check` to verify nothing is out of date.
 
@@ -100,11 +100,12 @@ pgrator/
 - Interface compliance is asserted at compile time: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller.
 
 ### Testing
-- **Framework**: Ginkgo v2 (BDD) + Gomega matchers.
-- **Environment**: `controller-runtime/envtest` spins up a real API server + etcd for integration tests.
-- **Golden-file tests**: `internal/golden/` — each test case is a directory under `internal/controller/testdata/{resource}/{case}/` containing `object.yaml`, optional `prepared_data.yaml`, and expected action YAML files. Tests assert that `reconciler.Update()` produces exactly (or at least) the expected set of actions.
+- **Framework**: standard library `testing`; there are no project-owned Ginkgo/Gomega tests.
+- **Structure**: prefer table-driven subtests when cases share a behavioral contract, and focused `TestXxx` functions when setup or behavior differs materially.
+- **Environment**: `controller-runtime/envtest` spins up a real API server + etcd for controller integration tests. `mise run test` resolves and exports `KUBEBUILDER_ASSETS` automatically.
+- **Golden-file tests**: the table-driven runner in `internal/controller/suite_test.go` loads fixtures from `internal/controller/testdata/{resource}/{case}/`; parsing and object comparison live in `internal/golden/`. Tests assert that `reconciler.Update()` produces exactly (or at least) the expected action set.
+- **Modules**: `mise run test` runs both the root and nested `pkg/api` modules. A plain `go test ./...` does not cross the module boundary.
 - Test files follow the standard Go `_test.go` convention, co-located with the package under test.
-- Each package with tests has a `suite_test.go` that calls `RunSpecs`.
 
 ### Code generation
 - `controller-gen` generates `zz_generated.deepcopy.go` (object deepcopy) and CRD YAML manifests.
@@ -126,7 +127,7 @@ pgrator/
 # Run all checks (vet + lint)
 mise run check
 
-# Run all tests (requires setup-envtest; sets KUBEBUILDER_ASSETS automatically)
+# Test both Go modules (sets KUBEBUILDER_ASSETS automatically for envtest)
 mise run test
 ```
 
@@ -149,7 +150,7 @@ mise run test
 | CI: check fmt          | `mise run ci:fmt`              | `.config/mise/tasks/ci/fmt.sh`             |
 | CI: check generate     | `mise run ci:generate`         | `.config/mise/tasks/ci/generate.sh`        |
 
-> **Note**: `mise run test` calls `setup-envtest` automatically to resolve `KUBEBUILDER_ASSETS`.
+> **Note**: `mise run test` calls `setup-envtest` automatically to resolve `KUBEBUILDER_ASSETS`, then runs `go test ./...` in both Go modules.
 > The K8s version for envtest is derived from the `controller-runtime` version in `go.mod` at tool-install time.
 
 ---
@@ -163,7 +164,6 @@ mise run test
 | `github.com/cloudnative-pg/cloudnative-pg`              | `Cluster` CRD types used as reconcile target              |
 | `prometheus-operator/pkg/apis/monitoring`               | `PrometheusRule`, `ServiceMonitor` CRD types              |
 | `github.com/sethvargo/go-envconfig`                     | Struct-tag-based env-var configuration                    |
-| `github.com/onsi/ginkgo/v2` + `gomega`                  | BDD test framework                                        |
 | `sigs.k8s.io/controller-tools` (controller-gen)         | CRD manifest + deepcopy code generation                   |
 | `github.com/imdario/mergo`                              | Struct merging (used in resource creators)                |
 | `go.uber.org/zap`                                       | Structured logging (via controller-runtime adapter)       |
@@ -211,7 +211,7 @@ Helm chart exposes most of these via `charts/pgrator/values.yaml`.
 | **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgres_controller.go:57`, `valkey_controller.go:35`                |
 | **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/synchronizer/synchronizer.go`  |
 | **Structured logging via `logr`/`zap`**: no `fmt.Print*` in production paths; uses `ctrl.Log` / `logf.FromContext(ctx)`.                                                   | `cmd/main.go:58`, `internal/synchronizer/synchronizer.go:93`                              |
-| **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/golden/golden.go`, `internal/controller/testdata/`                              |
+| **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/controller/suite_test.go`, `internal/controller/testdata/`                      |
 | **Ownership via annotations** (not OwnerReferences for cross-namespace resources): `<name>/owner` annotations track multi-owner shared resources.                          | `internal/synchronizer/ownership/ownership.go`                                            |
 
 ### Don't

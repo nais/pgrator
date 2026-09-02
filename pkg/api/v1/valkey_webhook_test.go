@@ -3,181 +3,107 @@ package v1
 import (
 	"context"
 	"strings"
+	"testing"
 
 	"github.com/nais/pgrator/pkg/api"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("Valkey Webhook Validation", func() {
-	var validator *ValkeyValidator
+func newValkey(name, namespace string) *Valkey {
+	return &Valkey{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: ValkeySpec{
+			Tier:   ValkeyTierSingleNode,
+			Memory: ValkeyMemory4GB,
+		},
+	}
+}
 
-	BeforeEach(func() {
-		validator = &ValkeyValidator{}
-	})
+func TestValkeyValidatorValidateCreate(t *testing.T) {
+	tests := []struct {
+		name      string
+		valkey    *Valkey
+		wantError string
+	}{
+		{
+			name:   "allows any valid Valkey resource",
+			valkey: newValkey("my-valkey", "my-team"),
+		},
+		{
+			name:   "allows name at exactly the max length",
+			valkey: newValkey(strings.Repeat("a", 48), "my-team"),
+		},
+		{
+			name:      "rejects name that is too long",
+			valkey:    newValkey(strings.Repeat("a", 49), "my-team"),
+			wantError: "metadata.name is too long",
+		},
+		{
+			name:      "rejects resource when namespace is excessively long",
+			valkey:    newValkey("valkey", strings.Repeat("n", 60)),
+			wantError: "metadata.namespace is too long",
+		},
+	}
 
-	Describe("ValidateCreate", func() {
-		It("should allow any valid Valkey resource", func() {
-			valkey := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
+	validator := &ValkeyValidator{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := validator.ValidateCreate(context.Background(), tt.valkey)
+			if tt.wantError != "" {
+				requireErrorContains(t, err, tt.wantError)
+				return
 			}
-
-			_, err := validator.ValidateCreate(context.Background(), valkey)
-			Expect(err).NotTo(HaveOccurred())
+			requireNoError(t, err)
 		})
+	}
+}
 
-		It("should allow name at exactly the max length", func() {
-			namespace := "my-team"
-			// max = 63 - 8 - len("my-team") = 48
-			name := strings.Repeat("a", 48)
+func TestValkeyValidatorValidateUpdate(t *testing.T) {
+	oldObj := newValkey("my-valkey", "my-team")
+	newObj := newValkey("my-valkey", "my-team")
+	newObj.Spec.Tier = ValkeyTierHighAvailability
+	newObj.Spec.Memory = ValkeyMemory8GB
 
-			valkey := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
+	_, err := (&ValkeyValidator{}).ValidateUpdate(context.Background(), oldObj, newObj)
+	requireNoError(t, err)
+}
 
-			_, err := validator.ValidateCreate(context.Background(), valkey)
-			Expect(err).NotTo(HaveOccurred())
-		})
+func TestValkeyValidatorValidateDelete(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		wantError   string
+	}{
+		{
+			name:        "allows deletion when allowDeletion annotation is true",
+			annotations: map[string]string{api.AllowDeletionAnnotation: "true"},
+		},
+		{
+			name:      "refuses deletion when allowDeletion annotation is missing",
+			wantError: "refusing deletion",
+		},
+		{
+			name:        "refuses deletion when allowDeletion annotation is not true",
+			annotations: map[string]string{api.AllowDeletionAnnotation: "false"},
+			wantError:   "refusing deletion",
+		},
+	}
 
-		It("should reject name that is too long", func() {
-			namespace := "my-team"
-			// max = 63 - 8 - len("my-team") = 48, so 49 should fail
-			name := strings.Repeat("a", 49)
-
-			valkey := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
-
-			_, err := validator.ValidateCreate(context.Background(), valkey)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("metadata.name is too long"))
-		})
-
-		It("should reject resource when namespace is excessively long", func() {
-			// Choose a namespace long enough that maxNameLength becomes zero or negative
-			// maxNameLength = 63 - 8 - len(namespace); len(namespace) = 60 => maxNameLength = -5
-			namespace := strings.Repeat("n", 60)
-			valkey := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "valkey",
-					Namespace: namespace,
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
-			_, err := validator.ValidateCreate(context.Background(), valkey)
-			Expect(err).To(HaveOccurred())
-		})
-	})
-
-	Describe("ValidateUpdate", func() {
-		It("should allow any update", func() {
-			oldObj := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
-
-			newObj := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierHighAvailability,
-					Memory: ValkeyMemory8GB,
-				},
-			}
-
-			_, err := validator.ValidateUpdate(context.Background(), oldObj, newObj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	Describe("ValidateDelete", func() {
-		It("should allow deletion when allowDeletion annotation is true", func() {
-			obj := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "true",
-					},
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
+	validator := &ValkeyValidator{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := newValkey("my-valkey", "my-team")
+			obj.Annotations = tt.annotations
 
 			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("should refuse deletion when allowDeletion annotation is missing", func() {
-			obj := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
+			if tt.wantError != "" {
+				requireErrorContains(t, err, tt.wantError)
+				return
 			}
-
-			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("refusing deletion"))
+			requireNoError(t, err)
 		})
-
-		It("should refuse deletion when allowDeletion annotation is not true", func() {
-			obj := &Valkey{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-valkey",
-					Namespace: "my-team",
-					Annotations: map[string]string{
-						api.AllowDeletionAnnotation: "false",
-					},
-				},
-				Spec: ValkeySpec{
-					Tier:   ValkeyTierSingleNode,
-					Memory: ValkeyMemory4GB,
-				},
-			}
-
-			_, err := validator.ValidateDelete(context.Background(), obj)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("refusing deletion"))
-		})
-	})
-})
+	}
+}

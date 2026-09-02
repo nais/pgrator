@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -51,8 +50,8 @@ func Create(scheme *runtime.Scheme, postgres *v1.Postgres, clusterName string) (
 func egressRule(host string, port int) fqdnv1alpha3.FQDNNetworkPolicyEgressRule {
 	return fqdnv1alpha3.FQDNNetworkPolicyEgressRule{
 		Ports: []networkingv1.NetworkPolicyPort{{
-			Protocol: ptr.To(corev1.ProtocolTCP),
-			Port:     ptr.To(intstr.FromInt32(int32(port))),
+			Protocol: new(corev1.ProtocolTCP),
+			Port:     new(intstr.FromInt32(int32(port))),
 		}},
 		To: []fqdnv1alpha3.FQDNNetworkPolicyPeer{{FQDNs: []string{host}}},
 	}
