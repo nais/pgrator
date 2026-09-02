@@ -17,4 +17,4 @@ object:
         enabled: true
         isWALArchiver: true
         parameters:
-          barmanObjectName: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
+          barmanObjectName: wal-bucket-prefix-myteam-mydb-feedab1ebeef

@@ -19,4 +19,4 @@ object:
     member: serviceAccount:cnpg-mydb-b60fcdec@team-gcp-project.iam.gserviceaccount.com
     resourceRef:
       kind: StorageBucket
-      name: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
+      name: wal-bucket-prefix-myteam-mydb-feedab1ebeef

@@ -42,5 +42,5 @@ values:
   cnpg.walBucketPrefix:
     displayName: Prefix to use for WAL storage buckets
     computed:
-      # Max length 27 characters, to allow for 36 character uid for a total of 63 characters
-      template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}-'
+      # Owner names and a unique UID suffix are added within the 63-character GCS limit.
+      template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}'

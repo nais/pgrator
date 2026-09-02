@@ -72,13 +72,53 @@ func (r *PostgresReconciler) walArchivingEnabled() bool {
 	return r.Config.CNPG.WalBucketPrefix != ""
 }
 
-// bucketName is derived from the Postgres UID so that a recreated resource never
-// reuses another resource's WAL archive.
+const (
+	gcsBucketNameMaxLength = 63
+	bucketUIDSuffixLength  = 12
+)
+
+// bucketName includes the owner and part of its UID so that it is recognizable
+// while a recreated Postgres never reuses another resource's WAL archive.
 func (r *PostgresReconciler) bucketName(obj *v1.Postgres) string {
 	if !r.walArchivingEnabled() {
 		return ""
 	}
-	return fmt.Sprintf("%s-%s", r.Config.CNPG.WalBucketPrefix, obj.GetUID())
+
+	uid := strings.ReplaceAll(string(obj.GetUID()), "-", "")
+	if len(uid) > bucketUIDSuffixLength {
+		uid = uid[:bucketUIDSuffixLength]
+	}
+
+	prefix := strings.Trim(r.Config.CNPG.WalBucketPrefix, "-")
+	maxBaseLength := gcsBucketNameMaxLength - len(uid) - 1
+	base := bucketNameBase(prefix, obj.GetNamespace(), obj.GetName(), maxBaseLength)
+	return fmt.Sprintf("%s-%s", base, uid)
+}
+
+func bucketNameBase(prefix, namespace, name string, maxLength int) string {
+	// Leave room for both owner components and their separators even if a custom
+	// prefix is longer than the generated platform prefix.
+	if len(prefix) > maxLength-4 {
+		prefix = prefix[:maxLength-4]
+	}
+
+	ownerLength := maxLength - len(prefix) - 2
+	namespace, name = shortenPair(namespace, name, ownerLength)
+	return fmt.Sprintf("%s-%s-%s", prefix, namespace, name)
+}
+
+func shortenPair(left, right string, maxLength int) (string, string) {
+	leftLength := min(len(left), maxLength/2)
+	rightLength := min(len(right), maxLength-leftLength)
+
+	if rightLength < maxLength-leftLength {
+		leftLength = min(len(left), maxLength-rightLength)
+	}
+	if leftLength < maxLength-rightLength {
+		rightLength = min(len(right), maxLength-leftLength)
+	}
+
+	return left[:leftLength], right[:rightLength]
 }
 
 func gsaName(obj *v1.Postgres) string {

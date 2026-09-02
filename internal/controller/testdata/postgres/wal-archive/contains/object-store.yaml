@@ -5,11 +5,11 @@ object:
   apiVersion: barmancloud.cnpg.io/v1
   kind: ObjectStore
   metadata:
-    name: wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
+    name: wal-bucket-prefix-myteam-mydb-feedab1ebeef
     namespace: myteam
   spec:
     configuration:
-      destinationPath: gs://wal-bucket-prefix-feedab1e-beef-cafe-babe-700d1e100d1e
+      destinationPath: gs://wal-bucket-prefix-myteam-mydb-feedab1ebeef
       googleCredentials:
         gkeEnvironment: true
       wal:
