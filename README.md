@@ -57,7 +57,7 @@ The `Postgres` CRD (`nais.io/v1`) provisions a [CloudNativePG](https://cloudnati
 
 ## CI/CD
 
-GitHub Actions runs the repository's mise checks and tests, builds the image and Helm chart, and deploys from `main` via Fasit.
+GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`.
 
 Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
 
