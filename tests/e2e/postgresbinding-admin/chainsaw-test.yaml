@@ -34,9 +34,10 @@ spec:
                 name: eier-mydb
               spec:
                 postgres: mydb
-                workload:
-                  name: eier
-                  type: application
+                consumer:
+                  workload:
+                    name: eier
+                    type: application
                 secretName: mydb-eier-admin-client-cert
                 role: admin
 

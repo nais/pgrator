@@ -36,9 +36,10 @@ spec:
                 name: postgres-mydb-rapport-read
               spec:
                 postgres: mydb
-                workload:
-                  name: rapport
-                  type: job
+                consumer:
+                  workload:
+                    name: rapport
+                    type: job
                 secretName: mydb-rapport-read-client-cert
                 role: read
 
@@ -98,9 +99,10 @@ spec:
                 name: postgres-mydb-rapport-readwrite
               spec:
                 postgres: mydb
-                workload:
-                  name: rapport
-                  type: job
+                consumer:
+                  workload:
+                    name: rapport
+                    type: job
                 secretName: mydb-rapport-readwrite-client-cert
                 role: readwrite
         - assert:

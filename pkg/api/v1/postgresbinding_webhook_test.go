@@ -16,9 +16,11 @@ func adminBinding(name, postgres string) *PostgresBinding {
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"},
 		Spec: PostgresBindingSpec{
 			Postgres: postgres,
-			Workload: PostgresBindingWorkload{
-				Name: name,
-				Type: PostgresBindingWorkloadTypeApplication,
+			Consumer: PostgresBindingConsumer{
+				Workload: &PostgresBindingWorkload{
+					Name: name,
+					Type: PostgresBindingWorkloadTypeApplication,
+				},
 			},
 			SecretName: name + "-admin-client-cert",
 			Role:       PostgresBindingRoleAdmin,
@@ -86,8 +88,8 @@ func TestPostgresBindingValidatorValidateUpdate(t *testing.T) {
 		change func(*PostgresBinding)
 	}{
 		{name: "Postgres", change: func(binding *PostgresBinding) { binding.Spec.Postgres = "otherdb" }},
-		{name: "workload name", change: func(binding *PostgresBinding) { binding.Spec.Workload.Name = "otherapp" }},
-		{name: "workload type", change: func(binding *PostgresBinding) { binding.Spec.Workload.Type = PostgresBindingWorkloadTypeJob }},
+		{name: "workload name", change: func(binding *PostgresBinding) { binding.Spec.Consumer.Workload.Name = "otherapp" }},
+		{name: "workload type", change: func(binding *PostgresBinding) { binding.Spec.Consumer.Workload.Type = PostgresBindingWorkloadTypeJob }},
 		{name: "Secret name", change: func(binding *PostgresBinding) { binding.Spec.SecretName = "other-client-cert" }},
 		{name: "role", change: func(binding *PostgresBinding) { binding.Spec.Role = PostgresBindingRoleReadWrite }},
 	}

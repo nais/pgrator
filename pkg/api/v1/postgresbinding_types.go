@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PostgresBindingRole is the level of access a workload is granted.
+// PostgresBindingRole is the level of access a consumer is granted.
 type PostgresBindingRole string
 
 // PostgresBindingWorkloadType identifies the kind of workload granted access.
@@ -44,6 +44,16 @@ type PostgresBindingWorkload struct {
 	Type PostgresBindingWorkloadType `json:"type"`
 }
 
+// PostgresBindingConsumer identifies what is granted access to Postgres.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.workload)",message="workload consumer is required"
+type PostgresBindingConsumer struct {
+	// Workload identifies the Application or Naisjob granted access. Its name is
+	// the readable prefix of the login role shown in pg_stat_activity and the audit
+	// log.
+	Workload *PostgresBindingWorkload `json:"workload,omitempty"`
+}
+
 // PostgresBindingSpec defines the desired state of PostgresBinding.
 type PostgresBindingSpec struct {
 	// Postgres is the name of the Postgres instance to bind to. The instance must
@@ -51,22 +61,20 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
-	// Workload identifies the Application or Naisjob granted access. Its name is
-	// the readable prefix of the login role shown in pg_stat_activity and the audit
-	// log.
+	// Consumer identifies what is granted access.
 	// +kubebuilder:validation:Required
-	Workload PostgresBindingWorkload `json:"workload"`
+	Consumer PostgresBindingConsumer `json:"consumer"`
 
-	// SecretName is the complete name of the client-certificate Secret naiserator
-	// mounts into the workload. It must be unique per binding so one workload can
-	// hold multiple roles for the same Postgres instance. CloudNativePG derives
-	// this name by appending "-client-cert" to the DatabaseRole name.
+	// SecretName is the complete name of the client-certificate Secret consumed by
+	// the binding's consumer. It must be unique per binding so one consumer can hold
+	// multiple roles for the same Postgres instance. CloudNativePG derives this name
+	// by appending "-client-cert" to the DatabaseRole name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*-client-cert$`
 	SecretName string `json:"secretName"`
 
-	// Role is the level of access granted to the workload.
+	// Role is the level of access granted to the consumer.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=read;readwrite;admin
 	Role PostgresBindingRole `json:"role"`
@@ -82,7 +90,7 @@ const (
 	ownerRole = "app"
 )
 
-// RoleName is the database role the workload authenticates as and the identity
+// RoleName is the database role the consumer authenticates as and the identity
 // that shows up in pg_stat_activity and the audit log.
 //
 // Admin bindings reuse the durable owner so that database objects keep a stable
@@ -93,7 +101,7 @@ func (p *PostgresBinding) RoleName() string {
 	}
 
 	suffix := string(p.Spec.Role)
-	name := p.Spec.Workload.Name + "-" + suffix
+	name := p.Spec.Consumer.Workload.Name + "-" + suffix
 	if len(name) <= 63 {
 		return name
 	}
@@ -101,7 +109,7 @@ func (p *PostgresBinding) RoleName() string {
 	hash := sha256.Sum256([]byte(name))
 	hashText := fmt.Sprintf("%x", hash[:8])
 	prefixBytes := 63 - len(suffix) - len(hashText) - 2
-	prefix := p.Spec.Workload.Name
+	prefix := p.Spec.Consumer.Workload.Name
 	for len(prefix) > prefixBytes {
 		_, size := utf8.DecodeLastRuneInString(prefix)
 		prefix = prefix[:len(prefix)-size]
@@ -118,7 +126,7 @@ func (p *PostgresBinding) DatabaseRoleName() string {
 //
 // It is issued and renewed by CloudNativePG and mounted directly rather than
 // copied, so that private key material is never duplicated and a renewed
-// certificate reaches the workload without pgrator being in the path.
+// certificate reaches the consumer without pgrator being in the path.
 func (p *PostgresBinding) ClientCertSecretName() string {
 	return p.Spec.SecretName
 }
@@ -127,14 +135,14 @@ func (p *PostgresBinding) ClientCertSecretName() string {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:categories={nais}
 // +kubebuilder:printcolumn:name="Postgres",type="string",JSONPath=".spec.postgres"
-// +kubebuilder:printcolumn:name="Workload",type="string",JSONPath=".spec.workload.name"
-// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.workload.type"
+// +kubebuilder:printcolumn:name="Workload",type="string",JSONPath=".spec.consumer.workload.name"
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.consumer.workload.type"
 // +kubebuilder:printcolumn:name="Role",type="string",JSONPath=".spec.role"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 
-// PostgresBinding grants a workload access to a Postgres instance in the same
+// PostgresBinding grants a consumer access to a Postgres instance in the same
 // namespace. It results in a database role authenticated by a client certificate,
-// plus the Secrets a workload needs to connect.
+// plus the Secrets the consumer needs to connect.
 type PostgresBinding struct {
 	metav1.TypeMeta `json:",inline"`
 

@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,7 +32,7 @@ func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *Post
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
-	if oldObj.Spec != newObj.Spec {
+	if !reflect.DeepEqual(oldObj.Spec, newObj.Spec) {
 		return nil, fmt.Errorf("spec is immutable")
 	}
 	return nil, v.validate(ctx, newObj)

@@ -16,8 +16,10 @@ func newBinding(name string) *v1.PostgresBinding {
 	return &v1.PostgresBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam", UID: types.UID(name)},
 		Spec: v1.PostgresBindingSpec{
-			Postgres:   "mydb",
-			Workload:   v1.PostgresBindingWorkload{Name: "myapp"},
+			Postgres: "mydb",
+			Consumer: v1.PostgresBindingConsumer{
+				Workload: &v1.PostgresBindingWorkload{Name: "myapp"},
+			},
 			SecretName: "mydb-myapp-read-client-cert",
 			Role:       v1.PostgresBindingRoleRead,
 		},
@@ -83,8 +85,10 @@ func TestConfigSecretUsesRoleSpecificEnvVarPrefixes(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "mybinding", Namespace: "myteam"},
 				Spec: v1.PostgresBindingSpec{
 					Postgres: "mydb",
-					Workload: v1.PostgresBindingWorkload{Name: "myapp"},
-					Role:     tt.role,
+					Consumer: v1.PostgresBindingConsumer{
+						Workload: &v1.PostgresBindingWorkload{Name: "myapp"},
+					},
+					Role: tt.role,
 				},
 			}
 			secret, err := CreateConfigSecret(scheme, binding)

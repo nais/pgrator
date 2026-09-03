@@ -23,9 +23,11 @@ func TestPostgresBindingReconciliation(t *testing.T) {
 			},
 			Spec: v1.PostgresBindingSpec{
 				Postgres: "already-gone",
-				Workload: v1.PostgresBindingWorkload{
-					Name: "myapp",
-					Type: v1.PostgresBindingWorkloadTypeApplication,
+				Consumer: v1.PostgresBindingConsumer{
+					Workload: &v1.PostgresBindingWorkload{
+						Name: "myapp",
+						Type: v1.PostgresBindingWorkloadTypeApplication,
+					},
 				},
 				SecretName: "already-gone-myapp-read-client-cert",
 				Role:       v1.PostgresBindingRoleRead,

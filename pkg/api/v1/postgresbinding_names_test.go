@@ -22,8 +22,10 @@ func TestPostgresBindingRoleName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			binding := &PostgresBinding{Spec: PostgresBindingSpec{
-				Workload: PostgresBindingWorkload{Name: tt.workload},
-				Role:     tt.role,
+				Consumer: PostgresBindingConsumer{
+					Workload: &PostgresBindingWorkload{Name: tt.workload},
+				},
+				Role: tt.role,
 			}}
 
 			got := binding.RoleName()

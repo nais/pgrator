@@ -72,7 +72,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 			RoleConfiguration: cnpgv1.RoleConfiguration{
 				Name:    b.RoleName(),
 				Login:   true,
-				Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Workload.Name),
+				Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Consumer.Workload.Name),
 				InRoles: groupRoles(b.Spec.Role),
 			},
 			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{
@@ -182,7 +182,7 @@ func CreateNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*networ
 				{
 					From: []networking_v1.NetworkPolicyPeer{
 						{
-							PodSelector: new(workloadSelector(b.Spec.Workload)),
+							PodSelector: new(workloadSelector(*b.Spec.Consumer.Workload)),
 						},
 					},
 					Ports: []networking_v1.NetworkPolicyPort{
@@ -210,7 +210,7 @@ func CreateEgressNetworkPolicy(scheme *runtime.Scheme, b *v1.PostgresBinding) (*
 		},
 		ObjectMeta: objectMeta(b, shortenedName(b.GetName(), "-egress", 253)),
 		Spec: networking_v1.NetworkPolicySpec{
-			PodSelector: workloadSelector(b.Spec.Workload),
+			PodSelector: workloadSelector(*b.Spec.Consumer.Workload),
 			PolicyTypes: []networking_v1.PolicyType{networking_v1.PolicyTypeEgress},
 			Egress: []networking_v1.NetworkPolicyEgressRule{
 				{

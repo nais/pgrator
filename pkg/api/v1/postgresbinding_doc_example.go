@@ -16,13 +16,15 @@ func ExamplePostgresBindingForDocumentation() api.NaisObject {
 			Namespace: "myteam",
 		},
 		Spec: PostgresBindingSpec{
-			Postgres:   "mypostgres",
-			SecretName: "mypostgres-myapp-readwrite-client-cert",
-			Workload: PostgresBindingWorkload{
-				Name: "myapp",
-				Type: PostgresBindingWorkloadTypeApplication,
+			Postgres: "mypostgres",
+			Consumer: PostgresBindingConsumer{
+				Workload: &PostgresBindingWorkload{
+					Name: "myapp",
+					Type: PostgresBindingWorkloadTypeApplication,
+				},
 			},
-			Role: PostgresBindingRoleReadWrite,
+			SecretName: "mypostgres-myapp-readwrite-client-cert",
+			Role:       PostgresBindingRoleReadWrite,
 		},
 	}
 }
