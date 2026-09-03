@@ -3,16 +3,39 @@
 package netpol
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const nameLabel = "postgres.nais.io/name"
+const (
+	nameLabel                    = "postgres.nais.io/name"
+	networkPolicyUIDSuffixLength = 12
+)
+
+func networkPolicyName(postgres *v1.Postgres) string {
+	uid := strings.ReplaceAll(string(postgres.GetUID()), "-", "")
+	if len(uid) > networkPolicyUIDSuffixLength {
+		uid = uid[:networkPolicyUIDSuffixLength]
+	}
+
+	base := "pg-" + postgres.GetName()
+	if uid == "" {
+		return base
+	}
+
+	maxBaseLength := validation.DNS1123SubdomainMaxLength - len(uid) - 1
+	base = strings.TrimRight(base[:min(len(base), maxBaseLength)], "-")
+	return fmt.Sprintf("%s-%s", base, uid)
+}
 
 func objectMeta(postgres *v1.Postgres, name string) meta_v1.ObjectMeta {
 	var annotations map[string]string
@@ -68,7 +91,7 @@ func Create(scheme *runtime.Scheme, postgres *v1.Postgres, clusterName, apiServe
 			Kind:       "NetworkPolicy",
 			APIVersion: "networking.k8s.io/v1",
 		},
-		ObjectMeta: objectMeta(postgres, clusterName),
+		ObjectMeta: objectMeta(postgres, networkPolicyName(postgres)),
 		Spec: networking_v1.NetworkPolicySpec{
 			PodSelector: meta_v1.LabelSelector{MatchLabels: clusterMatchLabels},
 			PolicyTypes: []networking_v1.PolicyType{

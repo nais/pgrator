@@ -133,6 +133,10 @@ func storageBucketPolicyName(obj *v1.Postgres) string {
 	return namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1123SubdomainMaxLength)
 }
 
+func storageBucketViewerPolicyName(obj *v1.Postgres) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-wal-viewer-%s", obj.GetName()), validation.DNS1123SubdomainMaxLength)
+}
+
 func (r *PostgresReconciler) walArchive(obj *v1.Postgres, preparedData PostgresPreparedData) rccnpg.WALArchive {
 	if !r.walArchivingEnabled() {
 		return rccnpg.WALArchive{}
@@ -259,7 +263,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, preparedData PostgresPrepa
 }
 
 // walActions builds the WAL archive: the Google service account and its Workload
-// Identity binding, the bucket and its IAM binding, the barman-cloud ObjectStore,
+// Identity binding, the bucket and its IAM bindings, the barman-cloud ObjectStore,
 // nightly ScheduledBackup, and FQDN egress policy.
 //
 // Config Connector resources are created once and then claimed rather than
@@ -317,21 +321,31 @@ func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresP
 		actions = append(actions, action.Create(bucket, obj, cnrmConditionsGetter, r.Recorder))
 	}
 
-	bucketPolicy := rciam.CreateStorageBucketPolicyMember(
-		storageBucketPolicyName(obj),
-		obj.GetNamespace(),
-		preparedData.TeamGoogleProjectID,
-		wal.GSAName,
-		wal.BucketName,
-	)
-	if err := controllerutil.SetControllerReference(obj, bucketPolicy, r.Scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on bucket IAMPolicyMember: %w", err)
+	bucketPolicies := []struct {
+		name string
+		role string
+	}{
+		{name: storageBucketPolicyName(obj), role: rciam.StorageObjectUserRole},
+		{name: storageBucketViewerPolicyName(obj), role: rciam.StorageBucketViewerRole},
 	}
-	bucketPolicyAction, err := r.policyMemberActions(bucketPolicy, obj, relatedObjects)
-	if err != nil {
-		return nil, err
+	for _, policy := range bucketPolicies {
+		bucketPolicy := rciam.CreateStorageBucketPolicyMember(
+			policy.name,
+			obj.GetNamespace(),
+			preparedData.TeamGoogleProjectID,
+			wal.GSAName,
+			wal.BucketName,
+			policy.role,
+		)
+		if err := controllerutil.SetControllerReference(obj, bucketPolicy, r.Scheme); err != nil {
+			return nil, fmt.Errorf("setting controller reference on bucket IAMPolicyMember: %w", err)
+		}
+		bucketPolicyAction, err := r.policyMemberActions(bucketPolicy, obj, relatedObjects)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, bucketPolicyAction)
 	}
-	actions = append(actions, bucketPolicyAction)
 
 	objectStore := rcstorage.CreateObjectStore(wal.BucketName, objectStoreMeta(obj))
 	if err := controllerutil.SetControllerReference(obj, objectStore, r.Scheme); err != nil {

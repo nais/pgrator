@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	WorkloadIdentityRole = "roles/iam.workloadIdentityUser"
-	StorageBucketRole    = "roles/storage.objectUser"
+	WorkloadIdentityRole    = "roles/iam.workloadIdentityUser"
+	StorageObjectUserRole   = "roles/storage.objectUser"
+	StorageBucketViewerRole = "roles/storage.bucketViewer"
 )
 
 func MinimalPolicyMember(name, namespace string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
@@ -66,11 +67,11 @@ func CreateWorkloadIdentityPolicyMember(name, teamNamespace, pgNamespace, cluste
 
 // CreateStorageBucketPolicyMember grants the Google service account access to
 // the WAL bucket in the team's Google project.
-func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaName, bucketName string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
+func CreateStorageBucketPolicyMember(name, namespace, teamGoogleProjectID, gsaName, bucketName, role string) *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember {
 	policyMember := MinimalPolicyMember(name, namespace)
 	policyMember.Spec = iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMemberSpec{
 		Member: fmt.Sprintf("serviceAccount:%s@%s.iam.gserviceaccount.com", gsaName, teamGoogleProjectID),
-		Role:   StorageBucketRole,
+		Role:   role,
 		ResourceRef: iam_cnrm_cloud_google_com_v1beta1.ResourceRef{
 			APIVersion: new("storage.cnrm.cloud.google.com/v1beta1"),
 			Kind:       "StorageBucket",
