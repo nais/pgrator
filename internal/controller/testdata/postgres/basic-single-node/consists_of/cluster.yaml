@@ -5,7 +5,7 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: Cluster
   metadata:
-    name: mydb
+    name: pg-mydb
     namespace: myteam
     labels:
       postgres.nais.io/name: mydb
@@ -42,4 +42,4 @@ object:
       - name: pooler
         selector:
           matchLabels:
-            cnpg.io/poolerName: mydb-pooler
+            cnpg.io/poolerName: pg-mydb-pooler

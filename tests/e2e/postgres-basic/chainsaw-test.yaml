@@ -39,7 +39,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: mydb
+                name: pg-mydb
               spec:
                 instances: 2
                 enableSuperuserAccess: false
@@ -65,13 +65,14 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Pooler
               metadata:
-                name: mydb-pooler
-        - assert:
-            resource:
-              apiVersion: networking.k8s.io/v1
-              kind: NetworkPolicy
-              metadata:
-                name: mydb
+                name: pg-mydb-pooler
+        - script:
+            content: |
+              set -eu
+              kubectl get networkpolicy \
+                -n "$NAMESPACE" \
+                -l postgres.nais.io/name=mydb \
+                -o name | grep -q '^networkpolicy.networking.k8s.io/'
 
     - name: No Google resources without a WAL bucket configured
       try:

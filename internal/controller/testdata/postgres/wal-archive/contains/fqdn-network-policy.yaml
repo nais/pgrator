@@ -5,7 +5,7 @@ object:
   apiVersion: networking.gke.io/v1alpha3
   kind: FQDNNetworkPolicy
   metadata:
-    name: mydb-wal
+    name: pg-mydb-wal
     namespace: myteam
     labels:
       postgres.nais.io/name: mydb
@@ -19,7 +19,7 @@ object:
   spec:
     podSelector:
       matchLabels:
-        cnpg.io/cluster: mydb
+        cnpg.io/cluster: pg-mydb
     policyTypes:
       - Egress
     egress:

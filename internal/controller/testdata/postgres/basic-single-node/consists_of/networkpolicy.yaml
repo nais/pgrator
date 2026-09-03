@@ -22,12 +22,12 @@ object:
       - Ingress
     podSelector:
       matchLabels:
-        cnpg.io/cluster: mydb
+        cnpg.io/cluster: pg-mydb
     egress:
       - to:
           - podSelector:
               matchLabels:
-                cnpg.io/cluster: mydb
+                cnpg.io/cluster: pg-mydb
       - to:
           - namespaceSelector: {}
             podSelector:

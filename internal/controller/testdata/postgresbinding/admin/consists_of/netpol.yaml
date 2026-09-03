@@ -7,3 +7,7 @@ object:
   metadata:
     name: myapp-mydb
     namespace: myteam
+  spec:
+    podSelector:
+      matchLabels:
+        cnpg.io/poolerName: pg-mydb-pooler

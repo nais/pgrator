@@ -10,7 +10,7 @@ object:
   spec:
     podSelector:
       matchLabels:
-        cnpg.io/poolerName: mydb-pooler
+        cnpg.io/poolerName: pg-mydb-pooler
     ingress:
       - from:
           - podSelector:
