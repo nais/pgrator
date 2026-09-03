@@ -22,7 +22,7 @@ controllerManager:
     resources:
       requests:
         cpu: 200m
-        memory: 192Mi
+        memory: 369Mi
     livenessProbe:
       initialDelaySeconds: 15
       periodSeconds: 20
