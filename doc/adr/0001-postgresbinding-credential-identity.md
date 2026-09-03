@@ -12,7 +12,7 @@ Every binding, including `admin`, creates a DatabaseRole and receives its own CN
 
 Workload names are unique within a namespace across Applications and Naisjobs, so the workload name and binding role uniquely identify non-admin login roles. The admission webhook rejects duplicate admin bindings for the same Postgres instance. Child resources are created atomically and updated only while the binding remains their controller owner.
 
-The CNPG Cluster name is derived as `pg-<postgres>`, shortened with a stable hash when needed to satisfy CNPG's 50-character limit. CNPG resources, pods, services, Poolers, selectors, and generated Secrets use that internal cluster name, while the public `Postgres` and `PostgresBinding` names remain unchanged.
+The CNPG Cluster name is derived as `pg-<postgres>` and normalized to a DNS-1035 label. A stable hash is appended when normalization changes the name to avoid collisions, or when shortening is needed to satisfy CNPG's 50-character limit. CNPG resources, pods, services, Poolers, selectors, and generated Secrets use that internal cluster name, while the public `Postgres` and `PostgresBinding` names remain unchanged.
 
 The workload reads the server CA directly from CNPG's `<cnpg-cluster>-ca` Secret so CA rotation is propagated automatically. Since that Secret also contains `ca.key`, naiserator must project only the `ca.crt` key into the workload volume; pgrator does not create a binding-specific copy.
 

@@ -69,8 +69,10 @@ spec:
         - script:
             content: |
               set -eu
-              uid="$(kubectl get postgres mydb -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' | tr -d '-' | cut -c1-12)"
-              kubectl get networkpolicy "pg-mydb-$uid" -n "$NAMESPACE"
+              kubectl get networkpolicy \
+                -n "$NAMESPACE" \
+                -l postgres.nais.io/name=mydb \
+                -o name | grep -q '^networkpolicy.networking.k8s.io/'
 
     - name: No Google resources without a WAL bucket configured
       try:
