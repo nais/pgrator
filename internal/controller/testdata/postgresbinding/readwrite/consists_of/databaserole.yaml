@@ -9,7 +9,7 @@ object:
     namespace: myteam
   spec:
     cluster:
-      name: mydb
+      name: pg-mydb
     databaseRoleReclaimPolicy: delete
     name: myapp-readwrite
     login: true

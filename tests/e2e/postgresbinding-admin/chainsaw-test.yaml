@@ -22,7 +22,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: mydb
+                name: pg-mydb
 
     - name: Create an admin binding
       try:

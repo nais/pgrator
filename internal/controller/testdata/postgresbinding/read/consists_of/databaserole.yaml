@@ -8,6 +8,8 @@ object:
     name: mydb-reporter-read
     namespace: myteam
   spec:
+    cluster:
+      name: pg-mydb
     name: reporter-read
     login: true
     inRoles:

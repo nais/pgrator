@@ -24,7 +24,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: mydb
+                name: pg-mydb
 
     - name: Create a read binding
       try:
@@ -68,7 +68,7 @@ spec:
               set -eu
               get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
               test "$(get READ_PGUSER)"     = "rapport-read"
-              test "$(get READ_PGHOST)"     = "mydb-pooler.$NAMESPACE"
+              test "$(get READ_PGHOST)"     = "pg-mydb-pooler.$NAMESPACE"
               test "$(get READ_PGDATABASE)" = "app"
               test "$(get READ_PGSSLMODE)"  = "verify-full"
 
@@ -77,7 +77,7 @@ spec:
         - script:
             content: |
               set -eu
-              test -n "$(kubectl get secret mydb-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
+              test -n "$(kubectl get secret pg-mydb-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
 
     - name: CloudNativePG issues the client certificate for the role
       try:
@@ -133,7 +133,7 @@ spec:
               spec:
                 podSelector:
                   matchLabels:
-                    cnpg.io/poolerName: mydb-pooler
+                    cnpg.io/poolerName: pg-mydb-pooler
         - assert:
             resource:
               apiVersion: networking.k8s.io/v1
@@ -192,4 +192,4 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: mydb
+                name: pg-mydb

@@ -16,7 +16,7 @@ object:
         blockOwnerDeletion: true
   spec:
     role: roles/iam.workloadIdentityUser
-    member: serviceAccount:cluster-gcp-project.svc.id.goog[myteam/mydb]
+    member: serviceAccount:cluster-gcp-project.svc.id.goog[myteam/pg-mydb]
     resourceRef:
       kind: IAMServiceAccount
       name: cnpg-mydb-b60fcdec

@@ -4,7 +4,7 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: Pooler
   metadata:
-    name: mydb-pooler
+    name: pg-mydb-pooler
     namespace: myteam
     labels:
       postgres.nais.io/name: mydb
@@ -17,7 +17,7 @@ object:
         blockOwnerDeletion: true
   spec:
     cluster:
-      name: mydb
+      name: pg-mydb
     type: rw
     instances: 2
     template:

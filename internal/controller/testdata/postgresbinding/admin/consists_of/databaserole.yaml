@@ -8,6 +8,8 @@ object:
     name: mydb-myapp-admin
     namespace: myteam
   spec:
+    cluster:
+      name: pg-mydb
     name: app
     login: true
     databaseRoleReclaimPolicy: retain

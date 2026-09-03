@@ -67,7 +67,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding) (*cnpgv1.
 		},
 		ObjectMeta: objectMeta(b, b.DatabaseRoleName()),
 		Spec: cnpgv1.DatabaseRoleSpec{
-			ClusterRef:    core_v1.LocalObjectReference{Name: b.Spec.Postgres},
+			ClusterRef:    core_v1.LocalObjectReference{Name: cnpg.ClusterNameFor(b.Spec.Postgres)},
 			ReclaimPolicy: reclaimPolicy(b.Spec.Role),
 			RoleConfiguration: cnpgv1.RoleConfiguration{
 				Name:    b.RoleName(),

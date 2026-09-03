@@ -76,17 +76,22 @@ var minimumDiskPerStorageClass = map[string]resource.Quantity{
 
 // ClusterName returns the CNPG Cluster name for a Postgres resource.
 func ClusterName(postgres *v1.Postgres) string {
-	return postgres.GetName()
+	return ClusterNameFor(postgres.GetName())
+}
+
+// ClusterNameFor returns the CNPG Cluster name for a Postgres resource name.
+func ClusterNameFor(postgresName string) string {
+	return v1.CNPGClusterName(postgresName)
 }
 
 // PoolerName returns the CNPG Pooler resource name for a Postgres resource.
 func PoolerName(postgres *v1.Postgres) string {
-	return PoolerNameFor(ClusterName(postgres))
+	return PoolerNameFor(postgres.GetName())
 }
 
-// PoolerNameFor is PoolerName for callers that only hold the cluster name.
-func PoolerNameFor(clusterName string) string {
-	return clusterName + "-pooler"
+// PoolerNameFor returns the CNPG Pooler name for a Postgres resource name.
+func PoolerNameFor(postgresName string) string {
+	return ClusterNameFor(postgresName) + "-pooler"
 }
 
 const (
