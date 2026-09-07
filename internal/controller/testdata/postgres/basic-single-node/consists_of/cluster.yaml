@@ -17,6 +17,10 @@ object:
         controller: true
         blockOwnerDeletion: true
   spec:
+    inheritedMetadata:
+      labels:
+        logs.nais.io/flow-default: "false"
+        logs.nais.io/flow-team_logs: "true"
     instances: 2
     imageCatalogRef:
       apiGroup: postgresql.cnpg.io
