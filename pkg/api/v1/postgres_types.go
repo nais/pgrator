@@ -52,11 +52,20 @@ type PostgresSpec struct {
 	// Extensions to enable in the Postgres database.
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
+
+	// ActiveInstance selects the physical PostgresInstance normal workloads use.
+	// When omitted, pgrator retains the current active instance.
+	// +optional
+	ActiveInstance string `json:"activeInstance,omitempty"`
 }
 
 // PostgresStatus defines the observed state of Postgres.
 type PostgresStatus struct {
 	api.BaseStatus `json:",inline"`
+
+	// ActiveInstance is the physical PostgresInstance currently selected by pgrator.
+	// +optional
+	ActiveInstance string `json:"activeInstance,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -66,6 +75,7 @@ type PostgresStatus struct {
 // +kubebuilder:printcolumn:name="Disk Size",type="string",JSONPath=".spec.resources.diskSize"
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.resources.cpu"
 // +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.resources.memory"
+// +kubebuilder:printcolumn:name="Active instance",type="string",JSONPath=".status.activeInstance"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 
 // Postgres is the Schema for the postgres API

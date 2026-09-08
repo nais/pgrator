@@ -10,5 +10,5 @@ spec:
     workload:
       name: myapp
       type: application
-  secretName: mydb-myapp-readwrite-client-cert
-  role: readwrite
+  credentials:
+    - readwrite
