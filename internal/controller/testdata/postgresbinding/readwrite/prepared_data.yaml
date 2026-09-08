@@ -1,0 +1,7 @@
+instance: mydb
+snapshot:
+  caCertificate: Y2E=
+  credentials:
+    readwrite:
+      certificate: Y2VydGlmaWNhdGU=
+      privateKey: a2V5

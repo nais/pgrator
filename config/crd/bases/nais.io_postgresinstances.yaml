@@ -4,33 +4,21 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: postgres.nais.io
+  name: postgresinstances.nais.io
 spec:
   group: nais.io
   names:
     categories:
     - nais
-    kind: Postgres
-    listKind: PostgresList
-    plural: postgres
-    singular: postgres
+    kind: PostgresInstance
+    listKind: PostgresInstanceList
+    plural: postgresinstances
+    singular: postgresinstance
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.majorVersion
-      name: Major Version
-      type: string
-    - jsonPath: .spec.resources.diskSize
-      name: Disk Size
-      type: string
-    - jsonPath: .spec.resources.cpu
-      name: CPU
-      type: string
-    - jsonPath: .spec.resources.memory
-      name: Memory
-      type: string
-    - jsonPath: .status.activeInstance
-      name: Active instance
+    - jsonPath: .spec.postgres
+      name: Postgres
       type: string
     - jsonPath: .status.reconcileTime
       name: Last reconcile
@@ -38,7 +26,8 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: Postgres is the Schema for the postgres API
+        description: PostgresInstance is a concrete, independently running instance
+          of a logical Postgres.
         properties:
           apiVersion:
             description: |-
@@ -58,79 +47,18 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Postgres
+            description: spec defines the desired state of PostgresInstance
             properties:
-              activeInstance:
-                description: |-
-                  ActiveInstance selects the physical PostgresInstance normal workloads use.
-                  When omitted, pgrator retains the current active instance.
+              postgres:
+                description: Postgres is the logical Postgres this physical instance
+                  belongs to.
                 type: string
-              extensions:
-                description: Extensions to enable in the Postgres database.
-                items:
-                  properties:
-                    name:
-                      description: Name of the Postgres extension to enable.
-                      type: string
-                  required:
-                  - name
-                  type: object
-                type: array
-              highAvailability:
-                description: |-
-                  HighAvailability adds a third instance and enables synchronous replication.
-
-                  A cluster always runs a primary and a standby, so failover is available either
-                  way. What this adds is the guarantee that an acknowledged commit survives
-                  losing the primary, at the cost of write latency.
-                type: boolean
-              majorVersion:
-                description: MajorVersion of Postgres to use.
-                enum:
-                - "18"
-                - "17"
-                - "16"
-                type: string
-              resources:
-                default: {}
-                description: Resources configures compute and disk for the Postgres
-                  cluster.
-                properties:
-                  cpu:
-                    anyOf:
-                    - type: integer
-                    - type: string
-                    default: 100m
-                    description: Cpu is the CPU resources for the Postgres cluster.
-                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                    x-kubernetes-int-or-string: true
-                  diskSize:
-                    anyOf:
-                    - type: integer
-                    - type: string
-                    default: 10Gi
-                    description: DiskSize is the disk size for the Postgres cluster.
-                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                    x-kubernetes-int-or-string: true
-                  memory:
-                    anyOf:
-                    - type: integer
-                    - type: string
-                    default: 512Mi
-                    description: Memory is the memory resources for the Postgres cluster.
-                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                    x-kubernetes-int-or-string: true
-                type: object
             required:
-            - majorVersion
+            - postgres
             type: object
           status:
-            description: status defines the observed state of Postgres
+            description: status defines the observed state of PostgresInstance
             properties:
-              activeInstance:
-                description: ActiveInstance is the physical PostgresInstance currently
-                  selected by pgrator.
-                type: string
               conditions:
                 description: |-
                   conditions represent the current state of the controlled resource.

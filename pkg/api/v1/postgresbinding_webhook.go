@@ -32,8 +32,8 @@ func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *Post
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
-	if !reflect.DeepEqual(oldObj.Spec, newObj.Spec) {
-		return nil, fmt.Errorf("spec is immutable")
+	if oldObj.Spec.Postgres != newObj.Spec.Postgres || !reflect.DeepEqual(oldObj.Spec.Consumer, newObj.Spec.Consumer) {
+		return nil, fmt.Errorf("postgres and consumer are immutable")
 	}
 	return nil, v.validate(ctx, newObj)
 }
@@ -48,7 +48,7 @@ func (v *PostgresBindingValidator) validate(ctx context.Context, obj *PostgresBi
 }
 
 func (v *PostgresBindingValidator) validateAdminBinding(ctx context.Context, obj *PostgresBinding) error {
-	if obj.Spec.Role != PostgresBindingRoleAdmin {
+	if !obj.HasCredential(PostgresBindingCredentialAdmin) {
 		return nil
 	}
 
@@ -60,7 +60,7 @@ func (v *PostgresBindingValidator) validateAdminBinding(ctx context.Context, obj
 		if binding.GetName() == obj.GetName() {
 			continue
 		}
-		if binding.Spec.Postgres == obj.Spec.Postgres && binding.Spec.Role == PostgresBindingRoleAdmin {
+		if binding.Spec.Postgres == obj.Spec.Postgres && binding.HasCredential(PostgresBindingCredentialAdmin) {
 			return fmt.Errorf("Postgres %q already has admin binding %q", obj.Spec.Postgres, binding.GetName())
 		}
 	}

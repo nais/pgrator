@@ -23,8 +23,7 @@ func ExamplePostgresBindingForDocumentation() api.NaisObject {
 					Type: PostgresBindingWorkloadTypeApplication,
 				},
 			},
-			SecretName: "mypostgres-myapp-readwrite-client-cert",
-			Role:       PostgresBindingRoleReadWrite,
+			Credentials: []PostgresBindingCredential{PostgresBindingCredentialReadWrite},
 		},
 	}
 }

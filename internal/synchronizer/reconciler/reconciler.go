@@ -7,6 +7,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type RelatedObjects interface {
@@ -42,6 +43,37 @@ type Reconciler[T client.Object, P any] interface {
 	// Delete returns the actions needed to handle the reconciled object being deleted
 	Delete(T, P, RelatedObjects) ([]action.Action, ctrl.Result, error)
 }
+
+// FieldIndexer is optionally implemented by reconcilers that need cache indexes
+// to resolve reference relationships efficiently.
+type FieldIndexer interface {
+	Indexes() []Index
+}
+
+// Index describes one cache field index.
+type Index struct {
+	Object       client.Object
+	Field        string
+	ExtractValue client.IndexerFunc
+}
+
+// RelationshipWatcher is optionally implemented by reconcilers that watch
+// referenced objects which are not owned by the reconciled object.
+type RelationshipWatcher interface {
+	RelationshipWatches() []RelationshipWatch
+}
+
+// RelationshipWatch maps a source-object event to reconciliations of objects
+// that reference it. Unlike AdditionalTypes, source objects need no pgrator
+// ownership annotation or owner reference.
+type RelationshipWatch struct {
+	Type      client.Object
+	Map       RelationshipMapFunc
+	Predicate predicate.Predicate
+}
+
+// RelationshipMapFunc returns reconciliations caused by a referenced object.
+type RelationshipMapFunc func(context.Context, client.Reader, client.Object) ([]reconcile.Request, error)
 
 type FinalizerNamer interface {
 	// FinalizerName returns the finalizer name to use for this reconciler

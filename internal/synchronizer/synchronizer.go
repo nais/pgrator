@@ -396,6 +396,14 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		ReconciliationTimeout: 60 * time.Second,
 	}
 
+	if indexer, ok := any(s.reconciler).(reconciler.FieldIndexer); ok {
+		for _, index := range indexer.Indexes() {
+			if err := mgr.GetFieldIndexer().IndexField(context.Background(), index.Object, index.Field, index.ExtractValue); err != nil {
+				return fmt.Errorf("indexing %T by %q: %w", index.Object, index.Field, err)
+			}
+		}
+	}
+
 	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New(), builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New()))).
 		WithOptions(opts).
@@ -415,6 +423,20 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerManager)),
 			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
 		)
+	}
+
+	if watcher, ok := any(s.reconciler).(reconciler.RelationshipWatcher); ok {
+		for _, watch := range watcher.RelationshipWatches() {
+			if !s.isCRDAvailable(mgr, watch.Type) {
+				gvks, _, _ := s.scheme.ObjectKinds(watch.Type)
+				logger.Info("skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
+				continue
+			}
+			bldr = bldr.Watches(watch.Type,
+				handler.EnqueueRequestsFromMapFunc(relationshipEnqueueFilter(mgr, watch.Map)),
+				builder.WithPredicates(watch.Predicate),
+			)
+		}
 	}
 	return bldr.Complete(s)
 }
@@ -578,6 +600,17 @@ func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Pre
 		predicate.AnnotationChangedPredicate{},
 		predicate.LabelChangedPredicate{},
 	)
+}
+
+func relationshipEnqueueFilter(mgr ctrl.Manager, mapper reconciler.RelationshipMapFunc) handler.MapFunc {
+	return func(ctx context.Context, object client.Object) []reconcile.Request {
+		requests, err := mapper(ctx, mgr.GetClient(), object)
+		if err != nil {
+			mgr.GetLogger().Error(err, "unable to map relationship watch event")
+			return nil
+		}
+		return requests
+	}
 }
 
 func additionalTypesEnqueueFilter(mgr ctrl.Manager, ownerManager ownership.OwnerManager) handler.MapFunc {

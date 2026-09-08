@@ -10,5 +10,5 @@ spec:
     workload:
       name: myapp
       type: application
-  secretName: mydb-myapp-admin-client-cert
-  role: admin
+  credentials:
+    - admin

@@ -10,5 +10,5 @@ spec:
     workload:
       name: reporter
       type: job
-  secretName: mydb-reporter-read-client-cert
-  role: read
+  credentials:
+    - read

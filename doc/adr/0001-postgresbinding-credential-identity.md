@@ -1,8 +1,14 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0003-postgresbinding-per-workload-use
 ---
 
 # Let the workload choose PostgresBinding credential identity
+
+> Superseded by [ADR 0003](0003-postgresbinding-per-workload-use.md). This ADR
+> describes the historical one-binding-per-role and direct-CNPG-Secret contract.
+> Its database login-role naming rationale is historical context only; ADR 0003
+> defines the current binding, credential, and Secret contract.
 
 Naiserator owns the complete name of the client-certificate Secret it mounts into a workload. A PostgresBinding therefore carries `spec.secretName`, including the `-client-cert` suffix, and pgrator strips that suffix when naming the CloudNativePG DatabaseRole resource. CloudNativePG 1.30 then appends the suffix again when creating the Secret. This avoids making naiserator watch a PostgresBinding status merely to learn a name it must already put into its Deployment spec.
 
