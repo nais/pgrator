@@ -1,0 +1,25 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: pg-mydb-app
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: PostgresInstance
+        name: mydb
+        uid: d3adb33f-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    cluster:
+      name: pg-mydb
+    reclaimPolicy: delete
+    role:
+      name: app
+      login: true
+    clientCertificate:
+      enabled: true

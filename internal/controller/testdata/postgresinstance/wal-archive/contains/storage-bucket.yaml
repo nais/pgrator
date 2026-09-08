@@ -12,9 +12,9 @@ object:
       postgres.nais.io/namespace: myteam
     ownerReferences:
       - apiVersion: nais.io/v1
-        kind: Postgres
+        kind: PostgresInstance
         name: mydb
-        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true
   spec:

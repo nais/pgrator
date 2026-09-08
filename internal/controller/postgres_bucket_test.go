@@ -15,7 +15,7 @@ func TestBucketName(t *testing.T) {
 		name      string
 		prefix    string
 		namespace string
-		postgres  string
+		instance  string
 		uid       types.UID
 		want      string
 	}{
@@ -23,7 +23,7 @@ func TestBucketName(t *testing.T) {
 			name:      "identifies its owner",
 			prefix:    "nais-wal-dev-nais-dev",
 			namespace: "basseng",
-			postgres:  "johnny",
+			instance:  "johnny",
 			uid:       "73ecc148-047b-4db8-abe4-cf6a4c0c2b12",
 			want:      "nais-wal-dev-nais-dev-basseng-johnny-73ecc148047b",
 		},
@@ -31,7 +31,7 @@ func TestBucketName(t *testing.T) {
 			name:      "normalizes a trailing prefix separator",
 			prefix:    "nais-wal-dev-nais-dev-",
 			namespace: "basseng",
-			postgres:  "mydb",
+			instance:  "mydb",
 			uid:       "f43d742c-26d9-48d0-a629-19553939285d",
 			want:      "nais-wal-dev-nais-dev-basseng-mydb-f43d742c26d9",
 		},
@@ -39,7 +39,7 @@ func TestBucketName(t *testing.T) {
 			name:      "shortens long owner names",
 			prefix:    "nais-wal-tenant-environment",
 			namespace: strings.Repeat("namespace", 7),
-			postgres:  strings.Repeat("postgres", 8),
+			instance:  strings.Repeat("postgres", 8),
 			uid:       "feedab1e-beef-cafe-babe-700d1e100d1e",
 			want:      "nais-wal-tenant-environment-namespacen-postgrespos-feedab1ebeef",
 		},
@@ -47,35 +47,26 @@ func TestBucketName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &PostgresReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
-			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{
-				Name:      tt.postgres,
-				Namespace: tt.namespace,
-				UID:       tt.uid,
-			}}
+			r := &PostgresInstanceReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
+			instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: tt.instance, Namespace: tt.namespace}}
 
-			got := r.bucketName(postgres)
+			got := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: tt.uid})
 			if got != tt.want {
 				t.Errorf("bucketName() = %q, want %q", got, tt.want)
 			}
-			if len(got) > gcsBucketNameMaxLength {
-				t.Errorf("bucketName() length = %d, want at most %d", len(got), gcsBucketNameMaxLength)
+			if len(got) > instanceBucketNameMaxLength {
+				t.Errorf("bucketName() length = %d, want at most %d", len(got), instanceBucketNameMaxLength)
 			}
 		})
 	}
 }
 
 func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
-	r := &PostgresReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{
-		Name:      "mydb",
-		Namespace: "basseng",
-		UID:       "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-	}}
+	r := &PostgresInstanceReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
 
-	first := r.bucketName(postgres)
-	postgres.UID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-	second := r.bucketName(postgres)
+	first := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
+	second := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"})
 
 	if first == second {
 		t.Errorf("recreated Postgres reused bucket name %q", first)
@@ -83,10 +74,10 @@ func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
 }
 
 func TestBucketNameDisabled(t *testing.T) {
-	r := &PostgresReconciler{Config: &config.Config{}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
+	r := &PostgresInstanceReconciler{Config: &config.Config{}}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
 
-	if got := r.bucketName(postgres); got != "" {
+	if got := r.bucketName(instance, PostgresInstancePreparedData{}); got != "" {
 		t.Errorf("bucketName() = %q, want empty name when WAL archiving is disabled", got)
 	}
 }

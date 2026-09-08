@@ -164,15 +164,16 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		}
 		return nil, fmt.Errorf("getting Postgres %q: %w", binding.Spec.Postgres, err)
 	}
-	if postgres.Spec.ActiveInstance == "" {
-		return nil, nil
+	activeInstance := postgres.Spec.ActiveInstance
+	if activeInstance == "" {
+		activeInstance = postgres.GetName()
 	}
 	instance := &v1.PostgresInstance{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: postgres.Spec.ActiveInstance}, instance); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: activeInstance}, instance); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting active PostgresInstance %q: %w", postgres.Spec.ActiveInstance, err)
+		return nil, fmt.Errorf("getting active PostgresInstance %q: %w", activeInstance, err)
 	}
 	if instance.Spec.Postgres != postgres.GetName() {
 		return nil, nil
@@ -225,14 +226,15 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	if postgres.Spec.ActiveInstance == "" {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("postgres %q has no active instance", postgres.GetName())
+	activeInstance := postgres.Spec.ActiveInstance
+	if activeInstance == "" {
+		activeInstance = postgres.GetName()
 	}
 
 	instance := &v1.PostgresInstance{}
-	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: postgres.Spec.ActiveInstance}
+	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: activeInstance}
 	if err := reader.Get(ctx, instanceKey, instance); err != nil {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresInstance %q: %w", postgres.Spec.ActiveInstance, err)
+		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresInstance %q: %w", activeInstance, err)
 	}
 	if instance.Spec.Postgres != postgres.GetName() {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresInstance %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
