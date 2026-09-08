@@ -1,0 +1,17 @@
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: nais.io/v1
+  kind: PostgresInstance
+  metadata:
+    name: mydb
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    postgres: mydb

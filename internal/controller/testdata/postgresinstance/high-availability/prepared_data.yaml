@@ -1,0 +1,9 @@
+postgresName: mydb
+postgresUID: feedab1e-beef-cafe-babe-700d1e100d1e
+postgresSpec:
+  majorVersion: "17"
+  highAvailability: true
+  resources:
+    diskSize: 10Gi
+    cpu: 100m
+    memory: 512Mi
