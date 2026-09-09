@@ -343,9 +343,9 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 	return cluster, nil
 }
 
-// CreateScheduledBackup schedules a nightly base backup taken from a standby, so
-// the primary is left alone. Backups go through the barman-cloud plugin to the
-// same ObjectStore as the WAL archive.
+// CreateScheduledBackup starts a base backup when created and schedules nightly
+// backups thereafter. Backups go through the barman-cloud plugin to the same
+// ObjectStore as the WAL archive.
 func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.ScheduledBackup, error) {
 	backup := &cnpgv1.ScheduledBackup{
 		TypeMeta: metav1.TypeMeta{
@@ -354,6 +354,8 @@ func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpg
 		},
 		ObjectMeta: objectMeta(postgres, ClusterName(postgres)),
 		Spec: cnpgv1.ScheduledBackupSpec{
+			// Ensure WAL archives always have a base backup available for recovery.
+			Immediate: new(true),
 			// Daily at 02:00.
 			Schedule:             "0 0 2 * * *",
 			Cluster:              cnpgv1.LocalObjectReference{Name: ClusterName(postgres)},
