@@ -7,6 +7,8 @@ object:
   metadata:
     name: wal-bucket-prefix-myteam-mydb-feedab1ebeef
     namespace: myteam
+    annotations:
+      cnrm.cloud.google.com/force-destroy: "true"
     labels:
       postgres.nais.io/name: mydb
       postgres.nais.io/namespace: myteam
