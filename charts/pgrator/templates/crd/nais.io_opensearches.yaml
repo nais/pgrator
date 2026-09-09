@@ -124,6 +124,8 @@ spec:
                 version:
                   description: Version defines the OpenSearch version
                   enum:
+                    - "1"
+                    - "2"
                     - "2.19"
                     - "3.3"
                     - "3.6"
