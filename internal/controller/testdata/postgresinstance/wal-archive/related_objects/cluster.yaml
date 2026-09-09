@@ -1,0 +1,12 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-mydb
+  namespace: myteam
+status:
+  conditions:
+    - type: ContinuousArchiving
+      status: "True"
+      reason: ContinuousArchivingSuccess
+      message: WAL archiving is working
+      lastTransitionTime: "2026-01-01T00:00:00Z"
