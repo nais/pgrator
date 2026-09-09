@@ -29,7 +29,7 @@ const (
 	OpenSearchMemory64GB OpenSearchMemory = "64GB"
 )
 
-// +kubebuilder:validation:Enum="1";"2";"2.19";"3.3"
+// +kubebuilder:validation:Enum="1";"2";"2.19";"3.3";"3.6"
 type OpenSearchVersion string
 
 const (
@@ -37,6 +37,7 @@ const (
 	OpenSearchVersionV2    OpenSearchVersion = "2"
 	OpenSearchVersionV2_19 OpenSearchVersion = "2.19"
 	OpenSearchVersionV3_3  OpenSearchVersion = "3.3"
+	OpenSearchVersionV3_6  OpenSearchVersion = "3.6"
 )
 
 type upgradePath []OpenSearchVersion
@@ -53,7 +54,8 @@ var upgradePaths = map[OpenSearchVersion]upgradePath{
 	OpenSearchVersionV1:    {OpenSearchVersionV2, OpenSearchVersionV2_19},
 	OpenSearchVersionV2:    {OpenSearchVersionV2_19},
 	OpenSearchVersionV2_19: {OpenSearchVersionV3_3},
-	OpenSearchVersionV3_3:  {},
+	OpenSearchVersionV3_3:  {OpenSearchVersionV3_6},
+	OpenSearchVersionV3_6:  {},
 }
 
 // ValidateUpgradePath validates that upgrading from oldVersion to this version is allowed
@@ -91,6 +93,8 @@ func (v OpenSearchVersion) ToAivenString() (string, error) {
 		return "2.19", nil
 	case OpenSearchVersionV3_3:
 		return "3.3", nil
+	case OpenSearchVersionV3_6:
+		return "3.6", nil
 	default:
 		return "", fmt.Errorf("unexpected OpenSearch version: %q", v)
 	}

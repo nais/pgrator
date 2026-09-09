@@ -40,6 +40,7 @@ func TestOpenSearchValidatorValidateCreate(t *testing.T) {
 		{name: "hobbyist plan with exact storage", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory2GB, version: OpenSearchVersionV1, storageGB: 16},
 		{name: "storage at boundary (min) for HA 16GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory16GB, version: OpenSearchVersionV3_3, storageGB: 1050},
 		{name: "storage at boundary (max) for HA 16GB", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory16GB, version: OpenSearchVersionV3_3, storageGB: 5250},
+		{name: "OpenSearch 3.6", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV3_6, storageGB: 80},
 		{name: "SingleNode 8GB storage with increment", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory8GB, version: OpenSearchVersionV2, storageGB: 185},
 		{name: "HighAvailability storage with 30GB increment", objectName: "my-opensearch", namespace: "my-team", tier: OpenSearchTierHighAvailability, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 270},
 		{name: "name at max generated-service length", objectName: strings.Repeat("a", 44), namespace: "my-team", tier: OpenSearchTierSingleNode, memory: OpenSearchMemory4GB, version: OpenSearchVersionV2, storageGB: 80},
@@ -141,10 +142,12 @@ func TestOpenSearchValidatorValidateUpdate(t *testing.T) {
 		{name: "V1 to V2.19", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV2_19},
 		{name: "V2 to V2.19", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV2_19},
 		{name: "V2.19 to V3.3", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV3_3},
+		{name: "V3.3 to V3.6", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV3_6},
 		{name: "same version V1", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV1},
 		{name: "same version V2", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV2},
 		{name: "same version V2.19", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV2_19},
 		{name: "same version V3.3", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV3_3},
+		{name: "same version V3.6", oldVersion: OpenSearchVersionV3_6, newVersion: OpenSearchVersionV3_6},
 	}
 
 	for _, tt := range validUpgrades {
@@ -165,8 +168,9 @@ func TestOpenSearchValidatorValidateUpdate(t *testing.T) {
 	}{
 		{name: "V1 to V3.3 (skipping versions)", oldVersion: OpenSearchVersionV1, newVersion: OpenSearchVersionV3_3, wantError: "validation failed: cannot change OpenSearch version from 1 to 3.3: new version must be one of [2, 2.19]"},
 		{name: "V2 to V3.3 (skipping V2.19)", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV3_3, wantError: "validation failed: cannot change OpenSearch version from 2 to 3.3: new version must be one of [2.19]"},
-		{name: "V3.3 to V2 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV2, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 2: no further upgrades available"},
-		{name: "V3.3 to V1 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 1: no further upgrades available"},
+		{name: "V3.3 to V2 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV2, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 2: new version must be one of [3.6]"},
+		{name: "V3.3 to V1 (downgrade)", oldVersion: OpenSearchVersionV3_3, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 3.3 to 1: new version must be one of [3.6]"},
+		{name: "V3.6 to V3.3 (downgrade)", oldVersion: OpenSearchVersionV3_6, newVersion: OpenSearchVersionV3_3, wantError: "validation failed: cannot change OpenSearch version from 3.6 to 3.3: no further upgrades available"},
 		{name: "V2.19 to V1 (downgrade)", oldVersion: OpenSearchVersionV2_19, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 2.19 to 1: new version must be one of [3.3]"},
 		{name: "V2 to V1 (downgrade)", oldVersion: OpenSearchVersionV2, newVersion: OpenSearchVersionV1, wantError: "validation failed: cannot change OpenSearch version from 2 to 1: new version must be one of [2.19]"},
 	}

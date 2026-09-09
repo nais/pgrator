@@ -130,6 +130,7 @@ spec:
                 - "2"
                 - "2.19"
                 - "3.3"
+                - "3.6"
                 type: string
             required:
             - memory
