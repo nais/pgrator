@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -68,7 +69,16 @@ func (r *PostgresInstanceReconciler) New() *v1.PostgresInstance {
 
 func (r *PostgresInstanceReconciler) OwnedTypes() []reconciler.OwnedType {
 	ownedTypes := []reconciler.OwnedType{
-		{Type: &cnpgv1.Cluster{}},
+		{
+			Type: &cnpgv1.Cluster{},
+			AdditionalPredicate: predicate.Funcs{
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
+					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
+					return oldOK && newOK && continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster)
+				},
+			},
+		},
 		{Type: &cnpgv1.DatabaseRole{}},
 		{Type: &cnpgv1.Pooler{}},
 		{Type: &networkingv1.NetworkPolicy{}},
@@ -403,14 +413,25 @@ func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, p
 	}
 	actions = append(actions, action.CreateOrUpdate(objectStore, instance, existsConditionGetter, r.Recorder))
 
-	backup, err := rccnpg.CreateScheduledBackup(r.Scheme, specSource)
-	if err != nil {
-		return nil, fmt.Errorf("creating ScheduledBackup spec: %w", err)
+	backup := &cnpgv1.ScheduledBackup{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.ClusterNameFor(instance.GetName()),
+		Namespace: instance.GetNamespace(),
+	}}
+	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.ClusterNameFor(instance.GetName()),
+		Namespace: instance.GetNamespace(),
+	}}
+	existingCluster, _ := relatedObjects.GetMatching(cluster).(*cnpgv1.Cluster)
+	if continuousArchivingReady(existingCluster) || relatedObjects.GetMatching(backup) != nil {
+		backup, err := rccnpg.CreateScheduledBackup(r.Scheme, specSource)
+		if err != nil {
+			return nil, fmt.Errorf("creating ScheduledBackup spec: %w", err)
+		}
+		if err := transferControllerOwnership(instance, backup, r.Scheme); err != nil {
+			return nil, err
+		}
+		actions = append(actions, action.CreateOrUpdate(backup, instance, existsConditionGetter, r.Recorder))
 	}
-	if err := transferControllerOwnership(instance, backup, r.Scheme); err != nil {
-		return nil, err
-	}
-	actions = append(actions, action.CreateOrUpdate(backup, instance, existsConditionGetter, r.Recorder))
 
 	fqdnPolicy, err := rcfqdnpolicy.Create(r.Scheme, specSource, rccnpg.ClusterNameFor(instance.GetName()))
 	if err != nil {
@@ -422,6 +443,18 @@ func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, p
 	actions = append(actions, action.CreateOrUpdate(fqdnPolicy, instance, existsConditionGetter, r.Recorder))
 
 	return actions, nil
+}
+
+func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
+	if cluster == nil {
+		return false
+	}
+	for _, condition := range cluster.Status.Conditions {
+		if condition.Type == string(cnpgv1.ConditionContinuousArchiving) {
+			return condition.Status == metav1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (r *PostgresInstanceReconciler) policyMemberAction(desired *iamcnrm.IAMPolicyMember, owner *v1.PostgresInstance, relatedObjects reconciler.RelatedObjects) (action.Action, error) {
