@@ -17,7 +17,6 @@ import (
 	"strings"
 	"text/template"
 
-	yaml2 "github.com/ghodss/yaml"
 	"github.com/imdario/mergo"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
@@ -147,22 +146,26 @@ func main() {
 
 func run() error {
 	cfg := &Config{}
-	pflag.StringVar(&cfg.APIDir,
+	pflag.StringVar(
+		&cfg.APIDir,
 		"api-dir",
 		cfg.APIDir,
 		"directory containing CRD type definitions",
 	)
-	pflag.StringVar(&cfg.OutputDir,
+	pflag.StringVar(
+		&cfg.OutputDir,
 		"output-dir",
 		cfg.OutputDir,
 		"directory for generated documentation output",
 	)
-	pflag.StringVar(&cfg.TemplateDir,
+	pflag.StringVar(
+		&cfg.TemplateDir,
 		"template-dir",
 		cfg.TemplateDir,
 		"directory containing templates for each kind",
 	)
-	pflag.StringVar(&cfg.JSONSchema,
+	pflag.StringVar(
+		&cfg.JSONSchema,
 		"openapi-output",
 		cfg.JSONSchema,
 		"if set, generate json schema to the provided directory",
@@ -252,16 +255,18 @@ func run() error {
 				Kind:    gk.Kind,
 			}]
 			if !ok {
-				return fmt.Errorf("'%s/%s/%s' is not supported; "+
-					"must be registered in ExampleRegistry config in docgen.go",
+				return fmt.Errorf(
+					"'%s/%s/%s' is not supported; "+
+						"must be registered in ExampleRegistry config in docgen.go",
 					gk.Group, gv.Version, gk.Kind,
 				)
 			}
 
 			schemata, ok := pars.FlattenedSchemata[crd.TypeIdent{Package: pkg, Name: gk.Kind}]
 			if !ok {
-				return fmt.Errorf("schema generation failed for %s/%s/%s; "+
-					"double check the syntax of doctags (+nais:* and +kubebuilder:*)",
+				return fmt.Errorf(
+					"schema generation failed for %s/%s/%s; "+
+						"double check the syntax of doctags (+nais:* and +kubebuilder:*)",
 					gk.Group, gv.Version, gk.Kind,
 				)
 			}
@@ -270,13 +275,14 @@ func run() error {
 			if err != nil {
 				return err
 			}
+			exampleResource = naisifyManifest(exampleResource)
 
 			// Use group/version/kind directory structure
 			kindLower := strings.ToLower(gk.Kind)
 			subDir := filepath.Join(gk.Group, gv.Version, kindLower)
 
 			outputDir := filepath.Join(cfg.OutputDir, subDir)
-			if err := os.MkdirAll(outputDir, 0755); err != nil {
+			if err := os.MkdirAll(outputDir, 0o755); err != nil {
 				return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 			}
 
@@ -311,10 +317,10 @@ func run() error {
 
 func writeJSONSchema(path, kind, group, version string, schemata apiext.JSONSchemaProps) error {
 	path = filepath.Join(path, group, version, strings.ToLower(kind)+".json")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("failed to create schema directory: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}
@@ -383,7 +389,7 @@ func Write(renderer Renderer, tpl string, outFile string, base apiext.JSONSchema
 	var err error
 	w := os.Stdout
 	if len(outFile) > 0 {
-		w, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		w, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 		if err != nil {
 			return err
 		}
@@ -537,8 +543,7 @@ func hasRequired(node apiext.JSONSchemaProps, key string) bool {
 }
 
 func WriteExampleDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
-	js, _ := json.Marshal(exampleResource)
-	ym, _ := yaml2.JSONToYAML(js)
+	ym, _ := yaml.Marshal(exampleResource)
 
 	_, _ = io.WriteString(w, "``` yaml\n")
 	_, _ = io.Writer.Write(w, ym)
@@ -783,4 +788,51 @@ func setJSONSchemaRequired(root apiext.JSONSchemaProps, path string, values ...s
 			obj.Required = append(obj.Required, val)
 		}
 	})
+}
+
+func naisifyManifest(v any) any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+
+	var old map[string]any
+	err = json.Unmarshal(b, &old)
+	if err != nil {
+		panic(err)
+	}
+
+	if old["kind"] != "OpenSearch" && old["kind"] != "Valkey" {
+		return old
+	}
+
+	ret := struct {
+		Version string         `yaml:"version"`
+		Type    string         `yaml:"type"`
+		Name    string         `yaml:"name"`
+		Labels  map[string]any `yaml:"labels,omitempty"`
+		Spec    any            `yaml:"spec"`
+	}{}
+	for k, v := range old {
+		switch k {
+		case "apiVersion":
+			ret.Version = strings.TrimPrefix(v.(string), "nais.io/")
+		case "kind":
+			ret.Type = v.(string)
+		case "metadata":
+			if m, ok := v.(map[string]any); ok {
+				ret.Name = m["name"].(string)
+				if labels, ok := m["labels"].(map[string]any); ok {
+					ret.Labels = labels
+				}
+			}
+		case "spec":
+			ret.Spec = v
+		}
+	}
+
+	if ret.Labels != nil {
+		delete(ret.Labels, "team")
+	}
+	return ret
 }
