@@ -125,7 +125,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	updateStatus := func() error {
 		err := s.client.Status().Update(ctx, obj)
 		if err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "failed to update status")
+			if !apierrors.IsConflict(err) {
+				logger.Error(err, "failed to update status")
+			}
 			return err
 		}
 		return nil
