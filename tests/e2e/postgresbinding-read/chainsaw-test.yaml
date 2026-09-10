@@ -40,8 +40,8 @@ spec:
                   workload:
                     name: rapport
                     type: job
-                secretName: mydb-rapport-read-client-cert
-                role: read
+                credentials:
+                  - read
 
     - name: Role is a login role that only inherits app_read
       try:
@@ -50,7 +50,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport-read
+                name: postgres-mydb-rapport-read-mydb-read
               spec:
                 name: rapport-read
                 login: true
@@ -86,7 +86,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: mydb-rapport-read-client-cert
+                name: postgres-mydb-rapport-read-mydb-read-client-cert
               type: kubernetes.io/tls
 
     - name: Create a readwrite binding for the same workload
@@ -103,14 +103,14 @@ spec:
                   workload:
                     name: rapport
                     type: job
-                secretName: mydb-rapport-readwrite-client-cert
-                role: readwrite
+                credentials:
+                  - readwrite
         - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport-readwrite
+                name: postgres-mydb-rapport-readwrite-mydb-readwrite
               spec:
                 name: rapport-readwrite
                 login: true
@@ -157,7 +157,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport-read
+                name: postgres-mydb-rapport-read-mydb-read
         - error:
             resource:
               apiVersion: v1
@@ -181,7 +181,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-rapport-readwrite
+                name: postgres-mydb-rapport-readwrite-mydb-readwrite
               spec:
                 name: rapport-readwrite
 
