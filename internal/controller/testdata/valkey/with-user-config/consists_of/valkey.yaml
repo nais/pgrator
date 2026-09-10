@@ -27,6 +27,7 @@ object:
       app: configured-valkey
       tenant: test-tenant
     userConfig:
+      valkey_version: "9.1"
       valkey_maxmemory_policy: volatile-lru
       valkey_notify_keyspace_events: KEA
       valkey_persistence: "off"

@@ -19,3 +19,5 @@ object:
       team: production-team
       app: ha-valkey
       tenant: test-tenant
+    userConfig:
+      valkey_version: "8.1"

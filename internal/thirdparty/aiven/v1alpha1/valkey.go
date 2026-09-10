@@ -68,6 +68,9 @@ type ValkeySpec struct {
 
 // ValkeyUserConfig contains Valkey specific configuration
 type ValkeyUserConfig struct {
+	// Valkey major version
+	ValkeyVersion *string `json:"valkey_version,omitempty"`
+
 	// Valkey maxmemory-policy
 	ValkeyMaxmemoryPolicy *string `json:"valkey_maxmemory_policy,omitempty"`
 

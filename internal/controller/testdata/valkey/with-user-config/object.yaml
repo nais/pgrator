@@ -9,6 +9,7 @@ metadata:
 spec:
   tier: SingleNode
   memory: 14GB
+  version: "9.1"
   maxMemoryPolicy: volatile-lru
   notifyKeyspaceEvents: KEA
   persistence:

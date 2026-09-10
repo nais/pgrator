@@ -9,6 +9,7 @@ import (
 	rcvalkey "github.com/nais/pgrator/internal/resourcecreator/valkey"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
 	"github.com/nais/pgrator/pkg/api"
@@ -64,8 +65,11 @@ func (r *ValkeyReconciler) OwnedTypes() []reconciler.OwnedType {
 						return false
 					}
 
-					// We're only watching for status.state changes
-					return oldObj.Status.State != newObj.Status.State
+					// Status writes bump no generation, so the generation predicate never sees them.
+					// The version matters because Aiven upgrades services on its own, and a change
+					// there is not always accompanied by a state transition.
+					return oldObj.Status.State != newObj.Status.State ||
+						oldObj.Status.Version != newObj.Status.Version
 				},
 			},
 		},
@@ -77,8 +81,15 @@ func (r *ValkeyReconciler) AdditionalTypes() []client.Object {
 	return nil
 }
 
-func (r *ValkeyReconciler) Update(obj *v1.Valkey, _ ValkeyPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *ValkeyReconciler) Update(obj *v1.Valkey, _ ValkeyPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	var actions []action.Action
+
+	version, err := obj.ResolveVersion(runningValkeyVersion(obj, relatedObjects))
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	adopted := obj.Spec.Version != version
+	obj.Spec.Version = version
 
 	aivenValkey, err := rcvalkey.CreateSpec(r.Scheme, obj, r.Aiven, r.Tenant)
 	if err != nil {
@@ -92,7 +103,61 @@ func (r *ValkeyReconciler) Update(obj *v1.Valkey, _ ValkeyPreparedData, _ reconc
 	}
 	actions = append(actions, action.CreateOrUpdate(serviceIntegration, obj, serviceIntegrationConditionGetter, r.Recorder))
 
+	// Recorded last, so the version is only claimed once Aiven has actually been configured with it.
+	if adopted {
+		actions = append(actions, &recordValkeyVersion{valkey: obj.DeepCopy(), version: version, recorder: r.Recorder})
+	}
+
 	return actions, ctrl.Result{}, nil
+}
+
+// recordValkeyVersion writes an adopted version back onto the Valkey.
+// It re-reads the object rather than reusing the one held here, because the synchronizer's status
+// updates overwrite the reconciled object with the server response between building actions and
+// running them, discarding any spec change made in memory.
+type recordValkeyVersion struct {
+	valkey   *v1.Valkey
+	version  v1.ValkeyVersion
+	recorder events.Recorder
+}
+
+func (a *recordValkeyVersion) Do(ctx context.Context, c client.Client, _ *runtime.Scheme, _ ownership.OwnerManager) error {
+	current := &v1.Valkey{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(a.valkey), current); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	if current.Spec.Version == a.version {
+		return nil
+	}
+
+	current.Spec.Version = a.version
+	if err := c.Update(ctx, current); err != nil {
+		return err
+	}
+
+	a.recorder.RecordEvent(current, core_v1.EventTypeNormal, "VersionRecorded", "Recorded Valkey version %s reported by Aiven", a.version)
+
+	return nil
+}
+
+func (a *recordValkeyVersion) GetObject() client.Object { return a.valkey }
+
+func (a *recordValkeyVersion) GetOwner() api.NaisObject { return a.valkey }
+
+// runningValkeyVersion reports the version Aiven observes on the existing service, if there is one.
+func runningValkeyVersion(obj *v1.Valkey, relatedObjects reconciler.RelatedObjects) string {
+	existing := relatedObjects.GetMatching(rcvalkey.Minimal(obj))
+	if existing == nil {
+		return ""
+	}
+
+	existingValkey, ok := existing.(*aiven_v1alpha1.Valkey)
+	if !ok {
+		return ""
+	}
+
+	return existingValkey.Status.Version
 }
 
 func aivenValkeyConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
