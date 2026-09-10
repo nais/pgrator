@@ -40,3 +40,5 @@ nvim.log
 misc/coding-team
 chainsaw-report.xml
 mise.local.toml
+.direnv/
+result*

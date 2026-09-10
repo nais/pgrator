@@ -4,7 +4,7 @@ set -euo pipefail
 
 OUT_DIR="internal/controller/testdata/external-crds"
 
-AIVEN_OPERATOR_VERSION="v0.39.0"
+AIVEN_OPERATOR_VERSION="v0.46.0"
 AIVEN_BASE_URL="https://raw.githubusercontent.com/aiven/aiven-operator/refs/tags/${AIVEN_OPERATOR_VERSION}/config/crd/bases/"
 AIVEN_FILES=(
   aiven.io_opensearches.yaml

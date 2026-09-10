@@ -9,3 +9,4 @@ metadata:
 spec:
   tier: SingleNode
   memory: 1GB
+  version: "9.0"

@@ -21,6 +21,7 @@ func ExampleValkeyForDocumentation() api.NaisObject {
 		Spec: ValkeySpec{
 			Tier:                 ValkeyTierHighAvailability,
 			Memory:               ValkeyMemory1GB,
+			Version:              ValkeyVersionV9_1,
 			MaxMemoryPolicy:      ValkeyMaxMemoryPolicyNoEviction,
 			NotifyKeyspaceEvents: "KEA",
 			Persistence: &ValkeyPersistence{

@@ -59,4 +59,9 @@ type ServiceStatus struct {
 
 	// Service state (POWEROFF, REBUILDING, REBALANCING, RUNNING)
 	State string `json:"state,omitempty"`
+
+	// Version of the service currently running.
+	// May be more specific than the version configured in userConfig, e.g. `8.1.2` vs `8.1`.
+	// Only populated by aiven-operator v0.46.0 and newer.
+	Version string `json:"version,omitempty"`
 }

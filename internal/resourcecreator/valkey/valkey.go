@@ -3,7 +3,6 @@ package valkey
 import (
 	"fmt"
 	"maps"
-	"reflect"
 
 	"github.com/nais/pgrator/internal/config"
 	aiven_v1alpha1 "github.com/nais/pgrator/internal/thirdparty/aiven/v1alpha1"
@@ -64,6 +63,12 @@ func CreateSpec(
 ) (*aiven_v1alpha1.Valkey, error) {
 	aivenValkey := Minimal(valkey)
 
+	// The caller resolves the version against what Aiven reports as running and assigns it back
+	// onto the object. Without that, an empty version would reach Aiven as a blank pin.
+	if valkey.Spec.Version == "" {
+		return nil, fmt.Errorf("spec.version is unset; ResolveVersion must run first")
+	}
+
 	plan, err := valkey.AivenPlan()
 	if err != nil {
 		return nil, err
@@ -79,10 +84,7 @@ func CreateSpec(
 			"app":    valkey.GetName(),
 			"tenant": tenant.Name,
 		},
-	}
-
-	if userConfig := aivenValkeyUserConfig(valkey); userConfig != nil {
-		aivenValkey.Spec.UserConfig = userConfig
+		UserConfig: aivenValkeyUserConfig(valkey),
 	}
 
 	err = controllerutil.SetControllerReference(valkey, aivenValkey, scheme)
@@ -95,6 +97,7 @@ func CreateSpec(
 
 func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
 	userConfig := aiven_v1alpha1.ValkeyUserConfig{
+		ValkeyVersion:           new(string(valkey.Spec.Version)),
 		ValkeyNumberOfDatabases: valkey.Spec.Databases,
 	}
 
@@ -110,9 +113,6 @@ func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
 		userConfig.ValkeyPersistence = new("off")
 	}
 
-	if reflect.DeepEqual(userConfig, aiven_v1alpha1.ValkeyUserConfig{}) {
-		return nil
-	}
 	return &userConfig
 }
 

@@ -9,3 +9,4 @@ metadata:
 spec:
   tier: HighAvailability
   memory: 8GB
+  version: "8.1"

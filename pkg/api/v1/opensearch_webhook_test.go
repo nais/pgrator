@@ -86,7 +86,7 @@ func TestOpenSearchValidatorValidateCreate(t *testing.T) {
 }
 
 func TestOpenSearchValidatorValidateCreateMaxContentLength(t *testing.T) {
-	validQuantities := []string{"100Mi", "1Gi", "1", "2147483647", "2G", "2047Mi"}
+	validQuantities := []string{"100Mi", "1Gi", "1Mi", "2147483647", "2G", "2047Mi"}
 	validator := &OpenSearchValidator{}
 
 	for _, quantity := range validQuantities {
@@ -105,7 +105,8 @@ func TestOpenSearchValidatorValidateCreateMaxContentLength(t *testing.T) {
 		quantity  string
 		wantError string
 	}{
-		{name: "zero bytes", quantity: "0", wantError: "http.maxContentLength must be at least 1 byte"},
+		{name: "zero bytes", quantity: "0", wantError: "http.maxContentLength must be at least 1048576 bytes"},
+		{name: "one byte below minimum", quantity: "1048575", wantError: "http.maxContentLength must be at least 1048576 bytes"},
 		{name: "exceeds max", quantity: "3Gi", wantError: "http.maxContentLength must be at most 2147483647 bytes"},
 		{name: "exactly 2Gi exceeds int32 max", quantity: "2Gi", wantError: "http.maxContentLength must be at most 2147483647 bytes"},
 	}
