@@ -41,7 +41,7 @@ spec:
                 credentials:
                   - admin
 
-    - name: The binding adopts the durable owner role
+    - name: The binding uses the instance-owned durable owner role
       try:
         - assert:
             resource:
@@ -52,7 +52,7 @@ spec:
               spec:
                 name: app
                 login: true
-                databaseRoleReclaimPolicy: retain
+                databaseRoleReclaimPolicy: delete
 
     - name: The binding points at the durable owner
       try:
@@ -63,7 +63,7 @@ spec:
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
-    - name: Deleting the binding removes its credential but retains the database role
+    - name: Deleting the binding removes its credential and retains the instance-owned role
       try:
         - delete:
             ref:
