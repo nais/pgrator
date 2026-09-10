@@ -7,7 +7,7 @@ concurrency:
 on:
   push:
     paths-ignore:
-      - '*.md'
+      - "*.md"
 
 env:
   GOOGLE_REGISTRY: "europe-north1-docker.pkg.dev"
@@ -91,6 +91,10 @@ jobs:
         run: |
           cp -v ../pgrator/doc/output/nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/postgres-spec.md
           cp -v ../pgrator/doc/output/nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/postgres-example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/valkey/reference.md docs/persistence/valkey/reference/valkey-spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/valkey/example.md docs/persistence/valkey/reference/valkey-example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/opensearch/reference.md docs/persistence/opensearch/reference/opensearch-spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/opensearch/example.md docs/persistence/opensearch/reference/opensearch-example.md
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -98,7 +102,7 @@ jobs:
           git --no-pager diff --cached
           if [ ! -z "$(git diff --cached)" ]; then
             git commit -a --author "$GITHUB_ACTOR <$GITHUB_ACTOR@users.noreply.github.com>" \
-              -m "postgres: automatic update of reference spec and example" \
+              -m "pgrator: automatic update of reference spec and example" \
               -m "Ref: https://github.com/nais/pgrator/commit/${GITHUB_SHA}"
             git push
           else
@@ -115,7 +119,7 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # ratchet:sigstore/cosign-installer@v4.1.2
         with:
-          cosign-release: 'v2.2.3'
+          cosign-release: "v2.2.3"
       - name: Verify runner image
         run: cosign verify --certificate-identity keyless@distroless.iam.gserviceaccount.com --certificate-oidc-issuer https://accounts.google.com gcr.io/distroless/static-debian11
       - uses: nais/platform-build-push-sign@main # ratchet:exclude
@@ -143,9 +147,9 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5.0.1
-        name: 'Setup Helm'
+        name: "Setup Helm"
         with:
-          version: '3.8.0'
+          version: "3.8.0"
       - name: Set versions
         run: |-
           for chart in charts/*; do
@@ -193,31 +197,31 @@ jobs:
 
   chart:
     permissions:
-      id-token: 'write'
+      id-token: "write"
     name: Build and push chart
     runs-on: ubuntu-latest
     needs:
       - build
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-      - id: 'auth'
-        name: 'Authenticate to Google Cloud'
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
         if: github.actor != 'dependabot[bot]'
-        uses: 'google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093' # ratchet:google-github-actions/auth@v3.0.0
+        uses: "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093" # ratchet:google-github-actions/auth@v3.0.0
         with:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: 'gh-pgrator@nais-io.iam.gserviceaccount.com'
-          token_format: 'access_token'
-      - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db' # ratchet:google-github-actions/setup-gcloud@v3.0.1
-      - name: 'Log in to Google Artifact Registry'
+          service_account: "gh-pgrator@nais-io.iam.gserviceaccount.com"
+          token_format: "access_token"
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db" # ratchet:google-github-actions/setup-gcloud@v3.0.1
+      - name: "Log in to Google Artifact Registry"
         if: github.actor != 'dependabot[bot]'
         run: |-
           echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://${{ env.GOOGLE_REGISTRY }}
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5.0.1
-        name: 'Setup Helm'
+        name: "Setup Helm"
         with:
-          version: '3.8.0'
+          version: "3.8.0"
       - name: Set versions
         run: |-
           for chart in charts/*; do
@@ -257,7 +261,7 @@ jobs:
       - test-chart
       - test
       - lint
-      - branch-protection-checkpoint 
+      - branch-protection-checkpoint
     runs-on: fasit-deploy
     permissions:
       id-token: write
