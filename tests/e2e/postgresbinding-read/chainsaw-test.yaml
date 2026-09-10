@@ -63,6 +63,12 @@ spec:
 
     - name: Connection Secret points at the pooler with the binding's own identity
       try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: postgres-mydb-rapport-read
         - script:
             content: |
               set -eu
