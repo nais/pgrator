@@ -57,6 +57,8 @@ type PostgresInstancePreparedData struct {
 	PostgresUID         types.UID       `yaml:"postgresUID"`
 	PostgresSpec        v1.PostgresSpec `yaml:"postgresSpec"`
 	TeamGoogleProjectID string          `yaml:"teamGoogleProjectID"`
+	RecoverySource      *rccnpg.RecoverySource
+	RecoverySourceReady bool
 }
 
 func (r *PostgresInstanceReconciler) Name() string {
@@ -88,9 +90,30 @@ func (r *PostgresInstanceReconciler) OwnedTypes() []reconciler.OwnedType {
 			reconciler.OwnedType{Type: &cnpgv1.ScheduledBackup{}},
 			reconciler.OwnedType{Type: &barmanv1.ObjectStore{}},
 			reconciler.OwnedType{Type: &gkenetworking.FQDNNetworkPolicy{}},
-			reconciler.OwnedType{Type: &iamcnrm.IAMServiceAccount{}},
-			reconciler.OwnedType{Type: &iamcnrm.IAMPolicyMember{}},
-			reconciler.OwnedType{Type: &storagecnrm.StorageBucket{}},
+			reconciler.OwnedType{
+				Type: &iamcnrm.IAMServiceAccount{},
+				AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+					oldResource, oldOK := e.ObjectOld.(*iamcnrm.IAMServiceAccount)
+					newResource, newOK := e.ObjectNew.(*iamcnrm.IAMServiceAccount)
+					return oldOK && newOK && configConnectorReady(oldResource) != configConnectorReady(newResource)
+				}},
+			},
+			reconciler.OwnedType{
+				Type: &iamcnrm.IAMPolicyMember{},
+				AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+					oldResource, oldOK := e.ObjectOld.(*iamcnrm.IAMPolicyMember)
+					newResource, newOK := e.ObjectNew.(*iamcnrm.IAMPolicyMember)
+					return oldOK && newOK && configConnectorReady(oldResource) != configConnectorReady(newResource)
+				}},
+			},
+			reconciler.OwnedType{
+				Type: &storagecnrm.StorageBucket{},
+				AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+					oldResource, oldOK := e.ObjectOld.(*storagecnrm.StorageBucket)
+					newResource, newOK := e.ObjectNew.(*storagecnrm.StorageBucket)
+					return oldOK && newOK && configConnectorReady(oldResource) != configConnectorReady(newResource)
+				}},
+			},
 		)
 	}
 	return ownedTypes
@@ -155,6 +178,9 @@ func (r *PostgresInstanceReconciler) Prepare(ctx context.Context, reader client.
 		PostgresUID:  postgres.GetUID(),
 		PostgresSpec: postgres.Spec,
 	}
+	if obj.Spec.Bootstrap != nil && obj.Spec.Bootstrap.Recovery != nil && !r.walArchivingEnabled() {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery requires WAL archiving")
+	}
 	if !r.walArchivingEnabled() {
 		return prepared, ctrl.Result{}, nil
 	}
@@ -174,7 +200,51 @@ func (r *PostgresInstanceReconciler) Prepare(ctx context.Context, reader client.
 			obj.GetNamespace(), ProjectIDLabel, ProjectIDAnnotationFallback)
 	}
 	prepared.TeamGoogleProjectID = projectID
-
+	if obj.Spec.Bootstrap == nil || obj.Spec.Bootstrap.Recovery == nil {
+		return prepared, ctrl.Result{}, nil
+	}
+	recovery := obj.Spec.Bootstrap.Recovery
+	prepared.RecoverySource = &rccnpg.RecoverySource{
+		BucketName: r.bucketNameForInstanceName(obj.GetNamespace(), recovery.SourceInstance, prepared),
+		ServerName: rccnpg.ClusterNameFor(recovery.SourceInstance),
+		TargetTime: recovery.TargetTime,
+	}
+	if recovery.SourceInstance == obj.GetName() {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source instance cannot be itself")
+	}
+	if recovery.TargetTime.IsZero() {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time is required")
+	}
+	_, offset := recovery.TargetTime.Zone()
+	if offset != 0 {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must be UTC")
+	}
+	cluster := &cnpgv1.Cluster{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(obj.GetName())}, cluster); err == nil && recoveryComplete(cluster) {
+		return prepared, ctrl.Result{}, nil
+	} else if !apierrors.IsNotFound(err) {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery cluster: %w", err)
+	}
+	source := &v1.PostgresInstance{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: recovery.SourceInstance}, source); err != nil {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery source instance %q: %w", recovery.SourceInstance, err)
+	}
+	if source.Spec.Postgres != obj.Spec.Postgres {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source instance %q belongs to Postgres %q, want %q", source.GetName(), source.Spec.Postgres, obj.Spec.Postgres)
+	}
+	sourceArchives := &barmanv1.ObjectStoreList{}
+	if err := reader.List(ctx, sourceArchives, client.InNamespace(obj.GetNamespace()), client.MatchingLabels{rcstorage.OwnerNameLabel: source.GetName()}); err != nil {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("listing recovery source archives for instance %q: %w", source.GetName(), err)
+	}
+	if len(sourceArchives.Items) != 1 {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source instance %q has %d archives, want 1", source.GetName(), len(sourceArchives.Items))
+	}
+	prepared.RecoverySource.BucketName = sourceArchives.Items[0].GetName()
+	sourceBucket := &storagecnrm.StorageBucket{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: prepared.RecoverySource.BucketName}, sourceBucket); err != nil {
+		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery source archive for instance %q: %w", source.GetName(), err)
+	}
+	prepared.RecoverySourceReady = configConnectorReady(sourceBucket)
 	return prepared, ctrl.Result{}, nil
 }
 
@@ -193,15 +263,6 @@ func (r *PostgresInstanceReconciler) Update(obj *v1.PostgresInstance, prepared P
 
 	actions := make([]action.Action, 0, 5)
 	wal := r.walArchive(obj, prepared)
-
-	cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
-	}
-	if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
-		return nil, ctrl.Result{}, err
-	}
-	actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
 
 	ownerRole, err := createDurableOwnerRole(r.Scheme, obj)
 	if err != nil {
@@ -227,12 +288,29 @@ func (r *PostgresInstanceReconciler) Update(obj *v1.PostgresInstance, prepared P
 	}
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
+	clusterKey := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.ClusterNameFor(obj.GetName()),
+		Namespace: obj.GetNamespace(),
+	}}
+	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
+	clusterExists := existingCluster != nil
+	recoveryInProgress := prepared.RecoverySource != nil && !recoveryComplete(existingCluster)
 	if wal.Enabled() {
-		walActions, err := r.walActions(obj, prepared, wal, relatedObjects, specSource)
+		walActions, err := r.walActions(obj, prepared, wal, recoveryInProgress, relatedObjects, specSource)
 		if err != nil {
 			return nil, ctrl.Result{}, err
 		}
 		actions = append(actions, walActions...)
+	}
+	if prepared.RecoverySource == nil || clusterExists || prepared.RecoverySourceReady && recoveryInfrastructureReady(obj, wal, prepared.RecoverySource, relatedObjects) {
+		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, prepared.RecoverySource)
+		if err != nil {
+			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
+		}
+		if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
+			return nil, ctrl.Result{}, err
+		}
+		actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
 	}
 
 	return actions, ctrl.Result{}, nil
@@ -307,6 +385,10 @@ func storageBucketViewerPolicyNameFor(instance string) string {
 	return namegen.MustShortenName(fmt.Sprintf("cnpg-wal-viewer-%s", instance), validation.DNS1123SubdomainMaxLength)
 }
 
+func recoverySourcePolicyNameFor(instance string) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-recovery-source-%s", instance), validation.DNS1123SubdomainMaxLength)
+}
+
 func (r *PostgresInstanceReconciler) bucketName(instance *v1.PostgresInstance, prepared PostgresInstancePreparedData) string {
 	if !r.walArchivingEnabled() {
 		return ""
@@ -321,13 +403,21 @@ func (r *PostgresInstanceReconciler) bucketName(instance *v1.PostgresInstance, p
 		uid = uid[:instanceBucketUIDSuffixLen]
 	}
 
+	return r.bucketNameForInstanceName(instance.GetNamespace(), instance.GetName(), prepared)
+}
+
+func (r *PostgresInstanceReconciler) bucketNameForInstanceName(namespace, instanceName string, prepared PostgresInstancePreparedData) string {
+	uid := strings.ReplaceAll(string(prepared.PostgresUID), "-", "")
+	if len(uid) > instanceBucketUIDSuffixLen {
+		uid = uid[:instanceBucketUIDSuffixLen]
+	}
 	prefix := strings.Trim(r.Config.CNPG.WalBucketPrefix, "-")
 	maxBaseLength := instanceBucketNameMaxLength - len(uid) - 1
-	base := bucketNameBase(prefix, instance.GetNamespace(), instance.GetName(), maxBaseLength)
+	base := bucketNameBase(prefix, namespace, instanceName, maxBaseLength)
 	return fmt.Sprintf("%s-%s", base, uid)
 }
 
-func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, prepared PostgresInstancePreparedData, wal rccnpg.WALArchive, relatedObjects reconciler.RelatedObjects, specSource *v1.Postgres) ([]action.Action, error) {
+func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, prepared PostgresInstancePreparedData, wal rccnpg.WALArchive, needsRecoverySourceAccess bool, relatedObjects reconciler.RelatedObjects, specSource *v1.Postgres) ([]action.Action, error) {
 	actions := make([]action.Action, 0, 8)
 
 	gsa := rciam.CreateIAMServiceAccount(wal.GSAName, instance.GetNamespace())
@@ -401,6 +491,24 @@ func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, p
 		}
 		actions = append(actions, bucketPolicyAction)
 	}
+	if needsRecoverySourceAccess {
+		sourcePolicy := rciam.CreateStorageBucketPolicyMember(
+			recoverySourcePolicyNameFor(instance.GetName()),
+			instance.GetNamespace(),
+			prepared.TeamGoogleProjectID,
+			wal.GSAName,
+			prepared.RecoverySource.BucketName,
+			rciam.StorageObjectViewerRole,
+		)
+		if err := controllerutil.SetControllerReference(instance, sourcePolicy, r.Scheme); err != nil {
+			return nil, fmt.Errorf("setting controller reference on recovery source IAMPolicyMember: %w", err)
+		}
+		sourcePolicyAction, err := r.policyMemberAction(sourcePolicy, instance, relatedObjects)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, sourcePolicyAction)
+	}
 
 	objectStore := rcstorage.CreateObjectStore(wal.BucketName, metav1.ObjectMeta{
 		Namespace: instance.GetNamespace(),
@@ -452,6 +560,69 @@ func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
 	for _, condition := range cluster.Status.Conditions {
 		if condition.Type == string(cnpgv1.ConditionContinuousArchiving) {
 			return condition.Status == metav1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func recoveryComplete(cluster *cnpgv1.Cluster) bool {
+	if cluster == nil || !cluster.IsInitialized() {
+		return false
+	}
+	for _, condition := range cluster.Status.Conditions {
+		if condition.Type == string(cnpgv1.ConditionClusterReady) {
+			return condition.Status == metav1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func recoveryInfrastructureReady(instance *v1.PostgresInstance, wal rccnpg.WALArchive, recovery *rccnpg.RecoverySource, relatedObjects reconciler.RelatedObjects) bool {
+	resources := []client.Object{
+		rciam.CreateIAMServiceAccount(gsaNameFor(instance.GetName()), instance.GetNamespace()),
+		rciam.CreateWorkloadIdentityPolicyMember(workloadIdentityPolicyNameFor(instance.GetName()), instance.GetNamespace(), instance.GetNamespace(), "", gsaNameFor(instance.GetName()), rccnpg.ClusterNameFor(instance.GetName())),
+		rciam.CreateStorageBucketPolicyMember(storageBucketPolicyNameFor(instance.GetName()), instance.GetNamespace(), "", gsaNameFor(instance.GetName()), wal.BucketName, rciam.StorageObjectUserRole),
+		rciam.CreateStorageBucketPolicyMember(storageBucketViewerPolicyNameFor(instance.GetName()), instance.GetNamespace(), "", gsaNameFor(instance.GetName()), wal.BucketName, rciam.StorageBucketViewerRole),
+		rciam.CreateStorageBucketPolicyMember(recoverySourcePolicyNameFor(instance.GetName()), instance.GetNamespace(), "", gsaNameFor(instance.GetName()), recovery.BucketName, rciam.StorageObjectViewerRole),
+		&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: wal.BucketName, Namespace: instance.GetNamespace()}},
+	}
+	for _, resource := range resources {
+		if !configConnectorReady(relatedObjects.GetMatching(resource)) {
+			return false
+		}
+	}
+	objectStore := &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: wal.BucketName, Namespace: instance.GetNamespace()}}
+	if relatedObjects.GetMatching(objectStore) == nil {
+		return false
+	}
+	return true
+}
+
+func configConnectorReady(object client.Object) bool {
+	var conditions []metav1.Condition
+	var observedGeneration int64
+	switch resource := object.(type) {
+	case *iamcnrm.IAMServiceAccount:
+		conditions = resource.Status.Conditions
+		observedGeneration = resource.Status.ObservedGeneration
+	case *iamcnrm.IAMPolicyMember:
+		conditions = resource.Status.Conditions
+		observedGeneration = resource.Status.ObservedGeneration
+	case *storagecnrm.StorageBucket:
+		conditions = resource.Status.Conditions
+		if resource.Status.ObservedGeneration == nil {
+			return false
+		}
+		observedGeneration = *resource.Status.ObservedGeneration
+	default:
+		return false
+	}
+	if object.GetGeneration() != observedGeneration {
+		return false
+	}
+	for _, condition := range conditions {
+		if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue {
+			return true
 		}
 	}
 	return false

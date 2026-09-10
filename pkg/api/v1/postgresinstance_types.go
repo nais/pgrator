@@ -5,12 +5,35 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// PostgresInstanceBootstrap describes how a physical instance is initialized.
+type PostgresInstanceBootstrap struct {
+	// Recovery initializes the instance from another instance's archive.
+	// +optional
+	Recovery *PostgresInstanceRecovery `json:"recovery,omitempty"`
+}
+
+// PostgresInstanceRecovery identifies an immutable point-in-time recovery source.
+type PostgresInstanceRecovery struct {
+	// SourceInstance is the physical instance whose archive is recovered.
+	// +kubebuilder:validation:MinLength=1
+	SourceInstance string `json:"sourceInstance"`
+
+	// TargetTime is the UTC point in time to recover to.
+	TargetTime metav1.Time `json:"targetTime"`
+}
+
 // PostgresInstanceSpec defines the desired state of a physical Postgres instance.
 type PostgresInstanceSpec struct {
 	// Postgres is the logical Postgres this physical instance belongs to.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Immutable
 	Postgres string `json:"postgres"`
+
+	// Bootstrap describes how this physical instance is initialized. It is immutable
+	// because it is the instance's durable bootstrap provenance.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="bootstrap is immutable"
+	Bootstrap *PostgresInstanceBootstrap `json:"bootstrap,omitempty"`
 }
 
 // PostgresInstanceStatus defines the observed state of a PostgresInstance.
