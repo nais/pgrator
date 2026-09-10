@@ -116,6 +116,19 @@ spec:
                 login: true
                 inRoles:
                   - app_readwrite
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: postgres-mydb-rapport-readwrite-mydb-readwrite-client-cert
+              type: kubernetes.io/tls
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: postgres-mydb-rapport-readwrite
         - script:
             content: |
               set -eu
