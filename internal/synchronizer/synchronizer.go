@@ -135,7 +135,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	defer func() {
 		if err := updateStatus(); err != nil {
-			logger.Error(err, "deferred update of status failed")
+			if !s.deferredStatusUpdateIsStale(ctx, obj, err) {
+				logger.Error(err, "deferred update of status failed")
+			}
 		}
 	}()
 
@@ -339,6 +341,17 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return result, nil
+}
+
+func (s *Synchronizer[T, P]) deferredStatusUpdateIsStale(ctx context.Context, obj T, err error) bool {
+	if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+		return true
+	}
+	current := s.reconciler.New()
+	if getErr := s.client.Get(ctx, client.ObjectKeyFromObject(obj), current); getErr != nil {
+		return apierrors.IsNotFound(getErr)
+	}
+	return current.GetUID() != obj.GetUID()
 }
 
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
