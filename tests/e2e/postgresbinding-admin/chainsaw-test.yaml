@@ -38,8 +38,8 @@ spec:
                   workload:
                     name: eier
                     type: application
-                secretName: mydb-eier-admin-client-cert
-                role: admin
+                credentials:
+                  - admin
 
     - name: The binding adopts the durable owner role
       try:
@@ -48,7 +48,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-eier-admin
+                name: pg-mydb-app
               spec:
                 name: app
                 login: true
@@ -76,15 +76,15 @@ spec:
               kind: Secret
               metadata:
                 name: eier-mydb
-        - error:
+        - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-eier-admin
-        - error:
+                name: pg-mydb-app
+        - assert:
             resource:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: mydb-eier-admin-client-cert
+                name: pg-mydb-app-client-cert
