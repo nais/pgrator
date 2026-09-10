@@ -37,7 +37,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const postgresInstancePostgresIndex = "spec.postgres"
+const (
+	postgresInstancePostgresIndex       = "spec.postgres"
+	postgresInstanceRecoverySourceIndex = "spec.bootstrap.recovery.sourceInstance"
+)
 
 const (
 	instanceBucketNameMaxLength = 63
@@ -77,7 +80,7 @@ func (r *PostgresInstanceReconciler) OwnedTypes() []reconciler.OwnedType {
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-					return oldOK && newOK && continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster)
+					return oldOK && newOK && (continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster) || recoveryComplete(oldCluster) != recoveryComplete(newCluster))
 				},
 			},
 		},
@@ -124,25 +127,52 @@ func (r *PostgresInstanceReconciler) AdditionalTypes() []client.Object {
 }
 
 func (r *PostgresInstanceReconciler) Indexes() []reconciler.Index {
-	return []reconciler.Index{{
-		Object: &v1.PostgresInstance{},
-		Field:  postgresInstancePostgresIndex,
-		ExtractValue: func(object client.Object) []string {
-			instance, ok := object.(*v1.PostgresInstance)
-			if !ok || instance.Spec.Postgres == "" {
-				return nil
-			}
-			return []string{instance.Spec.Postgres}
+	return []reconciler.Index{
+		{
+			Object: &v1.PostgresInstance{},
+			Field:  postgresInstancePostgresIndex,
+			ExtractValue: func(object client.Object) []string {
+				instance, ok := object.(*v1.PostgresInstance)
+				if !ok || instance.Spec.Postgres == "" {
+					return nil
+				}
+				return []string{instance.Spec.Postgres}
+			},
 		},
-	}}
+		{
+			Object:       &v1.PostgresInstance{},
+			Field:        postgresInstanceRecoverySourceIndex,
+			ExtractValue: recoverySourceInstanceIndex,
+		},
+	}
 }
 
 func (r *PostgresInstanceReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
-	return []reconciler.RelationshipWatch{{
-		Type:      &v1.Postgres{},
-		Map:       r.instancesForPostgres,
-		Predicate: predicate.GenerationChangedPredicate{},
-	}}
+	return []reconciler.RelationshipWatch{
+		{
+			Type:      &v1.Postgres{},
+			Map:       r.instancesForPostgres,
+			Predicate: predicate.GenerationChangedPredicate{},
+		},
+		{
+			Type:      &v1.PostgresInstance{},
+			Map:       r.instancesForRecoverySource,
+			Predicate: predicate.GenerationChangedPredicate{},
+		},
+		{
+			Type:      &storagecnrm.StorageBucket{},
+			Map:       r.instancesForRecoverySourceBucket,
+			Predicate: configConnectorReadinessEventFilter(),
+		},
+	}
+}
+
+func recoverySourceInstanceIndex(object client.Object) []string {
+	instance, ok := object.(*v1.PostgresInstance)
+	if !ok || instance.Spec.Bootstrap == nil || instance.Spec.Bootstrap.Recovery == nil || instance.Spec.Bootstrap.Recovery.SourceInstance == "" {
+		return nil
+	}
+	return []string{instance.Spec.Bootstrap.Recovery.SourceInstance}
 }
 
 func (r *PostgresInstanceReconciler) instancesForPostgres(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -156,6 +186,44 @@ func (r *PostgresInstanceReconciler) instancesForPostgres(ctx context.Context, r
 		return nil, fmt.Errorf("listing PostgresInstances for Postgres %q: %w", postgres.GetName(), err)
 	}
 
+	requests := make([]reconcile.Request, 0, len(instances.Items))
+	for i := range instances.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&instances.Items[i])})
+	}
+	return requests, nil
+}
+
+func (r *PostgresInstanceReconciler) instancesForRecoverySource(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	instance, ok := object.(*v1.PostgresInstance)
+	if !ok {
+		return nil, nil
+	}
+	return r.recoveryRequestsForSource(ctx, reader, instance.GetNamespace(), instance.GetName())
+}
+
+func (r *PostgresInstanceReconciler) instancesForRecoverySourceBucket(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	bucket, ok := object.(*storagecnrm.StorageBucket)
+	if !ok {
+		return nil, nil
+	}
+	objectStore := &barmanv1.ObjectStore{}
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(bucket), objectStore); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting ObjectStore for recovery source bucket %q: %w", bucket.GetName(), err)
+	}
+	return r.recoveryRequestsForSource(ctx, reader, bucket.GetNamespace(), objectStore.Labels[rcstorage.OwnerNameLabel])
+}
+
+func (r *PostgresInstanceReconciler) recoveryRequestsForSource(ctx context.Context, reader client.Reader, namespace, source string) ([]reconcile.Request, error) {
+	if source == "" {
+		return nil, nil
+	}
+	instances := &v1.PostgresInstanceList{}
+	if err := reader.List(ctx, instances, client.InNamespace(namespace), client.MatchingFields{postgresInstanceRecoverySourceIndex: source}); err != nil {
+		return nil, fmt.Errorf("listing recovery PostgresInstances for source %q: %w", source, err)
+	}
 	requests := make([]reconcile.Request, 0, len(instances.Items))
 	for i := range instances.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&instances.Items[i])})
@@ -205,7 +273,7 @@ func (r *PostgresInstanceReconciler) Prepare(ctx context.Context, reader client.
 	}
 	recovery := obj.Spec.Bootstrap.Recovery
 	prepared.RecoverySource = &rccnpg.RecoverySource{
-		BucketName: r.bucketNameForInstanceName(obj.GetNamespace(), recovery.SourceInstance, prepared),
+		BucketName: r.bucketNameForInstanceName(obj.GetNamespace(), recovery.SourceInstance, prepared.PostgresUID),
 		ServerName: rccnpg.ClusterNameFor(recovery.SourceInstance),
 		TargetTime: recovery.TargetTime,
 	}
@@ -403,11 +471,11 @@ func (r *PostgresInstanceReconciler) bucketName(instance *v1.PostgresInstance, p
 		uid = uid[:instanceBucketUIDSuffixLen]
 	}
 
-	return r.bucketNameForInstanceName(instance.GetNamespace(), instance.GetName(), prepared)
+	return r.bucketNameForInstanceName(instance.GetNamespace(), instance.GetName(), types.UID(uid))
 }
 
-func (r *PostgresInstanceReconciler) bucketNameForInstanceName(namespace, instanceName string, prepared PostgresInstancePreparedData) string {
-	uid := strings.ReplaceAll(string(prepared.PostgresUID), "-", "")
+func (r *PostgresInstanceReconciler) bucketNameForInstanceName(namespace, instanceName string, postgresUID types.UID) string {
+	uid := strings.ReplaceAll(string(postgresUID), "-", "")
 	if len(uid) > instanceBucketUIDSuffixLen {
 		uid = uid[:instanceBucketUIDSuffixLen]
 	}
@@ -415,6 +483,18 @@ func (r *PostgresInstanceReconciler) bucketNameForInstanceName(namespace, instan
 	maxBaseLength := instanceBucketNameMaxLength - len(uid) - 1
 	base := bucketNameBase(prefix, namespace, instanceName, maxBaseLength)
 	return fmt.Sprintf("%s-%s", base, uid)
+}
+
+func configConnectorReadinessEventFilter() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		DeleteFunc: func(event.DeleteEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource, oldOK := e.ObjectOld.(*storagecnrm.StorageBucket)
+			newResource, newOK := e.ObjectNew.(*storagecnrm.StorageBucket)
+			return oldOK && newOK && configConnectorReady(oldResource) != configConnectorReady(newResource)
+		},
+	}
 }
 
 func (r *PostgresInstanceReconciler) walActions(instance *v1.PostgresInstance, prepared PostgresInstancePreparedData, wal rccnpg.WALArchive, needsRecoverySourceAccess bool, relatedObjects reconciler.RelatedObjects, specSource *v1.Postgres) ([]action.Action, error) {
@@ -592,10 +672,7 @@ func recoveryInfrastructureReady(instance *v1.PostgresInstance, wal rccnpg.WALAr
 		}
 	}
 	objectStore := &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: wal.BucketName, Namespace: instance.GetNamespace()}}
-	if relatedObjects.GetMatching(objectStore) == nil {
-		return false
-	}
-	return true
+	return relatedObjects.GetMatching(objectStore) != nil
 }
 
 func configConnectorReady(object client.Object) bool {
