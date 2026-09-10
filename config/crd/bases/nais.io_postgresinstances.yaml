@@ -49,6 +49,33 @@ spec:
           spec:
             description: spec defines the desired state of PostgresInstance
             properties:
+              bootstrap:
+                description: |-
+                  Bootstrap describes how this physical instance is initialized. It is immutable
+                  because it is the instance's durable bootstrap provenance.
+                properties:
+                  recovery:
+                    description: Recovery initializes the instance from another instance's
+                      archive.
+                    properties:
+                      sourceInstance:
+                        description: SourceInstance is the physical instance whose
+                          archive is recovered.
+                        minLength: 1
+                        type: string
+                      targetTime:
+                        description: TargetTime is the UTC point in time to recover
+                          to.
+                        format: date-time
+                        type: string
+                    required:
+                    - sourceInstance
+                    - targetTime
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: bootstrap is immutable
+                  rule: self == oldSelf
               postgres:
                 description: Postgres is the logical Postgres this physical instance
                   belongs to.
