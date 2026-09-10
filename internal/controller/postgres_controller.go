@@ -81,6 +81,12 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 }
 
 func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	activeInstance := obj.Spec.ActiveInstance
+	if activeInstance == "" {
+		activeInstance = obj.GetName()
+	}
+	obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = activeInstance
+
 	if obj.Spec.ActiveInstance != "" {
 		return nil, ctrl.Result{}, nil
 	}
