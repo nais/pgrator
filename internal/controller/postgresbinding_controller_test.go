@@ -20,7 +20,7 @@ import (
 
 func TestPostgresBindingSnapshot(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
-		Postgres:    "orders",
+		Postgres: "orders", SecretName: "reporter-orders-connection",
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
@@ -43,7 +43,7 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 		requireNoError(t, err)
 		for _, action := range actions {
 			secret, ok := action.GetObject().(*corev1.Secret)
-			if !ok || secret.Name != binding.Name {
+			if !ok || secret.Name != binding.Spec.SecretName {
 				continue
 			}
 			requireEqual(t, string(secret.Data["ca.crt"]), "ca", "CA certificate")
@@ -67,7 +67,7 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 		actions, _, err := r.Update(binding, prepared, nil)
 		requireNoError(t, err)
 		for _, action := range actions {
-			if action.GetObject().GetName() == binding.Name {
+			if action.GetObject().GetName() == binding.Spec.SecretName {
 				if _, ok := action.GetObject().(*corev1.Secret); ok {
 					t.Fatal("incomplete material must not update the stable binding Secret")
 				}
@@ -78,7 +78,7 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 
 func TestPrepareBindingRetainsStatusActiveInstanceWhenSpecIsRemoved(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
-		Postgres:    "orders",
+		Postgres: "orders", SecretName: "reporter-orders-connection",
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
@@ -93,7 +93,7 @@ func TestPrepareBindingRetainsStatusActiveInstanceWhenSpecIsRemoved(t *testing.T
 
 func TestPostgresBindingRelationshipMappers(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
-		Postgres:    "orders",
+		Postgres: "orders", SecretName: "reporter-orders-connection",
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
@@ -138,7 +138,7 @@ func TestPostgresBindingReconciliation(t *testing.T) {
 				Finalizers: []string{"postgresbinding.nais.io"},
 			},
 			Spec: v1.PostgresBindingSpec{
-				Postgres: "already-gone",
+				Postgres: "already-gone", SecretName: "missing-postgres-connection",
 				Consumer: v1.PostgresBindingConsumer{
 					Workload: &v1.PostgresBindingWorkload{
 						Name: "myapp",

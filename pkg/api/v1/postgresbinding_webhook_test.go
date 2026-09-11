@@ -12,7 +12,7 @@ import (
 
 func adminBinding(name, postgres string) *PostgresBinding {
 	return &PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"}, Spec: PostgresBindingSpec{
-		Postgres: postgres, Consumer: PostgresBindingConsumer{Workload: &PostgresBindingWorkload{Name: name, Type: PostgresBindingWorkloadTypeApplication}},
+		Postgres: postgres, SecretName: name + "-connection", Consumer: PostgresBindingConsumer{Workload: &PostgresBindingWorkload{Name: name, Type: PostgresBindingWorkloadTypeApplication}},
 		Credentials: []PostgresBindingCredential{PostgresBindingCredentialAdmin},
 	}}
 }
@@ -40,5 +40,11 @@ func TestPostgresBindingValidator(t *testing.T) {
 	requireNoError(t, err)
 	updated.Spec.Postgres = "other"
 	_, err = validator.ValidateUpdate(context.Background(), old, updated)
-	requireErrorEqual(t, err, "postgres and consumer are immutable")
+	requireErrorEqual(t, err, "postgres, secretName, and consumer are immutable")
+
+	old.Spec.SecretName = ""
+	updated = old.DeepCopy()
+	updated.Spec.SecretName = "first-connection"
+	_, err = validator.ValidateUpdate(context.Background(), old, updated)
+	requireNoError(t, err)
 }

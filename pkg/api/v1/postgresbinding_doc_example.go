@@ -16,7 +16,8 @@ func ExamplePostgresBindingForDocumentation() api.NaisObject {
 			Namespace: "myteam",
 		},
 		Spec: PostgresBindingSpec{
-			Postgres: "mypostgres",
+			Postgres:   "mypostgres",
+			SecretName: "myapp-mypostgres-connection",
 			Consumer: PostgresBindingConsumer{
 				Workload: &PostgresBindingWorkload{
 					Name: "myapp",

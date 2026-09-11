@@ -6,6 +6,7 @@ metadata:
   namespace: myteam
 spec:
   postgres: mydb
+  secretName: myapp-mydb-connection
   consumer:
     workload:
       name: myapp

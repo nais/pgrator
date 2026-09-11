@@ -67,6 +67,12 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
+	// SecretName is the stable connection Secret name Naiserator mounts into the
+	// workload. It is selected by Naiserator to avoid naming collisions. Empty is
+	// supported only for bindings created before this field was introduced.
+	// +optional
+	SecretName string `json:"secretName,omitempty"`
+
 	// Consumer identifies what is granted access.
 	// +kubebuilder:validation:Required
 	Consumer PostgresBindingConsumer `json:"consumer"`
@@ -159,9 +165,10 @@ type PostgresBinding struct {
 
 	// spec defines the desired state of PostgresBinding
 	// +required
-	// Postgres and consumer identity are immutable. Credentials may change as the
-	// workload's uses.postgres declaration changes.
-	// +kubebuilder:validation:XValidation:rule="self.postgres == oldSelf.postgres && self.consumer == oldSelf.consumer",message="postgres and consumer are immutable"
+	// Postgres and consumer identity are immutable. SecretName is immutable after
+	// its one-time addition to bindings created before it was part of the API.
+	// Credentials may change as the workload's uses.postgres declaration changes.
+	// +kubebuilder:validation:XValidation:rule="self.postgres == oldSelf.postgres && self.consumer == oldSelf.consumer && (has(oldSelf.secretName) ? self.secretName == oldSelf.secretName : true)",message="postgres, secretName, and consumer are immutable"
 	Spec PostgresBindingSpec `json:"spec"`
 
 	// status defines the observed state of PostgresBinding
