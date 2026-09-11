@@ -37,10 +37,10 @@ func CreateObjectStore(bucketName string, objectMeta metav1.ObjectMeta) *barmanv
 			},
 			DestinationPath: fmt.Sprintf("gs://%s", bucketName),
 			Wal: &api.WalBackupConfiguration{
-				Compression: api.CompressionTypeZstd,
+				Compression: api.CompressionTypeLz4,
 			},
 			Data: &api.DataBackupConfiguration{
-				Compression: api.CompressionTypeSnappy,
+				Compression: api.CompressionTypeLz4,
 			},
 		},
 	}
