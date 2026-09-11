@@ -12,6 +12,7 @@ import (
 
 type RelatedObjects interface {
 	GetMatching(obj client.Object) client.Object
+	GetMatchingType(client.Object) []client.Object
 }
 
 type Reconciler[T client.Object, P any] interface {
