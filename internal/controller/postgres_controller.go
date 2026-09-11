@@ -93,6 +93,20 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, re
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
 	}
 	if obj.Spec.ActiveInstance != "" {
+		actions := make([]action.Action, 0)
+		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresInstance{}) {
+			instance, ok := candidate.(*v1.PostgresInstance)
+			if !ok || instance.GetNamespace() != obj.GetNamespace() || instance.Spec.Postgres != obj.GetName() {
+				continue
+			}
+			if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
+				return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
+			}
+			actions = append(actions, action.Claim(instance, obj, existsConditionGetter, r.Recorder))
+		}
+		if len(actions) > 0 {
+			return actions, ctrl.Result{}, nil
+		}
 		if relatedObjects.GetMatching(instance) == nil {
 			return nil, ctrl.Result{}, nil
 		}

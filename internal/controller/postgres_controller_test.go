@@ -64,3 +64,39 @@ func TestUpdateRetainsOriginalInstanceWhenActiveInstanceChanges(t *testing.T) {
 		t.Errorf("instance name = %q, want %q", instance.GetName(), postgres.GetName())
 	}
 }
+
+func TestUpdateKeepsAllInstancesWhenActiveInstanceChanges(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	reconciler := &PostgresReconciler{Config: &config.Config{}, Scheme: scheme}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: "orders-restored"}}
+	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
+	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restored", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
+	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "other-team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
+
+	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{}, relatedObjects)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("Update() actions = %d, want 2", len(actions))
+	}
+
+	claimed := map[string]bool{}
+	for _, action := range actions {
+		instance, ok := action.GetObject().(*v1.PostgresInstance)
+		if !ok {
+			t.Fatalf("action object = %T, want PostgresInstance", action.GetObject())
+		}
+		claimed[instance.Namespace+"/"+instance.Name] = true
+	}
+	for _, name := range []string{"orders", "orders-restored"} {
+		if !claimed["team/"+name] {
+			t.Errorf("PostgresInstance %q was not kept referenced", name)
+		}
+	}
+	if claimed["other-team/orders"] {
+		t.Error("PostgresInstance in another namespace was kept referenced")
+	}
+}
