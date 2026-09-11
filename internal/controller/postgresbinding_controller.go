@@ -164,10 +164,7 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		}
 		return nil, fmt.Errorf("getting Postgres %q: %w", binding.Spec.Postgres, err)
 	}
-	activeInstance := postgres.Spec.ActiveInstance
-	if activeInstance == "" {
-		activeInstance = postgres.GetName()
-	}
+	activeInstance := effectiveActiveInstance(postgres)
 	instance := &v1.PostgresInstance{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: activeInstance}, instance); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -226,10 +223,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	activeInstance := postgres.Spec.ActiveInstance
-	if activeInstance == "" {
-		activeInstance = postgres.GetName()
-	}
+	activeInstance := effectiveActiveInstance(postgres)
 
 	instance := &v1.PostgresInstance{}
 	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: activeInstance}
