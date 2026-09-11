@@ -543,10 +543,14 @@ func hasRequired(node apiext.JSONSchemaProps, key string) bool {
 }
 
 func WriteExampleDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
-	ym, _ := yaml.Marshal(exampleResource)
+	buf := bytes.NewBuffer(nil)
+	enc := yaml.NewEncoder(buf)
+	enc.SetIndent(2)
+	_ = enc.Encode(exampleResource)
+	_ = enc.Close()
 
 	_, _ = io.WriteString(w, "``` yaml\n")
-	_, _ = io.Writer.Write(w, ym)
+	_, _ = io.Writer.Write(w, buf.Bytes())
 	_, _ = io.WriteString(w, "```\n")
 }
 
@@ -680,7 +684,7 @@ func getStructSubPath(keyWithDots string, obj any) (any, error) {
 	v := reflect.ValueOf(obj)
 
 	resolve := func(v reflect.Value) reflect.Value {
-		if v.Kind() == reflect.Ptr {
+		if v.Kind() == reflect.Pointer {
 			return v.Elem()
 		}
 		return v

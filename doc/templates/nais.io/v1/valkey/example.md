@@ -12,4 +12,4 @@ tags: [valkey, reference]
 
 This is a complete example of a `Valkey` resource.
 
-For an in-depth explanation of each field, head over to the [reference documentation](./valkey-spec.md).
+For an in-depth explanation of each field, head over to the [reference documentation](./spec.md).
