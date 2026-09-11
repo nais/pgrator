@@ -506,6 +506,7 @@ func postInitSQL() []string {
 	return []string{
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
+		"ALTER ROLE postgres SET pgaudit.log = 'none'",
 	}
 }
 
@@ -515,6 +516,7 @@ func postInitSQL() []string {
 func postInitApplicationSQL() []string {
 	both := ReadRole + ", " + ReadWriteRole
 	return []string{
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", OwnerRole),
 		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
 		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
 		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
@@ -559,7 +561,7 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 		// CNPG auto-loads the matching shared_preload_libraries when it sees
 		// these prefixed parameters. Audit is always on with sane defaults.
 		"pg_stat_statements.track": "all",
-		"pgaudit.log":              strings.Join([]string{"write", "ddl", "role"}, ","),
+		"pgaudit.log":              strings.Join([]string{"read", "write", "ddl", "role"}, ","),
 	}
 }
 

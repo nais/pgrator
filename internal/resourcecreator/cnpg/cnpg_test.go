@@ -8,6 +8,7 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -96,4 +97,24 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("recovery plugin parameters = %#v, want %#v", got, want)
 	}
+}
+
+func TestAuditConfigurationExemptsApplicationRoles(t *testing.T) {
+	parameters := makePostgresParameters(resource.MustParse("512Mi"))
+	if got, want := parameters["pgaudit.log"], "read,write,ddl,role"; got != want {
+		t.Errorf("pgaudit.log = %q, want %q", got, want)
+	}
+
+	assertSQLContains(t, postInitSQL(), "ALTER ROLE postgres SET pgaudit.log = 'none'")
+	assertSQLContains(t, postInitApplicationSQL(), "ALTER ROLE app SET pgaudit.log = 'none'")
+}
+
+func assertSQLContains(t *testing.T, statements []string, want string) {
+	t.Helper()
+	for _, statement := range statements {
+		if statement == want {
+			return
+		}
+	}
+	t.Errorf("SQL statements = %#v, want %q", statements, want)
 }
