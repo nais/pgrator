@@ -59,7 +59,7 @@ func (r *RelatedObjectsMap) GetMatchingType(obj client.Object) []client.Object {
 
 	objects := make([]client.Object, 0)
 	for key, object := range r.objects {
-		if key.GroupVersionKind.GroupKind() == gvk.GroupKind() {
+		if key.GroupKind() == gvk.GroupKind() {
 			objects = append(objects, object)
 		}
 	}
