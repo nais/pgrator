@@ -12,4 +12,4 @@ tags: [opensearch, reference]
 
 This is a complete example of a `OpenSearch` resource.
 
-For an in-depth explanation of each field, head over to the [reference documentation](./opensearch-spec.md).
+For an in-depth explanation of each field, head over to the [reference documentation](./spec.md).

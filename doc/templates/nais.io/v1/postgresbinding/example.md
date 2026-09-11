@@ -16,5 +16,5 @@ tags: [postgres, reference]
 
 This is a complete example of a `PostgresBinding` resource.
 
-For an in-depth explanation of each field, head over to the [reference documentation](./postgresbinding-spec.md).
+For an in-depth explanation of each field, head over to the [reference documentation](./spec.md).
 

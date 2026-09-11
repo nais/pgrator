@@ -16,5 +16,5 @@ tags: [postgres, reference]
 
 This is a complete example of a `Postgres` resource, commonly known as the `postgres.yaml` file.
 
-For an in-depth explanation of each field, head over to the [reference documentation](./postgres-spec.md).
+For an in-depth explanation of each field, head over to the [reference documentation](./spec.md).
 
