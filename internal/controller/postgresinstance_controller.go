@@ -43,8 +43,9 @@ const (
 )
 
 const (
-	instanceBucketNameMaxLength = 63
-	instanceBucketUIDSuffixLen  = 12
+	instanceBucketNameMaxLength  = 63
+	instanceBucketUIDSuffixLen   = 12
+	gcpServiceAccountIDMaxLength = 30
 )
 
 type PostgresInstanceReconciler struct {
@@ -438,7 +439,7 @@ func (r *PostgresInstanceReconciler) walArchive(instance *v1.PostgresInstance, p
 }
 
 func gsaNameFor(instance string) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-%s", instance), validation.DNS1035LabelMaxLength)
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-%s", instance), gcpServiceAccountIDMaxLength)
 }
 
 func workloadIdentityPolicyNameFor(instance string) string {

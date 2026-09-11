@@ -81,3 +81,13 @@ func TestBucketNameDisabled(t *testing.T) {
 		t.Errorf("bucketName() = %q, want empty name when WAL archiving is disabled", got)
 	}
 }
+
+func TestGSANameFor(t *testing.T) {
+	name := gsaNameFor("dagens-postgres-restored-20260911-1200")
+	if len(name) > gcpServiceAccountIDMaxLength {
+		t.Errorf("gsaNameFor() length = %d, want at most %d", len(name), gcpServiceAccountIDMaxLength)
+	}
+	if name != "cnpg-dagens-postgres--b7d68638" {
+		t.Errorf("gsaNameFor() = %q, want %q", name, "cnpg-dagens-postgres--b7d68638")
+	}
+}
