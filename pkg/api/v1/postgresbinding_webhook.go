@@ -32,8 +32,8 @@ func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *Post
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
-	if oldObj.Spec.Postgres != newObj.Spec.Postgres || !reflect.DeepEqual(oldObj.Spec.Consumer, newObj.Spec.Consumer) {
-		return nil, fmt.Errorf("postgres and consumer are immutable")
+	if oldObj.Spec.Postgres != newObj.Spec.Postgres || (oldObj.Spec.SecretName != "" && oldObj.Spec.SecretName != newObj.Spec.SecretName) || !reflect.DeepEqual(oldObj.Spec.Consumer, newObj.Spec.Consumer) {
+		return nil, fmt.Errorf("postgres, secretName, and consumer are immutable")
 	}
 	return nil, v.validate(ctx, newObj)
 }

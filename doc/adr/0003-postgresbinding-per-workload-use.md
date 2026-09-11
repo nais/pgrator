@@ -11,7 +11,7 @@ database. Pgrator represents that relationship with exactly one
 `PostgresBinding`. A binding is identified by its logical Postgres and consumer
 workload, not by a database access role or a physical PostgresInstance.
 
-`PostgresBinding.spec.credentials` is the immutable, exact collection of
+`PostgresBinding.spec.credentials` is the exact, mutable collection of
 credential types required by that workload use. A credential type is one of
 `admin`, `read`, and `readwrite`; duplicates are invalid. Naiserator expands the
 public `uses.postgres.role` shorthand before it creates the binding:
@@ -36,9 +36,9 @@ Postgres/active-instance model provides the `app` credential.
 
 ## Stable binding Secret
 
-A binding owns exactly one stable, workload-facing Secret with the same name and
-namespace as its immutable `PostgresBinding`. It is not supplied as an
-instance-specific `spec.secretName`. Naiserator can therefore reference it while
+A binding owns exactly one stable, workload-facing Secret with the immutable
+name and namespace in `PostgresBinding.spec.secretName`. Naiserator selects that
+name and can therefore reference it while
 constructing the workload, but cannot select a CNPG Secret or learn physical
 instance names. The Secret is controller-owned by the binding and is the only
 Secret pgrator writes for this contract.
@@ -55,7 +55,7 @@ private key. The Secret key names are a versioned cross-controller API:
 
 ```text
 # configuration keys; valid environment-variable names
-PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE, PGSSLROOTCERT, PGSSLCERT, PGSSLKEY
+PGHOST, PGPORT, PGDATABASE, PGUSER, PGSSLMODE
 READ_PGHOST, READ_PGPORT, ...
 READWRITE_PGHOST, READWRITE_PGPORT, ...
 
@@ -67,10 +67,12 @@ readwrite.tls.crt, readwrite.tls.key
 ```
 
 The unprefixed configuration names describe the admin credential when present;
-otherwise naiserator must use the relevant role prefix. Configuration path values
-refer to deterministic paths projected from the same Secret, for example
-`<mount-root>/<postgres>/readwrite/tls.crt`. Naiserator projects the credential
-keys explicitly to those paths and may use `envFrom` for the configuration keys.
+otherwise naiserator must use the relevant role prefix. Naiserator projects the
+credential keys explicitly to its workload-defined paths and sets the matching
+`PGSSLROOTCERT`, `PGSSLCERT`, and `PGSSLKEY` environment variables. The dots in
+credential keys deliberately make them invalid environment-variable names, so
+`envFrom` skips them. Using explicit `secretKeyRef` for configuration keys
+remains compatible with this contract.
 The dots in credential keys deliberately make them invalid environment-variable
 names, so `envFrom` skips them. This is part of the contract, not an accidental
 property: a new credential key must remain an invalid environment-variable name
@@ -132,9 +134,9 @@ mount instance-specific CNPG Secrets.
 
 ## Consequences
 
-- `PostgresBinding.spec.role` and `spec.secretName` are replaced by the immutable
-  `spec.credentials` collection. The binding name determines its stable Secret
-  name.
+- `PostgresBinding.spec.role` is replaced by the mutable `spec.credentials`
+  collection. Naiserator selects the immutable `spec.secretName` that pgrator
+  creates and the workload mounts.
 - Naiserator creates one binding and one stable-Secret reference per
   `uses.postgres` entry, expands role shorthand itself, and never references a
   CNPG CA or client-certificate Secret.

@@ -20,7 +20,7 @@ func newScheme(t *testing.T) *runtime.Scheme {
 
 func TestConfigSecretContainsEveryRequestedCredential(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "mybinding", Namespace: "myteam"}, Spec: v1.PostgresBindingSpec{
-		Postgres: "mydb", Consumer: v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "myapp"}},
+		Postgres: "mydb", SecretName: "myapp-mydb-connection", Consumer: v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "myapp"}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin, v1.PostgresBindingCredentialReadWrite},
 	}}
 	secret, err := CreateConfigSecret(newScheme(t), binding, "mydb-instance", []byte("ca"), map[v1.PostgresBindingCredential]CredentialMaterial{
@@ -29,6 +29,9 @@ func TestConfigSecretContainsEveryRequestedCredential(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateConfigSecret: %v", err)
+	}
+	if got, want := secret.Name, binding.Spec.SecretName; got != want {
+		t.Errorf("Secret name = %q, want %q", got, want)
 	}
 	keys := make([]string, 0, len(secret.StringData))
 	for key := range secret.StringData {

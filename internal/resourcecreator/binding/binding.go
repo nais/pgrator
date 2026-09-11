@@ -93,11 +93,18 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding, instance 
 		secretData[string(credential)+".tls.crt"] = material.Certificate
 		secretData[string(credential)+".tls.key"] = material.PrivateKey
 	}
-	secret := &corev1.Secret{TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"}, ObjectMeta: objectMeta(b, b.GetName()), StringData: data, Data: secretData}
+	secret := &corev1.Secret{TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"}, ObjectMeta: objectMeta(b, secretName(b)), StringData: data, Data: secretData}
 	if err := controllerutil.SetControllerReference(b, secret, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on config Secret: %w", err)
 	}
 	return secret, nil
+}
+
+func secretName(binding *v1.PostgresBinding) string {
+	if binding.Spec.SecretName != "" {
+		return binding.Spec.SecretName
+	}
+	return binding.GetName()
 }
 
 func workloadSelector(workload v1.PostgresBindingWorkload) metav1.LabelSelector {
