@@ -80,16 +80,9 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 	}
 }
 
-func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	activeInstance := obj.Spec.ActiveInstance
-	if activeInstance == "" {
-		activeInstance = obj.GetName()
-	}
+func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	activeInstance := effectiveActiveInstance(obj)
 	obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = activeInstance
-
-	if obj.Spec.ActiveInstance != "" {
-		return nil, ctrl.Result{}, nil
-	}
 
 	instance := &v1.PostgresInstance{
 		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresInstance"},
@@ -99,8 +92,24 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, _ 
 	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
 	}
+	if obj.Spec.ActiveInstance != "" {
+		if relatedObjects.GetMatching(instance) == nil {
+			return nil, ctrl.Result{}, nil
+		}
+		return []action.Action{action.Claim(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
+	}
 
 	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
+}
+
+func effectiveActiveInstance(postgres *v1.Postgres) string {
+	if postgres.Spec.ActiveInstance != "" {
+		return postgres.Spec.ActiveInstance
+	}
+	if postgres.Status != nil && postgres.Status.ActiveInstance != "" {
+		return postgres.Status.ActiveInstance
+	}
+	return postgres.GetName()
 }
 
 func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {

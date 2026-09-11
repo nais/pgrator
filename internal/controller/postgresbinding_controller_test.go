@@ -76,6 +76,21 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 	})
 }
 
+func TestPrepareBindingRetainsStatusActiveInstanceWhenSpecIsRemoved(t *testing.T) {
+	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
+		Postgres:    "orders",
+		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
+		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
+	}}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveInstance: instance.Name}}
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance).Build()
+
+	prepared, _, err := (&PostgresBindingReconciler{}).Prepare(context.Background(), reader, binding)
+	requireNoError(t, err)
+	requireEqual(t, prepared.Instance, instance.Name, "active instance")
+}
+
 func TestPostgresBindingRelationshipMappers(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
 		Postgres:    "orders",
