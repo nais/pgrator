@@ -135,6 +135,31 @@ func TestGoldenPostgres(t *testing.T) {
 	)
 }
 
+func TestGoldenPostgresInstance(t *testing.T) {
+	instanceConfig := config.Config{
+		APIServerIP:     "172.16.0.2/32",
+		GoogleProjectID: "cluster-gcp-project",
+		Google:          config.Google{Location: "europe-north1"},
+		CNPG: config.CNPG{
+			ImageCatalogName: "postgresql",
+			StorageClass:     "hyperdisk-balanced",
+		},
+	}
+	postgresInstanceReconciler := &PostgresInstanceReconciler{
+		Config:   &instanceConfig,
+		Recorder: recorder,
+		Scheme:   scheme.Scheme,
+	}
+
+	runGoldenTestsForResource[*v1.PostgresInstance, PostgresInstancePreparedData, v1.PostgresInstance](
+		t,
+		postgresInstanceReconciler,
+		"postgresinstance",
+		instanceConfig,
+		func(cfg config.Config) { *postgresInstanceReconciler.Config = cfg },
+	)
+}
+
 func TestGoldenPostgresBinding(t *testing.T) {
 	postgresBindingReconciler := &PostgresBindingReconciler{
 		Recorder: recorder,

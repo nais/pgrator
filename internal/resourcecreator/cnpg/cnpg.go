@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
@@ -155,6 +156,14 @@ type WALArchive struct {
 	BucketName string
 }
 
+// RecoverySource describes the archive CNPG uses to bootstrap a recovered
+// instance. The archive remains distinct from the new instance's WAL archive.
+type RecoverySource struct {
+	BucketName string
+	ServerName string
+	TargetTime metav1.Time
+}
+
 // Enabled reports whether WAL archiving should be wired into the cluster.
 func (w WALArchive) Enabled() bool {
 	return w.BucketName != ""
@@ -164,7 +173,7 @@ func (w WALArchive) Enabled() bool {
 // is certificate-based (hostssl ... cert); the durable app owner is created by
 // InitDB with superuser access disabled, and bootstrap SQL pre-creates the
 // app_read/app_readwrite group roles and their default privileges.
-func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive) (*cnpgv1.Cluster, error) {
+func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource) (*cnpgv1.Cluster, error) {
 	instances := defaultInstances
 	minSync, maxSync := 0, 0
 	if postgres.Spec.HighAvailability {
@@ -277,14 +286,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 				ServerAltDNSNames: poolerAltDNSNames(postgres),
 			},
 
-			Bootstrap: &cnpgv1.BootstrapConfiguration{
-				InitDB: &cnpgv1.BootstrapInitDB{
-					Database:               DatabaseName,
-					Owner:                  OwnerRole,
-					PostInitSQL:            postInitSQL(),
-					PostInitApplicationSQL: postInitApplicationSQL(),
-				},
-			},
+			Bootstrap: bootstrap(recovery),
 
 			StorageConfiguration: cnpgv1.StorageConfiguration{
 				StorageClass: storageClass,
@@ -336,6 +338,18 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			},
 		}
 	}
+	if recovery != nil {
+		cluster.Spec.ExternalClusters = []cnpgv1.ExternalCluster{{
+			Name: "recovery-source",
+			PluginConfiguration: &cnpgv1.PluginConfiguration{
+				Name: BarmanPluginName,
+				Parameters: map[string]string{
+					"barmanObjectName": recovery.BucketName,
+					"serverName":       recovery.ServerName,
+				},
+			},
+		}}
+	}
 
 	if err := controllerutil.SetControllerReference(postgres, cluster, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on Cluster: %w", err)
@@ -343,9 +357,28 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 	return cluster, nil
 }
 
-// CreateScheduledBackup schedules a nightly base backup taken from a standby, so
-// the primary is left alone. Backups go through the barman-cloud plugin to the
-// same ObjectStore as the WAL archive.
+func bootstrap(recovery *RecoverySource) *cnpgv1.BootstrapConfiguration {
+	if recovery != nil {
+		return &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{
+			Source: "recovery-source",
+			RecoveryTarget: &cnpgv1.RecoveryTarget{
+				TargetTime: recovery.TargetTime.Format(time.RFC3339),
+			},
+			Database: DatabaseName,
+			Owner:    OwnerRole,
+		}}
+	}
+	return &cnpgv1.BootstrapConfiguration{InitDB: &cnpgv1.BootstrapInitDB{
+		Database:               DatabaseName,
+		Owner:                  OwnerRole,
+		PostInitSQL:            postInitSQL(),
+		PostInitApplicationSQL: postInitApplicationSQL(),
+	}}
+}
+
+// CreateScheduledBackup starts a base backup when created and schedules nightly
+// backups thereafter. Backups go through the barman-cloud plugin to the same
+// ObjectStore as the WAL archive.
 func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.ScheduledBackup, error) {
 	backup := &cnpgv1.ScheduledBackup{
 		TypeMeta: metav1.TypeMeta{
@@ -354,6 +387,8 @@ func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpg
 		},
 		ObjectMeta: objectMeta(postgres, ClusterName(postgres)),
 		Spec: cnpgv1.ScheduledBackupSpec{
+			// Ensure WAL archives always have a base backup available for recovery.
+			Immediate: new(true),
 			// Daily at 02:00.
 			Schedule:             "0 0 2 * * *",
 			Cluster:              cnpgv1.LocalObjectReference{Name: ClusterName(postgres)},
@@ -471,6 +506,7 @@ func postInitSQL() []string {
 	return []string{
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
+		"ALTER ROLE postgres SET pgaudit.log = 'none'",
 	}
 }
 
@@ -480,6 +516,7 @@ func postInitSQL() []string {
 func postInitApplicationSQL() []string {
 	both := ReadRole + ", " + ReadWriteRole
 	return []string{
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", OwnerRole),
 		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
 		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
 		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
@@ -524,7 +561,7 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 		// CNPG auto-loads the matching shared_preload_libraries when it sees
 		// these prefixed parameters. Audit is always on with sane defaults.
 		"pg_stat_statements.track": "all",
-		"pgaudit.log":              strings.Join([]string{"write", "ddl", "role"}, ","),
+		"pgaudit.log":              strings.Join([]string{"read", "write", "ddl", "role"}, ","),
 	}
 }
 

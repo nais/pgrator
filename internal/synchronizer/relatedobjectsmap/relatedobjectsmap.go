@@ -50,3 +50,18 @@ func (r *RelatedObjectsMap) GetMatching(obj client.Object) client.Object {
 	}
 	return r.objects[key]
 }
+
+func (r *RelatedObjectsMap) GetMatchingType(obj client.Object) []client.Object {
+	gvk, err := apiutil.GVKForObject(obj, r.scheme)
+	if err != nil {
+		panic(fmt.Sprintf("Programmer Error: Unable to find GVK for object %v: %v", obj, err))
+	}
+
+	objects := make([]client.Object, 0)
+	for key, object := range r.objects {
+		if key.GroupKind() == gvk.GroupKind() {
+			objects = append(objects, object)
+		}
+	}
+	return objects
+}

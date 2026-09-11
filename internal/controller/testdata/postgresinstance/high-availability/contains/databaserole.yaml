@@ -1,15 +1,16 @@
 ---
-action: exclusiveCreateOrUpdate
+action: createOrUpdate
 matcher: Subset
 object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: mydb-myapp-admin
+    name: pg-mydb-app
     namespace: myteam
   spec:
     cluster:
       name: pg-mydb
-    name: app
-    login: true
-    databaseRoleReclaimPolicy: retain
+    role:
+      name: app
+    clientCertificate:
+      enabled: true

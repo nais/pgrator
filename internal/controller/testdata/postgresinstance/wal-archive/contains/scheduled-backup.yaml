@@ -8,6 +8,7 @@ object:
     name: pg-mydb
     namespace: myteam
   spec:
+    immediate: true
     schedule: "0 0 2 * * *"
     method: plugin
     target: prefer-standby

@@ -6,9 +6,10 @@ metadata:
   namespace: myteam
 spec:
   postgres: mydb
+  secretName: reporter-mydb-connection
   consumer:
     workload:
       name: reporter
       type: job
-  secretName: mydb-reporter-read-client-cert
-  role: read
+  credentials:
+    - read

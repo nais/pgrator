@@ -5,7 +5,7 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: mydb-reporter-read
+    name: reporter-mydb-mydb-read
     namespace: myteam
   spec:
     cluster:

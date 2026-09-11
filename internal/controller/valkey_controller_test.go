@@ -664,7 +664,7 @@ func TestValkeyDeletion(t *testing.T) {
 		requireNoError(t, k8sClient.Get(ctx, valkeyKey, valkey))
 		requireNoError(t, k8sClient.Delete(ctx, valkey))
 
-		_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: valkeyKey})
+		_, _, err = (&ValkeyReconciler{Recorder: recorder}).Delete(valkey, ValkeyPreparedData{}, nil)
 		requireErrorContains(t, err, "refusing to delete")
 
 		requireNoError(t, k8sClient.Get(ctx, valkeyKey, valkey))

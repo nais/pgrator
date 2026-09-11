@@ -8,31 +8,18 @@ import (
 	"strings"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
 	"github.com/nais/pgrator/internal/config"
-	"github.com/nais/pgrator/internal/namegen"
-	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
-	rcfqdnpolicy "github.com/nais/pgrator/internal/resourcecreator/fqdnpolicy"
-	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
-	rcnetpol "github.com/nais/pgrator/internal/resourcecreator/netpol"
-	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
-	networking_gke_io_v1alpha3 "github.com/nais/pgrator/internal/thirdparty/google/networking/v1alpha3"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
-	core_v1 "k8s.io/api/core/v1"
-	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -47,9 +34,8 @@ type conditionConfig struct {
 	Status bool
 }
 
-// PostgresReconciler reconciles a nais.io/v1 Postgres object into a CloudNativePG
-// Cluster, an app-owner DatabaseRole (cert auth), a PgBouncer Pooler, and a
-// NetworkPolicy.
+// PostgresReconciler reconciles a nais.io/v1 Postgres object into logical
+// resources. Physical CNPG resources are owned by PostgresInstance.
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
@@ -59,94 +45,7 @@ type PostgresReconciler struct {
 var _ reconciler.Reconciler[*v1.Postgres, PostgresPreparedData] = &PostgresReconciler{}
 
 // PostgresPreparedData contains data prepared during the Prepare phase.
-type PostgresPreparedData struct {
-	// TeamGoogleProjectID is the Google project the team's namespace maps to.
-	// Only resolved when WAL archiving is enabled.
-	TeamGoogleProjectID string `yaml:"teamGoogleProjectID"`
-}
-
-// walArchivingEnabled reports whether this installation provisions WAL buckets.
-// Local development (kind/Tilt) runs without Config Connector, so everything
-// Google-specific is skipped there.
-func (r *PostgresReconciler) walArchivingEnabled() bool {
-	return r.Config.CNPG.WalBucketPrefix != ""
-}
-
-const (
-	gcsBucketNameMaxLength = 63
-	bucketUIDSuffixLength  = 12
-)
-
-// bucketName includes the owner and part of its UID so that it is recognizable
-// while a recreated Postgres never reuses another resource's WAL archive.
-func (r *PostgresReconciler) bucketName(obj *v1.Postgres) string {
-	if !r.walArchivingEnabled() {
-		return ""
-	}
-
-	uid := strings.ReplaceAll(string(obj.GetUID()), "-", "")
-	if len(uid) > bucketUIDSuffixLength {
-		uid = uid[:bucketUIDSuffixLength]
-	}
-
-	prefix := strings.Trim(r.Config.CNPG.WalBucketPrefix, "-")
-	maxBaseLength := gcsBucketNameMaxLength - len(uid) - 1
-	base := bucketNameBase(prefix, obj.GetNamespace(), obj.GetName(), maxBaseLength)
-	return fmt.Sprintf("%s-%s", base, uid)
-}
-
-func bucketNameBase(prefix, namespace, name string, maxLength int) string {
-	// Leave room for both owner components and their separators even if a custom
-	// prefix is longer than the generated platform prefix.
-	if len(prefix) > maxLength-4 {
-		prefix = prefix[:maxLength-4]
-	}
-
-	ownerLength := maxLength - len(prefix) - 2
-	namespace, name = shortenPair(namespace, name, ownerLength)
-	return fmt.Sprintf("%s-%s-%s", prefix, namespace, name)
-}
-
-func shortenPair(left, right string, maxLength int) (string, string) {
-	leftLength := min(len(left), maxLength/2)
-	rightLength := min(len(right), maxLength-leftLength)
-
-	if rightLength < maxLength-leftLength {
-		leftLength = min(len(left), maxLength-rightLength)
-	}
-	if leftLength < maxLength-rightLength {
-		rightLength = min(len(right), maxLength-leftLength)
-	}
-
-	return left[:leftLength], right[:rightLength]
-}
-
-func gsaName(obj *v1.Postgres) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-%s", obj.GetName()), validation.DNS1035LabelMaxLength)
-}
-
-func workloadIdentityPolicyName(obj *v1.Postgres) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-wi-user-%s", obj.GetName()), validation.DNS1123SubdomainMaxLength)
-}
-
-func storageBucketPolicyName(obj *v1.Postgres) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-wal-%s", obj.GetName()), validation.DNS1123SubdomainMaxLength)
-}
-
-func storageBucketViewerPolicyName(obj *v1.Postgres) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-wal-viewer-%s", obj.GetName()), validation.DNS1123SubdomainMaxLength)
-}
-
-func (r *PostgresReconciler) walArchive(obj *v1.Postgres, preparedData PostgresPreparedData) rccnpg.WALArchive {
-	if !r.walArchivingEnabled() {
-		return rccnpg.WALArchive{}
-	}
-	return rccnpg.WALArchive{
-		GSAName:       gsaName(obj),
-		TeamProjectID: preparedData.TeamGoogleProjectID,
-		BucketName:    r.bucketName(obj),
-	}
-}
+type PostgresPreparedData struct{}
 
 func (r *PostgresReconciler) Name() string {
 	return "postgres.nais.io"
@@ -156,61 +55,14 @@ func (r *PostgresReconciler) New() *v1.Postgres {
 	return &v1.Postgres{}
 }
 
-// Prepare resolves the team's Google project, which is needed to construct the
-// service account e-mail used for Workload Identity and bucket access.
-func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
-	if !r.walArchivingEnabled() {
-		return PostgresPreparedData{}, ctrl.Result{}, nil
-	}
-
-	teamNamespace := &core_v1.Namespace{}
-	if err := reader.Get(ctx, client.ObjectKey{Name: obj.GetNamespace()}, teamNamespace); err != nil {
-		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting namespace %q: %w", obj.GetNamespace(), err)
-	}
-
-	projectID, ok := teamNamespace.Labels[ProjectIDLabel]
-	if !ok || projectID == "" {
-		projectID, ok = teamNamespace.Annotations[ProjectIDAnnotationFallback]
-	}
-	if !ok || projectID == "" {
-		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf(
-			"namespace %q has neither the %q label nor the %q annotation",
-			obj.GetNamespace(), ProjectIDLabel, ProjectIDAnnotationFallback)
-	}
-
-	return PostgresPreparedData{TeamGoogleProjectID: projectID}, ctrl.Result{}, nil
+func (r *PostgresReconciler) Prepare(_ context.Context, _ client.Reader, _ *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
+	return PostgresPreparedData{}, ctrl.Result{}, nil
 }
 
 func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
-	types := []reconciler.OwnedType{
-		{
-			Type: &cnpgv1.Cluster{},
-			AdditionalPredicate: predicate.Funcs{
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					oldObj, ok1 := e.ObjectOld.(*cnpgv1.Cluster)
-					newObj, ok2 := e.ObjectNew.(*cnpgv1.Cluster)
-					if !ok1 || !ok2 {
-						return false
-					}
-					return oldObj.Status.Phase != newObj.Status.Phase
-				},
-			},
-		},
-		{Type: &cnpgv1.DatabaseRole{}},
-		{Type: &cnpgv1.Pooler{}},
-		{Type: &cnpgv1.ScheduledBackup{}},
-		{Type: &barmanv1.ObjectStore{}},
-		{Type: &networking_v1.NetworkPolicy{}},
+	return []reconciler.OwnedType{
+		{Type: &v1.PostgresInstance{}},
 	}
-	if r.walArchivingEnabled() {
-		types = append(types,
-			reconciler.OwnedType{Type: &networking_gke_io_v1alpha3.FQDNNetworkPolicy{}},
-			reconciler.OwnedType{Type: &iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount{}},
-			reconciler.OwnedType{Type: &iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember{}},
-			reconciler.OwnedType{Type: &storage_cnrm_cloud_google_com_v1beta1.StorageBucket{}},
-		)
-	}
-	return types
 }
 
 func (r *PostgresReconciler) AdditionalTypes() []client.Object {
@@ -228,163 +80,108 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 	}
 }
 
-func (r *PostgresReconciler) Update(obj *v1.Postgres, preparedData PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	var actions []action.Action
+func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	activeInstance := effectiveActiveInstance(obj)
+	obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = activeInstance
 
-	wal := r.walArchive(obj, preparedData)
-
-	cluster, err := rccnpg.CreateCluster(r.Scheme, obj, r.Config, wal)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
+	instance := &v1.PostgresInstance{
+		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresInstance"},
+		ObjectMeta: meta_v1.ObjectMeta{Name: obj.GetName(), Namespace: obj.GetNamespace()},
+		Spec:       v1.PostgresInstanceSpec{Postgres: obj.GetName()},
 	}
-	actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
-
-	pooler, err := rccnpg.CreatePooler(r.Scheme, obj)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)
+	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(pooler, obj, existsConditionGetter, r.Recorder))
-
-	netpol, err := rcnetpol.Create(r.Scheme, obj, rccnpg.ClusterName(obj), r.Config.APIServerIP)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
-
-	if wal.Enabled() {
-		walActions, err := r.walActions(obj, preparedData, wal, relatedObjects)
-		if err != nil {
-			return nil, ctrl.Result{}, err
+	if obj.Spec.ActiveInstance != "" {
+		actions := make([]action.Action, 0)
+		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresInstance{}) {
+			instance, ok := candidate.(*v1.PostgresInstance)
+			if !ok || instance.GetNamespace() != obj.GetNamespace() || instance.Spec.Postgres != obj.GetName() {
+				continue
+			}
+			if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
+				return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
+			}
+			actions = append(actions, action.Claim(instance, obj, existsConditionGetter, r.Recorder))
 		}
-		actions = append(actions, walActions...)
+		if len(actions) > 0 {
+			return actions, ctrl.Result{}, nil
+		}
+		if relatedObjects.GetMatching(instance) == nil {
+			return nil, ctrl.Result{}, nil
+		}
+		return []action.Action{action.Claim(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 	}
 
-	return actions, ctrl.Result{}, nil
+	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 }
 
-// walActions builds the WAL archive: the Google service account and its Workload
-// Identity binding, the bucket and its IAM bindings, the barman-cloud ObjectStore,
-// nightly ScheduledBackup, and FQDN egress policy.
-//
-// Config Connector resources are created once and then claimed rather than
-// updated, because changing an IAMPolicyMember's member or role in place is not
-// supported; a genuine change requires a recreate, which is gated behind
-// ResyncIAMPermissions so it is never done silently.
-func (r *PostgresReconciler) walActions(obj *v1.Postgres, preparedData PostgresPreparedData, wal rccnpg.WALArchive, relatedObjects reconciler.RelatedObjects) ([]action.Action, error) {
-	var actions []action.Action
-
-	gsa := rciam.CreateIAMServiceAccount(wal.GSAName, obj.GetNamespace())
-	if err := controllerutil.SetControllerReference(obj, gsa, r.Scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on IAMServiceAccount: %w", err)
+func effectiveActiveInstance(postgres *v1.Postgres) string {
+	if postgres.Spec.ActiveInstance != "" {
+		return postgres.Spec.ActiveInstance
 	}
-	switch existing := relatedObjects.GetMatching(gsa); {
-	case existing == nil:
-		actions = append(actions, action.Create(gsa, obj, cnrmConditionsGetter, r.Recorder))
-	case iamServiceAccountHasChanges(gsa, existing.(*iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount)):
-		recreate, err := r.recreateIAM(gsa, obj)
-		if err != nil {
-			return nil, err
-		}
-		actions = append(actions, recreate)
+	if postgres.Status != nil && postgres.Status.ActiveInstance != "" {
+		return postgres.Status.ActiveInstance
+	}
+	return postgres.GetName()
+}
+
+func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	return nil, ctrl.Result{}, nil
+}
+
+func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
+	cluster, ok := obj.(*cnpgv1.Cluster)
+	if !ok {
+		return nil
+	}
+	phase := cluster.Status.Phase
+	return []meta_v1.Condition{{
+		Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), "ObservedState"),
+		Status:             makeCondition(phase != ""),
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             "Reconciled",
+		Message:            fmt.Sprintf("Cluster is in phase: %s", phase),
+	}}
+}
+
+// cnrmConditionsGetter maps Config Connector's status conditions onto the
+// Available/Progressing/Degraded triple used across pgrator.
+func cnrmConditionsGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
+	var cnrmConditions []meta_v1.Condition
+	switch o := obj.(type) {
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
+		cnrmConditions = o.Status.Conditions
+	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
+		cnrmConditions = o.Status.Conditions
+	case *storage_cnrm_cloud_google_com_v1beta1.StorageBucket:
+		cnrmConditions = o.Status.Conditions
 	default:
-		actions = append(actions, action.Claim(gsa, obj, cnrmConditionsGetter, r.Recorder))
+		return nil
 	}
 
-	wiPolicy := rciam.CreateWorkloadIdentityPolicyMember(
-		workloadIdentityPolicyName(obj),
-		obj.GetNamespace(),
-		obj.GetNamespace(),
-		r.Config.GoogleProjectID,
-		wal.GSAName,
-		rccnpg.ClusterName(obj),
-	)
-	if err := controllerutil.SetControllerReference(obj, wiPolicy, r.Scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on Workload Identity IAMPolicyMember: %w", err)
-	}
-	wiActions, err := r.policyMemberActions(wiPolicy, obj, relatedObjects)
-	if err != nil {
-		return nil, err
-	}
-	actions = append(actions, wiActions)
-
-	bucket := rcstorage.CreateStorageBucket(obj, wal.BucketName, r.Config.Google.Location)
-	if err := controllerutil.SetControllerReference(obj, bucket, r.Scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on StorageBucket: %w", err)
-	}
-	if existing := relatedObjects.GetMatching(bucket); existing != nil {
-		// Config Connector writes state back onto the object; preserve it so we do
-		// not fight the CNRM controller on every reconcile.
-		copyCnrmAnnotations(existing, bucket)
-		bucket.Spec.ResourceID = existing.(*storage_cnrm_cloud_google_com_v1beta1.StorageBucket).Spec.ResourceID
-		actions = append(actions, action.Update(bucket, obj, cnrmConditionsGetter, r.Recorder))
-	} else {
-		actions = append(actions, action.Create(bucket, obj, cnrmConditionsGetter, r.Recorder))
+	statusCondition := meta_v1.Condition{Status: meta_v1.ConditionUnknown, Reason: "Unknown", Message: "No status available on source resource"}
+	if len(cnrmConditions) > 0 {
+		statusCondition = cnrmConditions[0]
 	}
 
-	bucketPolicies := []struct {
-		name string
-		role string
-	}{
-		{name: storageBucketPolicyName(obj), role: rciam.StorageObjectUserRole},
-		{name: storageBucketViewerPolicyName(obj), role: rciam.StorageBucketViewerRole},
-	}
-	for _, policy := range bucketPolicies {
-		bucketPolicy := rciam.CreateStorageBucketPolicyMember(
-			policy.name,
-			obj.GetNamespace(),
-			preparedData.TeamGoogleProjectID,
-			wal.GSAName,
-			wal.BucketName,
-			policy.role,
-		)
-		if err := controllerutil.SetControllerReference(obj, bucketPolicy, r.Scheme); err != nil {
-			return nil, fmt.Errorf("setting controller reference on bucket IAMPolicyMember: %w", err)
-		}
-		bucketPolicyAction, err := r.policyMemberActions(bucketPolicy, obj, relatedObjects)
-		if err != nil {
-			return nil, err
-		}
-		actions = append(actions, bucketPolicyAction)
+	conditions := []conditionConfig{
+		{Type: "Available", Status: statusCondition.Status == meta_v1.ConditionTrue && slices.Contains([]string{"UpToDate", "Updating"}, statusCondition.Reason)},
+		{Type: "Progressing", Status: slices.Contains([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason)},
+		{Type: "Degraded", Status: strings.Contains(statusCondition.Reason, "Failed")},
 	}
 
-	objectStore := rcstorage.CreateObjectStore(wal.BucketName, objectStoreMeta(obj))
-	if err := controllerutil.SetControllerReference(obj, objectStore, r.Scheme); err != nil {
-		return nil, fmt.Errorf("setting controller reference on ObjectStore: %w", err)
+	result := make([]meta_v1.Condition, 0, len(conditions))
+	for _, condition := range conditions {
+		result = append(result, meta_v1.Condition{
+			Type:               fmt.Sprintf("%s.%s/%s", typePrefix(obj, scheme), obj.GetName(), condition.Type),
+			Status:             makeCondition(condition.Status),
+			ObservedGeneration: obj.GetGeneration(),
+			Reason:             statusCondition.Reason,
+			Message:            statusCondition.Message,
+		})
 	}
-	actions = append(actions, action.CreateOrUpdate(objectStore, obj, existsConditionGetter, r.Recorder))
-
-	backup, err := rccnpg.CreateScheduledBackup(r.Scheme, obj)
-	if err != nil {
-		return nil, fmt.Errorf("creating ScheduledBackup spec: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(backup, obj, existsConditionGetter, r.Recorder))
-
-	fqdnPolicy, err := rcfqdnpolicy.Create(r.Scheme, obj, rccnpg.ClusterName(obj))
-	if err != nil {
-		return nil, fmt.Errorf("creating WAL FQDNNetworkPolicy spec: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(fqdnPolicy, obj, existsConditionGetter, r.Recorder))
-
-	return actions, nil
-}
-
-func (r *PostgresReconciler) policyMemberActions(desired *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember, obj *v1.Postgres, relatedObjects reconciler.RelatedObjects) (action.Action, error) {
-	existing := relatedObjects.GetMatching(desired)
-	if existing == nil {
-		return action.Create(desired, obj, cnrmConditionsGetter, r.Recorder), nil
-	}
-	if iamPolicyHasChanges(desired, existing.(*iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember)) {
-		return r.recreateIAM(desired, obj)
-	}
-	return action.Claim(desired, obj, cnrmConditionsGetter, r.Recorder), nil
-}
-
-func (r *PostgresReconciler) recreateIAM(desired client.Object, obj *v1.Postgres) (action.Action, error) {
-	if !r.Config.ResyncIAMPermissions {
-		return nil, fmt.Errorf("want to change %T %s, but configuration does not allow recreate",
-			desired, client.ObjectKeyFromObject(desired))
-	}
-	return action.Recreate(desired, obj, cnrmConditionsGetter, r.Recorder), nil
+	return result
 }
 
 func iamServiceAccountHasChanges(desired, existing *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount) bool {
@@ -403,86 +200,4 @@ func copyCnrmAnnotations(existing client.Object, desired *storage_cnrm_cloud_goo
 			meta_v1.SetMetaDataAnnotation(&desired.ObjectMeta, key, value)
 		}
 	}
-}
-
-func objectStoreMeta(obj *v1.Postgres) meta_v1.ObjectMeta {
-	return meta_v1.ObjectMeta{
-		Namespace: obj.GetNamespace(),
-		Labels: map[string]string{
-			rcstorage.OwnerNameLabel: obj.GetName(),
-		},
-	}
-}
-
-func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	return nil, ctrl.Result{}, nil
-}
-
-func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
-	cluster, ok := obj.(*cnpgv1.Cluster)
-	if !ok {
-		return nil
-	}
-	phase := cluster.Status.Phase
-	return []meta_v1.Condition{
-		{
-			Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), "ObservedState"),
-			Status:             makeCondition(phase != ""),
-			ObservedGeneration: obj.GetGeneration(),
-			Reason:             "Reconciled",
-			Message:            fmt.Sprintf("Cluster is in phase: %s", phase),
-		},
-	}
-}
-
-// cnrmConditionsGetter maps Config Connector's status conditions onto the
-// Available/Progressing/Degraded triple used across pgrator.
-func cnrmConditionsGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
-	var cnrmConditions []meta_v1.Condition
-	switch o := obj.(type) {
-	case *iam_cnrm_cloud_google_com_v1beta1.IAMPolicyMember:
-		cnrmConditions = o.Status.Conditions
-	case *iam_cnrm_cloud_google_com_v1beta1.IAMServiceAccount:
-		cnrmConditions = o.Status.Conditions
-	case *storage_cnrm_cloud_google_com_v1beta1.StorageBucket:
-		cnrmConditions = o.Status.Conditions
-	default:
-		return nil
-	}
-
-	statusCondition := meta_v1.Condition{
-		Status:  meta_v1.ConditionUnknown,
-		Reason:  "Unknown",
-		Message: "No status available on source resource",
-	}
-	if len(cnrmConditions) > 0 {
-		statusCondition = cnrmConditions[0]
-	}
-
-	conditions := []conditionConfig{
-		{
-			Type:   "Available",
-			Status: statusCondition.Status == meta_v1.ConditionTrue && slices.Contains([]string{"UpToDate", "Updating"}, statusCondition.Reason),
-		},
-		{
-			Type:   "Progressing",
-			Status: slices.Contains([]string{"Creating", "Updating", "Deleting"}, statusCondition.Reason),
-		},
-		{
-			Type:   "Degraded",
-			Status: strings.Contains(statusCondition.Reason, "Failed"),
-		},
-	}
-
-	result := make([]meta_v1.Condition, 0, len(conditions))
-	for _, condition := range conditions {
-		result = append(result, meta_v1.Condition{
-			Type:               fmt.Sprintf("%s.%s/%s", typePrefix(obj, scheme), obj.GetName(), condition.Type),
-			Status:             makeCondition(condition.Status),
-			ObservedGeneration: obj.GetGeneration(),
-			Reason:             statusCondition.Reason,
-			Message:            statusCondition.Message,
-		})
-	}
-	return result
 }

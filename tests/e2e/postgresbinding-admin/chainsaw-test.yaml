@@ -38,21 +38,21 @@ spec:
                   workload:
                     name: eier
                     type: application
-                secretName: mydb-eier-admin-client-cert
-                role: admin
+                credentials:
+                  - admin
 
-    - name: The binding adopts the durable owner role
+    - name: The binding uses the instance-owned durable owner role
       try:
         - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-eier-admin
+                name: pg-mydb-app
               spec:
                 name: app
                 login: true
-                databaseRoleReclaimPolicy: retain
+                databaseRoleReclaimPolicy: delete
 
     - name: The binding points at the durable owner
       try:
@@ -63,7 +63,7 @@ spec:
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
-    - name: Deleting the binding removes its credential but retains the database role
+    - name: Deleting the binding removes its credential and retains the instance-owned role
       try:
         - delete:
             ref:
@@ -76,15 +76,15 @@ spec:
               kind: Secret
               metadata:
                 name: eier-mydb
-        - error:
+        - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: mydb-eier-admin
-        - error:
+                name: pg-mydb-app
+        - assert:
             resource:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: mydb-eier-admin-client-cert
+                name: pg-mydb-app-client-cert

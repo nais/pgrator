@@ -1,0 +1,9 @@
+postgresName: mydb
+postgresUID: feedab1e-beef-cafe-babe-700d1e100d1e
+teamGoogleProjectID: team-gcp-project
+postgresSpec:
+  majorVersion: "18"
+  resources:
+    diskSize: 10Gi
+    cpu: 100m
+    memory: 512Mi

@@ -1,0 +1,9 @@
+---
+apiVersion: nais.io/v1
+kind: PostgresInstance
+metadata:
+  name: mydb
+  namespace: myteam
+  uid: d3adb33f-beef-cafe-babe-700d1e100d1e
+spec:
+  postgres: mydb

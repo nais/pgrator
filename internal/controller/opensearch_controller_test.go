@@ -475,7 +475,7 @@ func TestOpenSearchDeletion(t *testing.T) {
 		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))
 		requireNoError(t, k8sClient.Delete(ctx, opensearch))
 
-		_, err = syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: opensearchKey})
+		_, _, err = (&OpenSearchReconciler{Recorder: recorder}).Delete(opensearch, OpenSearchPreparedData{}, nil)
 		requireErrorContains(t, err, "refusing to delete")
 
 		requireNoError(t, k8sClient.Get(ctx, opensearchKey, opensearch))

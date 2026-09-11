@@ -1,0 +1,16 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: pg-mydb-app
+    namespace: myteam
+  spec:
+    cluster:
+      name: pg-mydb
+    role:
+      name: app
+    clientCertificate:
+      enabled: true
