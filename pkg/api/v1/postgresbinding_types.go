@@ -3,28 +3,34 @@ package v1
 import (
 	"crypto/sha256"
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PostgresBindingRole is the level of access a consumer is granted.
-type PostgresBindingRole string
+// PostgresBindingCredential is a connection credential a workload receives.
+type PostgresBindingCredential string
+
+// PostgresBindingRole is retained as a Go alias while consumers migrate to the
+// credential collection. It is not a PostgresBinding spec field anymore.
+type PostgresBindingRole = PostgresBindingCredential
 
 // PostgresBindingWorkloadType identifies the kind of workload granted access.
 type PostgresBindingWorkloadType string
 
 const (
-	// PostgresBindingRoleRead grants membership in the <app>_read group role.
-	PostgresBindingRoleRead PostgresBindingRole = "read"
-	// PostgresBindingRoleReadWrite grants membership in the <app>_readwrite group role.
-	PostgresBindingRoleReadWrite PostgresBindingRole = "readwrite"
-	// PostgresBindingRoleAdmin connects as the durable database owner. This is the
-	// default, because the common case is a workload owning its own database and
-	// running its own migrations.
-	PostgresBindingRoleAdmin PostgresBindingRole = "admin"
+	// PostgresBindingCredentialRead grants membership in the <app>_read group role.
+	PostgresBindingCredentialRead PostgresBindingCredential = "read"
+	// PostgresBindingCredentialReadWrite grants membership in the <app>_readwrite group role.
+	PostgresBindingCredentialReadWrite PostgresBindingCredential = "readwrite"
+	// PostgresBindingCredentialAdmin connects as the durable database owner.
+	PostgresBindingCredentialAdmin PostgresBindingCredential = "admin"
+
+	// Deprecated aliases retained for Go callers during the in-place v1 transition.
+	PostgresBindingRoleRead      = PostgresBindingCredentialRead
+	PostgresBindingRoleReadWrite = PostgresBindingCredentialReadWrite
+	PostgresBindingRoleAdmin     = PostgresBindingCredentialAdmin
 
 	// PostgresBindingWorkloadTypeApplication identifies an Application workload.
 	PostgresBindingWorkloadTypeApplication PostgresBindingWorkloadType = "application"
@@ -61,23 +67,23 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
+	// SecretName is the stable connection Secret name Naiserator mounts into the
+	// workload. It is selected by Naiserator to avoid naming collisions. Empty is
+	// supported only for bindings created before this field was introduced.
+	// +optional
+	SecretName string `json:"secretName,omitempty"`
+
 	// Consumer identifies what is granted access.
 	// +kubebuilder:validation:Required
 	Consumer PostgresBindingConsumer `json:"consumer"`
 
-	// SecretName is the complete name of the client-certificate Secret consumed by
-	// the binding's consumer. It must be unique per binding so one consumer can hold
-	// multiple roles for the same Postgres instance. CloudNativePG derives this name
-	// by appending "-client-cert" to the DatabaseRole name.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*-client-cert$`
-	SecretName string `json:"secretName"`
-
-	// Role is the level of access granted to the consumer.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=read;readwrite;admin
-	Role PostgresBindingRole `json:"role"`
+	// Credentials is the exact, mutable collection of connection credentials the
+	// workload receives. Naiserator expands uses.postgres.role before creating the
+	// binding, so pgrator never has to infer workload mounts from a shorthand.
+	// +kubebuilder:validation:MinItems=1
+	// +listType=set
+	// +kubebuilder:validation:items:Enum=admin;read;readwrite
+	Credentials []PostgresBindingCredential `json:"credentials"`
 }
 
 // PostgresBindingStatus defines the observed state of PostgresBinding.
@@ -90,17 +96,15 @@ const (
 	ownerRole = "app"
 )
 
-// RoleName is the database role the consumer authenticates as and the identity
-// that shows up in pg_stat_activity and the audit log.
-//
-// Admin bindings reuse the durable owner so that database objects keep a stable
-// owner across deploys. Read and readwrite bindings use distinct login roles.
-func (p *PostgresBinding) RoleName() string {
-	if p.Spec.Role == PostgresBindingRoleAdmin {
+// RoleName returns the database login role for credential and the identity that
+// appears in pg_stat_activity and the audit log. Admin reuses the durable owner;
+// read and readwrite use workload-scoped login roles.
+func (p *PostgresBinding) RoleName(credential PostgresBindingCredential) string {
+	if credential == PostgresBindingCredentialAdmin {
 		return ownerRole
 	}
 
-	suffix := string(p.Spec.Role)
+	suffix := string(credential)
 	name := p.Spec.Consumer.Workload.Name + "-" + suffix
 	if len(name) <= 63 {
 		return name
@@ -117,18 +121,27 @@ func (p *PostgresBinding) RoleName() string {
 	return fmt.Sprintf("%s-%s-%s", prefix, hashText, suffix)
 }
 
-// DatabaseRoleName is the CloudNativePG DatabaseRole name that produces SecretName.
-func (p *PostgresBinding) DatabaseRoleName() string {
-	return strings.TrimSuffix(p.Spec.SecretName, "-client-cert")
+// HasCredential reports whether credential is requested by this binding.
+func (p *PostgresBinding) HasCredential(credential PostgresBindingCredential) bool {
+	for _, requested := range p.Spec.Credentials {
+		if requested == credential {
+			return true
+		}
+	}
+	return false
 }
 
-// ClientCertSecretName is the CNPG-managed Secret containing the client certificate.
-//
-// It is issued and renewed by CloudNativePG and mounted directly rather than
-// copied, so that private key material is never duplicated and a renewed
-// certificate reaches the consumer without pgrator being in the path.
-func (p *PostgresBinding) ClientCertSecretName() string {
-	return p.Spec.SecretName
+// ConnectionEnvPrefix is the role-specific portion of an environment variable
+// name. Admin intentionally remains unprefixed for compatibility.
+func ConnectionEnvPrefix(credential PostgresBindingCredential) string {
+	switch credential {
+	case PostgresBindingCredentialRead:
+		return "READ_"
+	case PostgresBindingCredentialReadWrite:
+		return "READWRITE_"
+	default:
+		return ""
+	}
 }
 
 // +kubebuilder:object:root=true
@@ -137,7 +150,7 @@ func (p *PostgresBinding) ClientCertSecretName() string {
 // +kubebuilder:printcolumn:name="Postgres",type="string",JSONPath=".spec.postgres"
 // +kubebuilder:printcolumn:name="Workload",type="string",JSONPath=".spec.consumer.workload.name"
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.consumer.workload.type"
-// +kubebuilder:printcolumn:name="Role",type="string",JSONPath=".spec.role"
+// +kubebuilder:printcolumn:name="Credentials",type="string",JSONPath=".spec.credentials"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 
 // PostgresBinding grants a consumer access to a Postgres instance in the same
@@ -152,7 +165,10 @@ type PostgresBinding struct {
 
 	// spec defines the desired state of PostgresBinding
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable"
+	// Postgres and consumer identity are immutable. SecretName is immutable after
+	// its one-time addition to bindings created before it was part of the API.
+	// Credentials may change as the workload's uses.postgres declaration changes.
+	// +kubebuilder:validation:XValidation:rule="self.postgres == oldSelf.postgres && self.consumer == oldSelf.consumer && (has(oldSelf.secretName) ? self.secretName == oldSelf.secretName : true)",message="postgres, secretName, and consumer are immutable"
 	Spec PostgresBindingSpec `json:"spec"`
 
 	// status defines the observed state of PostgresBinding

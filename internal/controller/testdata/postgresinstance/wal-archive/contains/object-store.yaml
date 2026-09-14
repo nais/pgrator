@@ -13,6 +13,6 @@ object:
       googleCredentials:
         gkeEnvironment: true
       wal:
-        compression: zstd
+        compression: lz4
       data:
-        compression: snappy
+        compression: lz4

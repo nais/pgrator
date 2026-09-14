@@ -96,6 +96,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	postgresInstanceReconciler := &controller.PostgresInstanceReconciler{
+		Config:   cfg,
+		Recorder: recorder,
+		Scheme:   scheme,
+	}
+	postgresInstanceController := synchronizer.NewSynchronizer(
+		mgr.GetClient(), mgr.GetScheme(), postgresInstanceReconciler, recorder)
+	if err := postgresInstanceController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "postgresinstance")
+		os.Exit(1)
+	}
+
 	postgresBindingReconciler := &controller.PostgresBindingReconciler{
 		Recorder: recorder,
 		Scheme:   scheme,

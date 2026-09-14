@@ -10,7 +10,7 @@ object:
       postgres.nais.io/name: mydb
     ownerReferences:
       - apiVersion: nais.io/v1
-        kind: Postgres
+        kind: PostgresInstance
         name: mydb
         uid: ""
         controller: true

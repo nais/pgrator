@@ -18,6 +18,10 @@ const (
 	// easy to identify in addition to its Kubernetes owner reference.
 	OwnerNameLabel      = "postgres.nais.io/name"
 	OwnerNamespaceLabel = "postgres.nais.io/namespace"
+
+	// forceDestroyAnnotation instructs Config Connector to remove bucket objects
+	// before deleting a non-empty bucket.
+	forceDestroyAnnotation = "cnrm.cloud.google.com/force-destroy"
 )
 
 func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
@@ -29,6 +33,9 @@ func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnr
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      bucketName,
 			Namespace: postgres.GetNamespace(),
+			Annotations: map[string]string{
+				forceDestroyAnnotation: "true",
+			},
 			Labels: map[string]string{
 				OwnerNameLabel:      postgres.GetName(),
 				OwnerNamespaceLabel: postgres.GetNamespace(),

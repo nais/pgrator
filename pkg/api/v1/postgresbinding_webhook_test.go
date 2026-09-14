@@ -2,7 +2,6 @@ package v1
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,105 +11,131 @@ import (
 )
 
 func adminBinding(name, postgres string) *PostgresBinding {
-	return &PostgresBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"},
-		Spec: PostgresBindingSpec{
-			Postgres: postgres,
-			Consumer: PostgresBindingConsumer{
-				Workload: &PostgresBindingWorkload{
-					Name: name,
-					Type: PostgresBindingWorkloadTypeApplication,
-				},
-			},
-			SecretName: name + "-admin-client-cert",
-			Role:       PostgresBindingRoleAdmin,
-		},
-	}
+	return &PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"}, Spec: PostgresBindingSpec{
+		Postgres: postgres, SecretName: name + "-connection", Consumer: PostgresBindingConsumer{Workload: &PostgresBindingWorkload{Name: name, Type: PostgresBindingWorkloadTypeApplication}},
+		Credentials: []PostgresBindingCredential{PostgresBindingCredentialAdmin},
+	}}
+}
+
+func readBinding(name, postgres string) *PostgresBinding {
+	return &PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "myteam"}, Spec: PostgresBindingSpec{
+		Postgres: postgres, SecretName: name + "-connection", Consumer: PostgresBindingConsumer{Workload: &PostgresBindingWorkload{Name: name, Type: PostgresBindingWorkloadTypeApplication}},
+		Credentials: []PostgresBindingCredential{PostgresBindingCredentialRead},
+	}}
 }
 
 func newPostgresBindingValidator(t *testing.T, objects ...*PostgresBinding) *PostgresBindingValidator {
 	t.Helper()
-
 	scheme := runtime.NewScheme()
 	requireNoError(t, AddToScheme(scheme))
 	clientObjects := make([]client.Object, len(objects))
-	for i, object := range objects {
-		clientObjects[i] = object
+	for i := range objects {
+		clientObjects[i] = objects[i]
 	}
-	return &PostgresBindingValidator{
-		reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clientObjects...).Build(),
-	}
+	return &PostgresBindingValidator{reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clientObjects...).Build()}
 }
 
-func TestPostgresBindingValidatorValidateCreate(t *testing.T) {
-	tests := []struct {
-		name     string
-		existing []*PostgresBinding
-		binding  *PostgresBinding
-		wantErr  string
-	}{
-		{
-			name:    "allows the first admin binding for a Postgres",
-			binding: adminBinding("migrator", "mydb"),
-		},
-		{
-			name:    "allows a maximum-length Kubernetes resource name",
-			binding: adminBinding(strings.Repeat("a", 253), "mydb"),
-		},
-		{
-			name:     "rejects another admin binding for the same Postgres",
-			existing: []*PostgresBinding{adminBinding("migrator", "mydb")},
-			binding:  adminBinding("other-migrator", "mydb"),
-			wantErr:  `Postgres "mydb" already has admin binding "migrator"`,
-		},
-		{
-			name:     "allows admin bindings for different Postgres resources",
-			existing: []*PostgresBinding{adminBinding("migrator", "mydb")},
-			binding:  adminBinding("other-migrator", "otherdb"),
-		},
-	}
+func TestPostgresBindingValidator(t *testing.T) {
+	ctx := context.Background()
+	validator := newPostgresBindingValidator(t, adminBinding("first", "mydb"))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := newPostgresBindingValidator(t, tt.existing...).ValidateCreate(context.Background(), tt.binding)
-			if tt.wantErr != "" {
-				requireErrorContains(t, err, tt.wantErr)
-				return
-			}
+	t.Run("ValidateCreate", func(t *testing.T) {
+		t.Run("first admin binding for a Postgres allowed", func(t *testing.T) {
+			_, err := validator.ValidateCreate(ctx, adminBinding("second", "otherdb"))
 			requireNoError(t, err)
 		})
-	}
-}
 
-func TestPostgresBindingValidatorValidateUpdate(t *testing.T) {
-	tests := []struct {
-		name   string
-		change func(*PostgresBinding)
-	}{
-		{name: "Postgres", change: func(binding *PostgresBinding) { binding.Spec.Postgres = "otherdb" }},
-		{name: "workload name", change: func(binding *PostgresBinding) { binding.Spec.Consumer.Workload.Name = "otherapp" }},
-		{name: "workload type", change: func(binding *PostgresBinding) { binding.Spec.Consumer.Workload.Type = PostgresBindingWorkloadTypeJob }},
-		{name: "Secret name", change: func(binding *PostgresBinding) { binding.Spec.SecretName = "other-client-cert" }},
-		{name: "role", change: func(binding *PostgresBinding) { binding.Spec.Role = PostgresBindingRoleReadWrite }},
-	}
-
-	for _, tt := range tests {
-		t.Run("rejects "+tt.name+" changes", func(t *testing.T) {
-			oldBinding := adminBinding("application", "mydb")
-			newBinding := oldBinding.DeepCopy()
-			tt.change(newBinding)
-
-			_, err := newPostgresBindingValidator(t).ValidateUpdate(context.Background(), oldBinding, newBinding)
-			requireErrorEqual(t, err, "spec is immutable")
+		t.Run("second admin binding for same Postgres rejected", func(t *testing.T) {
+			_, err := validator.ValidateCreate(ctx, adminBinding("second", "mydb"))
+			requireErrorContains(t, err, `Postgres "mydb" already has admin binding "first"`)
 		})
-	}
 
-	t.Run("allows metadata-only updates", func(t *testing.T) {
-		oldBinding := adminBinding("application", "mydb")
-		newBinding := oldBinding.DeepCopy()
-		newBinding.Labels = map[string]string{"updated": "true"}
+		t.Run("admin binding for a different Postgres allowed", func(t *testing.T) {
+			_, err := validator.ValidateCreate(ctx, adminBinding("third", "otherdb"))
+			requireNoError(t, err)
+		})
 
-		_, err := newPostgresBindingValidator(t, oldBinding).ValidateUpdate(context.Background(), oldBinding, newBinding)
-		requireNoError(t, err)
+		t.Run("binding without admin credential allowed even when admin binding exists", func(t *testing.T) {
+			_, err := validator.ValidateCreate(ctx, readBinding("reader", "mydb"))
+			requireNoError(t, err)
+		})
+	})
+
+	t.Run("ValidateUpdate", func(t *testing.T) {
+		t.Run("credentials change allowed", func(t *testing.T) {
+			old := adminBinding("first", "mydb")
+			updated := old.DeepCopy()
+			updated.Spec.Credentials = []PostgresBindingCredential{PostgresBindingCredentialRead}
+			_, err := validator.ValidateUpdate(ctx, old, updated)
+			requireNoError(t, err)
+		})
+
+		t.Run("one-time secretName set allowed when old was empty", func(t *testing.T) {
+			old := adminBinding("first", "mydb")
+			old.Spec.SecretName = ""
+			updated := old.DeepCopy()
+			updated.Spec.SecretName = "first-connection"
+			_, err := validator.ValidateUpdate(ctx, old, updated)
+			requireNoError(t, err)
+		})
+
+		t.Run("immutable fields", func(t *testing.T) {
+			old := adminBinding("first", "mydb")
+			old.Spec.SecretName = "first-connection"
+
+			tests := []struct {
+				name    string
+				mutate  func(*PostgresBinding)
+				wantErr string
+			}{
+				{
+					name: "workload name change rejected",
+					mutate: func(b *PostgresBinding) {
+						b.Spec.Consumer.Workload.Name = "changed"
+					},
+					wantErr: "postgres, secretName, and consumer are immutable",
+				},
+				{
+					name: "workload type change rejected",
+					mutate: func(b *PostgresBinding) {
+						b.Spec.Consumer.Workload.Type = PostgresBindingWorkloadTypeJob
+					},
+					wantErr: "postgres, secretName, and consumer are immutable",
+				},
+				{
+					name: "postgres change rejected",
+					mutate: func(b *PostgresBinding) {
+						b.Spec.Postgres = "other"
+					},
+					wantErr: "postgres, secretName, and consumer are immutable",
+				},
+				{
+					name: "secretName change rejected when old secretName set",
+					mutate: func(b *PostgresBinding) {
+						b.Spec.SecretName = "changed-connection"
+					},
+					wantErr: "postgres, secretName, and consumer are immutable",
+				},
+				{
+					name: "metadata-only update allowed",
+					mutate: func(b *PostgresBinding) {
+						b.Labels = map[string]string{"foo": "bar"}
+					},
+					wantErr: "",
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					updated := old.DeepCopy()
+					tt.mutate(updated)
+					_, err := validator.ValidateUpdate(ctx, old, updated)
+					if tt.wantErr == "" {
+						requireNoError(t, err)
+					} else {
+						requireErrorEqual(t, err, tt.wantErr)
+					}
+				})
+			}
+		})
 	})
 }

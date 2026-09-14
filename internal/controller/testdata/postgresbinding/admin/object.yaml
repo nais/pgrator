@@ -6,9 +6,10 @@ metadata:
   namespace: myteam
 spec:
   postgres: mydb
+  secretName: myapp-mydb-connection
   consumer:
     workload:
       name: myapp
       type: application
-  secretName: mydb-myapp-admin-client-cert
-  role: admin
+  credentials:
+    - admin

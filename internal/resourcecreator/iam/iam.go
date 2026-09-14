@@ -15,6 +15,7 @@ import (
 const (
 	WorkloadIdentityRole    = "roles/iam.workloadIdentityUser"
 	StorageObjectUserRole   = "roles/storage.objectUser"
+	StorageObjectViewerRole = "roles/storage.objectViewer"
 	StorageBucketViewerRole = "roles/storage.bucketViewer"
 )
 

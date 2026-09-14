@@ -5,7 +5,7 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: mydb-myapp-readwrite
+    name: myapp-mydb-mydb-readwrite
     namespace: myteam
   spec:
     cluster:

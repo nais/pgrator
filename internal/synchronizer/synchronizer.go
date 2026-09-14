@@ -125,7 +125,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	updateStatus := func() error {
 		err := s.client.Status().Update(ctx, obj)
 		if err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "failed to update status")
+			if !apierrors.IsConflict(err) {
+				logger.Error(err, "failed to update status")
+			}
 			return err
 		}
 		return nil
@@ -133,7 +135,9 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	defer func() {
 		if err := updateStatus(); err != nil {
-			logger.Error(err, "deferred update of status failed")
+			if !s.deferredStatusUpdateIsStale(ctx, obj, err) {
+				logger.Error(err, "deferred update of status failed")
+			}
 		}
 	}()
 
@@ -339,6 +343,17 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return result, nil
 }
 
+func (s *Synchronizer[T, P]) deferredStatusUpdateIsStale(ctx context.Context, obj T, err error) bool {
+	if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+		return true
+	}
+	current := s.reconciler.New()
+	if getErr := s.client.Get(ctx, client.ObjectKeyFromObject(obj), current); getErr != nil {
+		return apierrors.IsNotFound(getErr)
+	}
+	return current.GetUID() != obj.GetUID()
+}
+
 func (s *Synchronizer[T, P]) PerformActions(ctx context.Context, actions []action.Action) (ctrl.Result, error) {
 	for _, a := range actions {
 		err := a.Do(ctx, s.client, s.scheme, s.ownerManager)
@@ -396,6 +411,14 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 		ReconciliationTimeout: 60 * time.Second,
 	}
 
+	if indexer, ok := any(s.reconciler).(reconciler.FieldIndexer); ok {
+		for _, index := range indexer.Indexes() {
+			if err := mgr.GetFieldIndexer().IndexField(context.Background(), index.Object, index.Field, index.ExtractValue); err != nil {
+				return fmt.Errorf("indexing %T by %q: %w", index.Object, index.Field, err)
+			}
+		}
+	}
+
 	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(s.reconciler.New(), builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New()))).
 		WithOptions(opts).
@@ -415,6 +438,20 @@ func (s *Synchronizer[T, P]) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(additionalTypesEnqueueFilter(mgr, s.ownerManager)),
 			builder.WithPredicates(defaultEventFilter(mgr.GetScheme(), s.reconciler.New())),
 		)
+	}
+
+	if watcher, ok := any(s.reconciler).(reconciler.RelationshipWatcher); ok {
+		for _, watch := range watcher.RelationshipWatches() {
+			if !s.isCRDAvailable(mgr, watch.Type) {
+				gvks, _, _ := s.scheme.ObjectKinds(watch.Type)
+				logger.Info("skipping watch for unavailable CRD (will not reconcile this type until restart)", "gvk", gvks)
+				continue
+			}
+			bldr = bldr.Watches(watch.Type,
+				handler.EnqueueRequestsFromMapFunc(relationshipEnqueueFilter(mgr, watch.Map)),
+				builder.WithPredicates(watch.Predicate),
+			)
+		}
 	}
 	return bldr.Complete(s)
 }
@@ -578,6 +615,17 @@ func defaultEventFilter(scheme *runtime.Scheme, obj client.Object) predicate.Pre
 		predicate.AnnotationChangedPredicate{},
 		predicate.LabelChangedPredicate{},
 	)
+}
+
+func relationshipEnqueueFilter(mgr ctrl.Manager, mapper reconciler.RelationshipMapFunc) handler.MapFunc {
+	return func(ctx context.Context, object client.Object) []reconcile.Request {
+		requests, err := mapper(ctx, mgr.GetClient(), object)
+		if err != nil {
+			mgr.GetLogger().Error(err, "unable to map relationship watch event")
+			return nil
+		}
+		return requests
+	}
 }
 
 func additionalTypesEnqueueFilter(mgr ctrl.Manager, ownerManager ownership.OwnerManager) handler.MapFunc {
