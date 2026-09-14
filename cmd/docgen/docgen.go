@@ -60,12 +60,17 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	}: v1.ExampleOpenSearchForDocumentation,
 }
 
-// ExcludedKinds are API types installed for compatibility that must not appear in generated documentation.
+// ExcludedKinds are API types that must not appear in generated documentation.
 var ExcludedKinds = map[schema.GroupVersionKind]struct{}{
 	{
 		Group:   datav1.GroupVersion.Group,
 		Version: datav1.GroupVersion.Version,
 		Kind:    "Postgres",
+	}: {},
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
+		Kind:    "PostgresInstance",
 	}: {},
 }
 
