@@ -56,6 +56,12 @@ spec:
 
     - name: The binding points at the durable owner
       try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: eier-mydb
         - script:
             content: |
               set -eu
