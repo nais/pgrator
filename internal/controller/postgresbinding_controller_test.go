@@ -282,6 +282,36 @@ func TestUpdateRetainsConfigSecretWhenSnapshotNil(t *testing.T) {
 	})
 }
 
+func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
+	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team", UID: "binding-uid"}, Spec: v1.PostgresBindingSpec{
+		Postgres:    "orders",
+		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
+		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialReadWrite},
+	}}
+	previous, err := rcbinding.CreateDatabaseRole(scheme.Scheme, binding, "orders-primary", v1.PostgresBindingCredentialReadWrite)
+	requireNoError(t, err)
+	removedCredential, err := rcbinding.CreateDatabaseRole(scheme.Scheme, binding, "orders-primary", v1.PostgresBindingCredentialRead)
+	requireNoError(t, err)
+	related := relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme)
+	related.Insert(previous)
+	related.Insert(removedCredential)
+
+	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{Instance: "orders-restored"}, related)
+	requireNoError(t, err)
+	foundPrevious := false
+	for _, a := range actions {
+		if a.GetObject().GetName() == removedCredential.GetName() {
+			t.Fatal("removed credential DatabaseRole must not be retained")
+		}
+		if a.GetObject().GetName() == previous.GetName() {
+			foundPrevious = true
+		}
+	}
+	if !foundPrevious {
+		t.Fatal("expected action retaining the previous instance DatabaseRole")
+	}
+}
+
 func TestPrepareBindingRetainsStatusActiveInstanceWhenSpecIsRemoved(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
 		Postgres: "orders", SecretName: "reporter-orders-connection",

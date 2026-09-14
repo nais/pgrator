@@ -496,6 +496,17 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 			return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 		}
 		actions = append(actions, action.ExclusiveCreateOrUpdate(role, obj, existsConditionGetter, r.Recorder))
+
+		// Instance-specific DatabaseRoles must survive an active-instance switch.
+		// Deleting and recreating a role with the same name invalidates privileges
+		// held by existing database sessions for that role.
+		for _, candidate := range relatedObjects.GetMatchingType(&cnpgv1.DatabaseRole{}) {
+			existing, ok := candidate.(*cnpgv1.DatabaseRole)
+			if !ok || existing.GetName() == role.GetName() || existing.Spec.Name != role.Spec.Name || !metav1.IsControlledBy(existing, obj) {
+				continue
+			}
+			actions = append(actions, action.Claim(existing, obj, existsConditionGetter, r.Recorder))
+		}
 	}
 
 	if prepared.Snapshot != nil {
