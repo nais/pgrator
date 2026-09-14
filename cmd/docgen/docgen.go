@@ -19,6 +19,7 @@ import (
 
 	"github.com/imdario/mergo"
 	"github.com/nais/pgrator/pkg/api"
+	datav1 "github.com/nais/pgrator/pkg/api/datav1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
@@ -57,6 +58,15 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 		Version: v1.GroupVersion.Version,
 		Kind:    "OpenSearch",
 	}: v1.ExampleOpenSearchForDocumentation,
+}
+
+// ExcludedKinds are API types installed for compatibility that must not appear in generated documentation.
+var ExcludedKinds = map[schema.GroupVersionKind]struct{}{
+	{
+		Group:   datav1.GroupVersion.Group,
+		Version: datav1.GroupVersion.Version,
+		Kind:    "Postgres",
+	}: {},
 }
 
 type Renderer func(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps)
@@ -249,12 +259,16 @@ func run() error {
 			gv := pars.GroupVersions[pkg]
 			log := slog.With("kind", gk.Kind, "group", gk.Group, "version", gv.Version)
 
-			exampleFunc, ok := ExampleRegistry[schema.GroupVersionKind{
+			gvk := schema.GroupVersionKind{
 				Group:   gk.Group,
 				Version: gv.Version,
 				Kind:    gk.Kind,
-			}]
+			}
+			exampleFunc, ok := ExampleRegistry[gvk]
 			if !ok {
+				if _, excluded := ExcludedKinds[gvk]; excluded {
+					continue
+				}
 				return fmt.Errorf(
 					"'%s/%s/%s' is not supported; "+
 						"must be registered in ExampleRegistry config in docgen.go",
