@@ -9,12 +9,15 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
+	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	core_v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,7 +48,10 @@ type PostgresReconciler struct {
 var _ reconciler.Reconciler[*v1.Postgres, PostgresPreparedData] = &PostgresReconciler{}
 
 // PostgresPreparedData contains data prepared during the Prepare phase.
-type PostgresPreparedData struct{}
+type PostgresPreparedData struct {
+	RequestedInstance string `yaml:"requestedInstance,omitempty"`
+	RequestedReady    bool   `yaml:"requestedReady,omitempty"`
+}
 
 func (r *PostgresReconciler) Name() string {
 	return "postgres.nais.io"
@@ -55,8 +61,37 @@ func (r *PostgresReconciler) New() *v1.Postgres {
 	return &v1.Postgres{}
 }
 
-func (r *PostgresReconciler) Prepare(_ context.Context, _ client.Reader, _ *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
-	return PostgresPreparedData{}, ctrl.Result{}, nil
+func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
+	if obj.Spec.ActiveInstance == "" {
+		return PostgresPreparedData{}, ctrl.Result{}, nil
+	}
+
+	requested := &v1.PostgresInstance{}
+	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.ActiveInstance}
+	if err := reader.Get(ctx, key, requested); err != nil {
+		if apierrors.IsNotFound(err) {
+			return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+		}
+		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresInstance %q: %w", obj.Spec.ActiveInstance, err)
+	}
+
+	if requested.Spec.Postgres != obj.GetName() {
+		return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+	}
+
+	cluster := &cnpgv1.Cluster{}
+	clusterKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(requested.GetName())}
+	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+		}
+		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresInstance %q: %w", requested.GetName(), err)
+	}
+
+	return PostgresPreparedData{
+		RequestedInstance: obj.Spec.ActiveInstance,
+		RequestedReady:    recoveryComplete(cluster),
+	}, ctrl.Result{}, nil
 }
 
 func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
@@ -80,10 +115,7 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 	}
 }
 
-func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	activeInstance := effectiveActiveInstance(obj)
-	obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = activeInstance
-
+func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	instance := &v1.PostgresInstance{
 		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresInstance"},
 		ObjectMeta: meta_v1.ObjectMeta{Name: obj.GetName(), Namespace: obj.GetNamespace()},
@@ -92,7 +124,14 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, re
 	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
 	}
+
 	if obj.Spec.ActiveInstance != "" {
+		if !prepared.RequestedReady {
+			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresInstance %q is not ready", obj.Spec.ActiveInstance)
+			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresInstance %q is not ready", obj.Spec.ActiveInstance)
+		}
+		obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = obj.Spec.ActiveInstance
+
 		actions := make([]action.Action, 0)
 		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresInstance{}) {
 			instance, ok := candidate.(*v1.PostgresInstance)
@@ -113,6 +152,10 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, _ PostgresPreparedData, re
 		return []action.Action{action.Claim(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 	}
 
+	status := obj.GetStatus().(*v1.PostgresStatus)
+	if status.ActiveInstance == "" {
+		status.ActiveInstance = obj.GetName()
+	}
 	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 }
 

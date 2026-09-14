@@ -25,6 +25,12 @@ func TestPostgresBindingRoleName(t *testing.T) {
 			}
 		})
 	}
+	for _, tt := range tests {
+		binding := &PostgresBinding{Spec: PostgresBindingSpec{Consumer: PostgresBindingConsumer{Workload: &PostgresBindingWorkload{Name: tt.workload}}}}
+		if got := binding.RoleName(tt.credential); len(got) > 63 {
+			t.Errorf("RoleName() for %q produced name %q with length %d, want at most 63", tt.name, got, len(got))
+		}
+	}
 }
 
 func TestPostgresBindingCredentials(t *testing.T) {

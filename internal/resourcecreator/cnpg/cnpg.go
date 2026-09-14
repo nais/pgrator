@@ -362,7 +362,7 @@ func bootstrap(recovery *RecoverySource) *cnpgv1.BootstrapConfiguration {
 		return &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{
 			Source: "recovery-source",
 			RecoveryTarget: &cnpgv1.RecoveryTarget{
-				TargetTime: recovery.TargetTime.Format(time.RFC3339),
+				TargetTime: recovery.TargetTime.Format(time.RFC3339Nano),
 			},
 			Database: DatabaseName,
 			Owner:    OwnerRole,

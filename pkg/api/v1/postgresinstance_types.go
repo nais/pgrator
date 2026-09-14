@@ -26,7 +26,7 @@ type PostgresInstanceRecovery struct {
 type PostgresInstanceSpec struct {
 	// Postgres is the logical Postgres this physical instance belongs to.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Immutable
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgres is immutable"
 	Postgres string `json:"postgres"`
 
 	// Bootstrap describes how this physical instance is initialized. It is immutable

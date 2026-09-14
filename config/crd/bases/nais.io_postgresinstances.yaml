@@ -80,6 +80,9 @@ spec:
                 description: Postgres is the logical Postgres this physical instance
                   belongs to.
                 type: string
+                x-kubernetes-validations:
+                - message: postgres is immutable
+                  rule: self == oldSelf
             required:
             - postgres
             type: object

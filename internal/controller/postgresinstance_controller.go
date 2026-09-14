@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
@@ -61,6 +62,8 @@ type PostgresInstancePreparedData struct {
 	PostgresUID         types.UID       `yaml:"postgresUID"`
 	PostgresSpec        v1.PostgresSpec `yaml:"postgresSpec"`
 	TeamGoogleProjectID string          `yaml:"teamGoogleProjectID"`
+	ActiveInstance      string          `yaml:"activeInstance,omitempty"`
+	PostgresDeleting    bool            `yaml:"postgresDeleting,omitempty"`
 	RecoverySource      *rccnpg.RecoverySource
 	RecoverySourceReady bool
 }
@@ -247,6 +250,8 @@ func (r *PostgresInstanceReconciler) Prepare(ctx context.Context, reader client.
 		PostgresUID:  postgres.GetUID(),
 		PostgresSpec: postgres.Spec,
 	}
+	prepared.ActiveInstance = effectiveActiveInstance(postgres)
+	prepared.PostgresDeleting = !postgres.GetDeletionTimestamp().IsZero()
 	if obj.Spec.Bootstrap != nil && obj.Spec.Bootstrap.Recovery != nil && !r.walArchivingEnabled() {
 		return PostgresInstancePreparedData{}, ctrl.Result{}, fmt.Errorf("recovery requires WAL archiving")
 	}
@@ -724,7 +729,11 @@ func (r *PostgresInstanceReconciler) recreateIAM(desired client.Object, owner *v
 	return action.Recreate(desired, owner, cnrmConditionsGetter, r.Recorder), nil
 }
 
-func (r *PostgresInstanceReconciler) Delete(_ *v1.PostgresInstance, _ PostgresInstancePreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresInstanceReconciler) Delete(obj *v1.PostgresInstance, prep PostgresInstancePreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if prep.ActiveInstance != "" && obj.GetName() == prep.ActiveInstance && !prep.PostgresDeleting {
+		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: instance is the active PostgresInstance")
+		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 	return nil, ctrl.Result{}, nil
 }
 

@@ -13,26 +13,30 @@ import (
 
 func TestUpdateSetsActiveInstanceStatus(t *testing.T) {
 	tests := []struct {
-		name   string
-		spec   string
-		status string
-		want   string
+		name           string
+		spec           string
+		status         string
+		requestedReady bool
+		want           string
+		wantErr        bool
 	}{
-		{name: "uses explicitly selected instance", spec: "super-restore", want: "super-restore"},
+		{name: "uses explicitly selected instance", spec: "super-restore", requestedReady: true, want: "super-restore"},
 		{name: "retains previously selected instance when spec is removed", status: "super-restore", want: "super-restore"},
 		{name: "defaults to original instance", want: "super-postgres"},
+		{name: "requested instance not ready leaves status unchanged", spec: "super-restore", status: "super-postgres", want: "super-postgres", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
 			initscheme.InitScheme(scheme)
-			reconciler := &PostgresReconciler{Config: &config.Config{}, Scheme: scheme}
+			reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
 			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "super-postgres", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: tt.spec}, Status: &v1.PostgresStatus{ActiveInstance: tt.status}}
+			prepared := PostgresPreparedData{RequestedInstance: tt.spec, RequestedReady: tt.requestedReady}
 
-			_, _, err := reconciler.Update(postgres, PostgresPreparedData{}, relatedobjectsmap.NewRelatedObjectsMap(scheme))
-			if err != nil {
-				t.Fatalf("Update() error = %v", err)
+			_, _, err := reconciler.Update(postgres, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Update() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if got := postgres.Status.ActiveInstance; got != tt.want {
 				t.Errorf("status.activeInstance = %q, want %q", got, tt.want)
@@ -41,15 +45,31 @@ func TestUpdateSetsActiveInstanceStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateFailsActivationWhenRequestedInstanceMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "super-postgres", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: "missing"}, Status: &v1.PostgresStatus{ActiveInstance: "super-postgres"}}
+	prepared := PostgresPreparedData{RequestedInstance: "missing", RequestedReady: false}
+
+	_, _, err := reconciler.Update(postgres, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme))
+	if err == nil {
+		t.Fatal("Update() expected error, got nil")
+	}
+	if postgres.Status.ActiveInstance != "super-postgres" {
+		t.Errorf("status.activeInstance = %q, want %q", postgres.Status.ActiveInstance, "super-postgres")
+	}
+}
+
 func TestUpdateRetainsOriginalInstanceWhenActiveInstanceChanges(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	reconciler := &PostgresReconciler{Config: &config.Config{}, Scheme: scheme}
+	reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
 	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "super-postgres", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: "super-restore"}}
 	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
 	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: postgres.Name, Namespace: postgres.Namespace}})
 
-	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{}, relatedObjects)
+	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{RequestedInstance: "super-restore", RequestedReady: true}, relatedObjects)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -68,14 +88,14 @@ func TestUpdateRetainsOriginalInstanceWhenActiveInstanceChanges(t *testing.T) {
 func TestUpdateKeepsAllInstancesWhenActiveInstanceChanges(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	reconciler := &PostgresReconciler{Config: &config.Config{}, Scheme: scheme}
+	reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
 	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: "orders-restored"}}
 	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
 	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
 	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restored", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
 	relatedObjects.Insert(&v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "other-team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}})
 
-	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{}, relatedObjects)
+	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{RequestedInstance: "orders-restored", RequestedReady: true}, relatedObjects)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}

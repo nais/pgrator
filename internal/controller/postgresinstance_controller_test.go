@@ -26,6 +26,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
+func TestPostgresInstanceDeleteRespectsActiveInstance(t *testing.T) {
+	reconciler := &PostgresInstanceReconciler{Recorder: recorder}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}}
+
+	tests := []struct {
+		name             string
+		prep             PostgresInstancePreparedData
+		wantRequeueAfter time.Duration
+	}{
+		{name: "blocked when active", prep: PostgresInstancePreparedData{ActiveInstance: "orders-primary", PostgresDeleting: false}, wantRequeueAfter: 30 * time.Second},
+		{name: "allowed when not active", prep: PostgresInstancePreparedData{ActiveInstance: "orders-restore"}},
+		{name: "allowed when Postgres is deleting", prep: PostgresInstancePreparedData{ActiveInstance: "orders-primary", PostgresDeleting: true}},
+		{name: "allowed when Postgres is gone", prep: PostgresInstancePreparedData{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, result, err := reconciler.Delete(instance, tt.prep, nil)
+			requireNoError(t, err)
+			if result.RequeueAfter != tt.wantRequeueAfter {
+				t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, tt.wantRequeueAfter)
+			}
+		})
+	}
+}
+
 func TestContinuousArchivingReady(t *testing.T) {
 	tests := []struct {
 		name       string

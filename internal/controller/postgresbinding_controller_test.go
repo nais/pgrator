@@ -2,19 +2,31 @@ package controller
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/nais/pgrator/internal/initscheme"
 	rcbinding "github.com/nais/pgrator/internal/resourcecreator/binding"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -29,26 +41,28 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "team"}, Spec: cnpgv1.ClusterSpec{Certificates: &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}}}
 	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
 	certSecret := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
+	caCert, caKey, caPEM := generateTestCA(t)
+	certPEM, keyPEM := generateTestClientCert(t, caCert, caKey, binding.RoleName(v1.PostgresBindingCredentialRead))
 
 	t.Run("publishes a complete snapshot", func(t *testing.T) {
 		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance, cluster,
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": []byte("ca")}},
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": caPEM}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": certPEM, "tls.key": keyPEM}},
 		).Build()
 		r := &PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 		prepared, _, err := r.Prepare(context.Background(), reader, binding)
 		requireNoError(t, err)
 		requireNotNil(t, prepared.Snapshot, "complete material should produce a snapshot")
-		actions, _, err := r.Update(binding, prepared, nil)
+		actions, _, err := r.Update(binding, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 		requireNoError(t, err)
 		for _, action := range actions {
 			secret, ok := action.GetObject().(*corev1.Secret)
 			if !ok || secret.Name != binding.Spec.SecretName {
 				continue
 			}
-			requireEqual(t, string(secret.Data["ca.crt"]), "ca", "CA certificate")
-			requireEqual(t, string(secret.Data["read.tls.crt"]), "cert", "client certificate")
-			requireEqual(t, string(secret.Data["read.tls.key"]), "key", "client key")
+			requireEqual(t, string(secret.Data["ca.crt"]), string(caPEM), "CA certificate")
+			requireEqual(t, string(secret.Data["read.tls.crt"]), string(certPEM), "client certificate")
+			requireEqual(t, string(secret.Data["read.tls.key"]), string(keyPEM), "client key")
 			requireEqual(t, secret.StringData["READ_PGHOST"], "pg-orders-restore-pooler.team", "active instance host")
 			return
 		}
@@ -57,20 +71,212 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 
 	t.Run("does not replace a stable secret while source material is incomplete", func(t *testing.T) {
 		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance, cluster,
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": []byte("ca")}},
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": []byte("cert")}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": caPEM}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": certPEM}},
 		).Build()
 		r := &PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 		prepared, _, err := r.Prepare(context.Background(), reader, binding)
 		requireNoError(t, err)
 		requireNil(t, prepared.Snapshot, "missing certificate must not produce a snapshot")
-		actions, _, err := r.Update(binding, prepared, nil)
+		actions, _, err := r.Update(binding, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 		requireNoError(t, err)
 		for _, action := range actions {
 			if action.GetObject().GetName() == binding.Spec.SecretName {
 				if _, ok := action.GetObject().(*corev1.Secret); ok {
 					t.Fatal("incomplete material must not update the stable binding Secret")
 				}
+			}
+		}
+	})
+}
+
+func generateTestCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	requireNoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	requireNoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	requireNoError(t, err)
+	return cert, key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func generateTestClientCert(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, cn string) (certPEM, keyPEM []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	requireNoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, ca, &key.PublicKey, caKey)
+	requireNoError(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	requireNoError(t, err)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+}
+
+func TestPostgresBindingPostgresWatchPredicate(t *testing.T) {
+	pred := (&PostgresBindingReconciler{}).RelationshipWatches()[0].Predicate
+
+	t.Run("create fires", func(t *testing.T) {
+		if !pred.Create(event.CreateEvent{}) {
+			t.Error("Create should fire")
+		}
+	})
+	t.Run("delete fires", func(t *testing.T) {
+		if !pred.Delete(event.DeleteEvent{}) {
+			t.Error("Delete should fire")
+		}
+	})
+	t.Run("generation change fires", func(t *testing.T) {
+		oldObj := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Generation: 1}}
+		newObj := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+		if !pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
+			t.Error("generation change should fire")
+		}
+	})
+	t.Run("status activeInstance change fires", func(t *testing.T) {
+		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "old"}}
+		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "new"}}
+		if !pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
+			t.Error("status.activeInstance change should fire")
+		}
+	})
+	t.Run("irrelevant update is filtered", func(t *testing.T) {
+		oldObj := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{ResourceVersion: "1"}}
+		newObj := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{ResourceVersion: "2"}}
+		if pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
+			t.Error("resourceVersion-only change should be filtered")
+		}
+	})
+	t.Run("no status change is filtered", func(t *testing.T) {
+		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "same"}}
+		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "same"}}
+		if pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
+			t.Error("unchanged status should be filtered")
+		}
+	})
+}
+
+func TestValidateBindingSnapshot(t *testing.T) {
+	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
+		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
+		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
+	}}
+	caCert, caKey, caPEM := generateTestCA(t)
+	validCert, validKey := generateTestClientCert(t, caCert, caKey, binding.RoleName(v1.PostgresBindingCredentialRead))
+
+	t.Run("valid snapshot passes", func(t *testing.T) {
+		snapshot := &bindingSnapshot{
+			CACertificate: caPEM,
+			Credentials: map[v1.PostgresBindingCredential]rcbinding.CredentialMaterial{
+				v1.PostgresBindingCredentialRead: {Certificate: validCert, PrivateKey: validKey},
+			},
+		}
+		if err := validateBindingSnapshot(binding, snapshot); err != nil {
+			t.Fatalf("validateBindingSnapshot() error = %v", err)
+		}
+	})
+
+	t.Run("wrong key fails", func(t *testing.T) {
+		_, wrongKey := generateTestClientCert(t, caCert, caKey, binding.RoleName(v1.PostgresBindingCredentialRead))
+		snapshot := &bindingSnapshot{
+			CACertificate: caPEM,
+			Credentials: map[v1.PostgresBindingCredential]rcbinding.CredentialMaterial{
+				v1.PostgresBindingCredentialRead: {Certificate: validCert, PrivateKey: wrongKey},
+			},
+		}
+		if err := validateBindingSnapshot(binding, snapshot); err == nil {
+			t.Fatal("expected validation error for wrong key")
+		}
+	})
+
+	t.Run("leaf from other CA fails", func(t *testing.T) {
+		otherCA, otherCAKey, _ := generateTestCA(t)
+		otherCert, otherKey := generateTestClientCert(t, otherCA, otherCAKey, binding.RoleName(v1.PostgresBindingCredentialRead))
+		snapshot := &bindingSnapshot{
+			CACertificate: caPEM,
+			Credentials: map[v1.PostgresBindingCredential]rcbinding.CredentialMaterial{
+				v1.PostgresBindingCredentialRead: {Certificate: otherCert, PrivateKey: otherKey},
+			},
+		}
+		if err := validateBindingSnapshot(binding, snapshot); err == nil {
+			t.Fatal("expected validation error for leaf from other CA")
+		}
+	})
+
+	t.Run("wrong CN fails", func(t *testing.T) {
+		badCert, badKey := generateTestClientCert(t, caCert, caKey, "wrong-cn")
+		snapshot := &bindingSnapshot{
+			CACertificate: caPEM,
+			Credentials: map[v1.PostgresBindingCredential]rcbinding.CredentialMaterial{
+				v1.PostgresBindingCredentialRead: {Certificate: badCert, PrivateKey: badKey},
+			},
+		}
+		if err := validateBindingSnapshot(binding, snapshot); err == nil {
+			t.Fatal("expected validation error for wrong CN")
+		}
+	})
+
+	t.Run("garbage PEM fails", func(t *testing.T) {
+		snapshot := &bindingSnapshot{
+			CACertificate: []byte("not pem"),
+			Credentials: map[v1.PostgresBindingCredential]rcbinding.CredentialMaterial{
+				v1.PostgresBindingCredentialRead: {Certificate: validCert, PrivateKey: validKey},
+			},
+		}
+		if err := validateBindingSnapshot(binding, snapshot); err == nil {
+			t.Fatal("expected validation error for garbage PEM")
+		}
+	})
+}
+
+func TestUpdateRetainsConfigSecretWhenSnapshotNil(t *testing.T) {
+	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
+		Postgres: "orders", SecretName: "reporter-orders-connection",
+		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
+		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
+	}}
+	testScheme := runtime.NewScheme()
+	initscheme.InitScheme(testScheme)
+	r := &PostgresBindingReconciler{Recorder: recorder, Scheme: testScheme}
+	prepared := PostgresBindingPreparedData{Instance: "orders-restore"}
+
+	t.Run("claims existing config Secret", func(t *testing.T) {
+		related := relatedobjectsmap.NewRelatedObjectsMap(testScheme)
+		related.Insert(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: binding.Spec.SecretName, Namespace: binding.Namespace}})
+		actions, _, err := r.Update(binding, prepared, related)
+		requireNoError(t, err)
+		for _, a := range actions {
+			if secret, ok := a.GetObject().(*corev1.Secret); ok && secret.Name == binding.Spec.SecretName {
+				return
+			}
+		}
+		t.Fatal("expected Claim action for existing config Secret")
+	})
+
+	t.Run("no Secret action when config Secret does not exist", func(t *testing.T) {
+		actions, _, err := r.Update(binding, prepared, relatedobjectsmap.NewRelatedObjectsMap(testScheme))
+		requireNoError(t, err)
+		for _, a := range actions {
+			if _, ok := a.GetObject().(*corev1.Secret); ok {
+				t.Fatal("unexpected Secret action when config Secret is absent")
 			}
 		}
 	})

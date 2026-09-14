@@ -2,6 +2,11 @@ package controller
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"reflect"
 
@@ -93,9 +98,30 @@ func (r *PostgresBindingReconciler) Indexes() []reconciler.Index {
 func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
 	return []reconciler.RelationshipWatch{
 		{
-			Type:      &v1.Postgres{},
-			Map:       r.bindingsForPostgres,
-			Predicate: predicate.GenerationChangedPredicate{},
+			Type: &v1.Postgres{},
+			Map:  r.bindingsForPostgres,
+			Predicate: predicate.Funcs{
+				CreateFunc: func(event.CreateEvent) bool { return true },
+				DeleteFunc: func(event.DeleteEvent) bool { return true },
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldPostgres, oldOK := e.ObjectOld.(*v1.Postgres)
+					newPostgres, newOK := e.ObjectNew.(*v1.Postgres)
+					if !oldOK || !newOK {
+						return false
+					}
+					if oldPostgres.GetGeneration() != newPostgres.GetGeneration() {
+						return true
+					}
+					var oldActive, newActive string
+					if oldPostgres.Status != nil {
+						oldActive = oldPostgres.Status.ActiveInstance
+					}
+					if newPostgres.Status != nil {
+						newActive = newPostgres.Status.ActiveInstance
+					}
+					return oldActive != newActive
+				},
+			},
 		},
 		{
 			Type:      &core_v1.Secret{},
@@ -235,7 +261,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 	}
 
 	prepared := PostgresBindingPreparedData{Instance: instance.GetName()}
-	snapshot, err := readBindingSnapshot(ctx, reader, obj, instance.GetName())
+	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance.GetName())
 	if err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
 	}
@@ -243,7 +269,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 	return prepared, ctrl.Result{}, nil
 }
 
-func readBindingSnapshot(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, instance string) (*bindingSnapshot, error) {
+func (r *PostgresBindingReconciler) readBindingSnapshot(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, instance string) (*bindingSnapshot, error) {
 	cluster := &cnpgv1.Cluster{}
 	clusterKey := client.ObjectKey{Namespace: binding.GetNamespace(), Name: rccnpg.ClusterNameFor(instance)}
 	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
@@ -273,7 +299,152 @@ func readBindingSnapshot(ctx context.Context, reader client.Reader, binding *v1.
 		}
 		snapshot.Credentials[credential] = rcbinding.CredentialMaterial{Certificate: certificate["tls.crt"], PrivateKey: certificate["tls.key"]}
 	}
+
+	if err := validateBindingSnapshot(binding, snapshot); err != nil {
+		r.Recorder.RecordEvent(binding, core_v1.EventTypeWarning, "SnapshotValidationFailed", "snapshot validation failed: %v", err)
+		return nil, nil
+	}
 	return snapshot, nil
+}
+
+// validateBindingSnapshot returns a non-nil error if the material is not
+// cryptographically consistent. Callers treat validation failure as "no
+// snapshot" with an event recorded on the binding.
+func validateBindingSnapshot(binding *v1.PostgresBinding, snapshot *bindingSnapshot) error {
+	caPool, err := parseCertificatePool(snapshot.CACertificate)
+	if err != nil {
+		return fmt.Errorf("parsing CA certificate: %w", err)
+	}
+
+	for _, credential := range binding.Spec.Credentials {
+		material := snapshot.Credentials[credential]
+		leaf, intermediates, err := parseLeafCertificate(material.Certificate)
+		if err != nil {
+			return fmt.Errorf("parsing certificate for %s: %w", credential, err)
+		}
+
+		privateKey, err := parsePrivateKey(material.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("parsing private key for %s: %w", credential, err)
+		}
+
+		if !publicKeysEqual(leaf.PublicKey, publicKeyFromPrivateKey(privateKey)) {
+			return fmt.Errorf("public key mismatch for %s", credential)
+		}
+
+		if _, err := leaf.Verify(x509.VerifyOptions{
+			Roots:         caPool,
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		}); err != nil {
+			return fmt.Errorf("verifying certificate for %s: %w", credential, err)
+		}
+
+		wantCN := binding.RoleName(credential)
+		if leaf.Subject.CommonName != wantCN {
+			return fmt.Errorf("certificate CN for %s is %q, want %q", credential, leaf.Subject.CommonName, wantCN)
+		}
+	}
+
+	return nil
+}
+
+func parseCertificatePool(pemData []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	var found bool
+	for len(pemData) > 0 {
+		block, rest := pem.Decode(pemData)
+		if block == nil {
+			if found {
+				return pool, nil
+			}
+			return nil, fmt.Errorf("no PEM blocks found")
+		}
+		if block.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("unexpected PEM type %q", block.Type)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parsing certificate: %w", err)
+		}
+		pool.AddCert(cert)
+		found = true
+		pemData = rest
+	}
+	return pool, nil
+}
+
+func parseLeafCertificate(pemData []byte) (*x509.Certificate, *x509.CertPool, error) {
+	intermediates := x509.NewCertPool()
+	var leaf *x509.Certificate
+	for len(pemData) > 0 {
+		block, rest := pem.Decode(pemData)
+		if block == nil {
+			if leaf != nil {
+				return leaf, intermediates, nil
+			}
+			return nil, nil, fmt.Errorf("no PEM blocks found")
+		}
+		if block.Type != "CERTIFICATE" {
+			return nil, nil, fmt.Errorf("unexpected PEM type %q", block.Type)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parsing certificate: %w", err)
+		}
+		if leaf == nil {
+			leaf = cert
+		} else {
+			intermediates.AddCert(cert)
+		}
+		pemData = rest
+	}
+	if leaf == nil {
+		return nil, nil, fmt.Errorf("no certificate found")
+	}
+	return leaf, intermediates, nil
+}
+
+func parsePrivateKey(pemData []byte) (any, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found")
+	}
+
+	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	return nil, fmt.Errorf("unrecognized private key format")
+}
+
+func publicKeysEqual(a, b crypto.PublicKey) bool {
+	switch ak := a.(type) {
+	case *rsa.PublicKey:
+		bk, ok := b.(*rsa.PublicKey)
+		return ok && ak.Equal(bk)
+	case *ecdsa.PublicKey:
+		bk, ok := b.(*ecdsa.PublicKey)
+		return ok && ak.Equal(bk)
+	default:
+		return false
+	}
+}
+
+func publicKeyFromPrivateKey(key any) crypto.PublicKey {
+	switch k := key.(type) {
+	case *rsa.PrivateKey:
+		return &k.PublicKey
+	case *ecdsa.PrivateKey:
+		return &k.PublicKey
+	default:
+		return nil
+	}
 }
 
 func certificateRoleName(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, instance, cluster string, credential v1.PostgresBindingCredential) (string, error) {
@@ -312,7 +483,7 @@ func readSecretData(ctx context.Context, reader client.Reader, key client.Object
 	return data, true, nil
 }
 
-func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
 	for _, credential := range obj.Spec.Credentials {
 		// app is the durable owner identity. The Postgres instance owns its
@@ -333,6 +504,14 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 			return nil, ctrl.Result{}, fmt.Errorf("creating config Secret spec: %w", err)
 		}
 		actions = append(actions, action.ExclusiveCreateOrUpdate(configSecret, obj, existsConditionGetter, r.Recorder))
+	} else {
+		stub := &core_v1.Secret{
+			TypeMeta:   metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+			ObjectMeta: metav1.ObjectMeta{Name: rcbinding.ConfigSecretName(obj), Namespace: obj.GetNamespace()},
+		}
+		if relatedObjects.GetMatching(stub) != nil {
+			actions = append(actions, action.Claim(stub, obj, existsConditionGetter, r.Recorder))
+		}
 	}
 
 	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj, prepared.Instance)

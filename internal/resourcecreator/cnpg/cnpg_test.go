@@ -99,6 +99,34 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 	}
 }
 
+func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding Postgres scheme: %v", err)
+	}
+	targetTime := metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 123456789, time.UTC))
+
+	cluster, err := CreateCluster(scheme, &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"},
+		Spec: v1.PostgresSpec{
+			MajorVersion: "18",
+		},
+	}, &config.Config{}, WALArchive{BucketName: "orders-restore-archive"}, &RecoverySource{
+		BucketName: "orders-primary-archive",
+		ServerName: "pg-orders-primary",
+		TargetTime: targetTime,
+	})
+	if err != nil {
+		t.Fatalf("CreateCluster() error = %v", err)
+	}
+
+	got := cluster.Spec.Bootstrap.Recovery.RecoveryTarget.TargetTime
+	want := targetTime.Format(time.RFC3339Nano)
+	if got != want {
+		t.Errorf("recovery target time = %q, want %q", got, want)
+	}
+}
+
 func TestAuditConfigurationExemptsApplicationRoles(t *testing.T) {
 	parameters := makePostgresParameters(resource.MustParse("512Mi"))
 	if got, want := parameters["pgaudit.log"], "read,write,ddl,role"; got != want {
