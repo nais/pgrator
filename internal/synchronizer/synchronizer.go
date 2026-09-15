@@ -3,7 +3,6 @@ package synchronizer
 import (
 	"context"
 	"fmt"
-	"maps"
 	"reflect"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	"github.com/nais/pgrator/pkg/api"
 	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,20 +110,18 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Snapshot annotations before reconciliation to detect changes made by the reconciler
-	// (e.g., setting active-engine annotation). This is needed because metadata persistence
-	// must happen for both finalizer and annotation changes, not just finalizer changes.
-	// NOTE: We save annotations here AND after reconciler.Update(), because the multiple
-	// Status().Update() calls between Update() and client.Update() overwrite obj with the
-	// server response, clobbering any in-memory annotation changes.
-	originalAnnotations := maps.Clone(obj.GetAnnotations())
+	// Everything the reconciler resolves during this pass lives on obj until the single write near
+	// the end, so this is what that write is judged against.
+	original := obj.DeepCopyObject().(client.Object)
 
 	obj.GetStatus().SetReconcileTime(new(meta_v1.NewTime(time.Now())))
-	obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
 	obj.GetStatus().SetCorrelationID(obj.GetCorrelationId())
 
 	updateStatus := func() error {
-		err := s.client.Status().Update(ctx, obj)
+		obj.GetStatus().SetObservedGeneration(obj.GetGeneration())
+		err := s.writeThrough(obj, func(shadow client.Object) error {
+			return s.client.Status().Update(ctx, shadow)
+		})
 		if err != nil && !apierrors.IsNotFound(err) {
 			if !apierrors.IsConflict(err) {
 				logger.Error(err, "failed to update status")
@@ -134,10 +132,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	defer func() {
-		if err := updateStatus(); err != nil {
-			if !s.deferredStatusUpdateIsStale(ctx, obj, err) {
-				logger.Error(err, "deferred update of status failed")
-			}
+		err := updateStatus()
+		if apierrors.IsConflict(err) {
+			err = s.retryStatusUpdate(ctx, obj)
+		}
+		if err != nil && !s.deferredStatusUpdateIsStale(ctx, obj, err) {
+			logger.Error(err, "deferred update of status failed")
 		}
 	}()
 
@@ -154,25 +154,12 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
 
-	prePrepareObj := obj.DeepCopyObject().(client.Object)
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
 		logger.Error(err, "failed preparation stage")
 		s.recorder.RecordErrorEvent(obj, "Preparing", err)
 		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "Preparing")
 		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
-
-		// Persist annotation changes even on Prepare failure so that annotations
-		// stamped early (e.g. active-engine) are saved to the API server.
-		// Use MergePatch from the pre-Prepare snapshot to avoid accidentally
-		// persisting other object mutations made during Prepare().
-		if !maps.Equal(originalAnnotations, obj.GetAnnotations()) {
-			patch := client.MergeFrom(prePrepareObj)
-			if updateErr := s.client.Patch(ctx, obj, patch); updateErr != nil {
-				logger.Error(updateErr, "failed to persist annotations after Prepare error")
-			}
-		}
-
 		return result, err
 	}
 
@@ -193,7 +180,6 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	finalizerFunc := controllerutil.AddFinalizer
 	var actions []action.Action
 	var deleteResult ctrl.Result
-	var desiredAnnotations map[string]string
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
@@ -239,10 +225,6 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 			metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
 			return result, err
 		}
-		// Save desired annotations set by the reconciler. Subsequent Status().Update()
-		// calls overwrite obj with the server response, losing these in-memory changes.
-		// We restore them before persisting metadata.
-		desiredAnnotations = maps.Clone(obj.GetAnnotations())
 	}
 
 	obj.GetStatus().SetReconcilePhase("UpdatingOwnership")
@@ -304,28 +286,19 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		result = deleteResult
 	}
 
-	// Persist metadata changes when finalizer or annotations have been modified by the reconciler.
-	// Restore desired annotations first — they may have been clobbered by Status().Update() calls
-	// between reconciler.Update() and here, which overwrite obj with the server response.
-	if desiredAnnotations != nil {
-		obj.SetAnnotations(desiredAnnotations)
+	finalizerFunc(obj, finalizer)
+	original.SetResourceVersion(obj.GetResourceVersion()) // moved by the status writes, not a change to persist
+	changed, err := changedIgnoringStatus(obj, original)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	metadataChanged := finalizerFunc(obj, finalizer) || !maps.Equal(originalAnnotations, obj.GetAnnotations())
-	if metadataChanged {
-		// Preserve conditions before Update, as the client will overwrite obj with server response
-		// which doesn't have our in-memory condition changes yet
-		conditions := obj.GetStatus().GetConditions()
-
-		err := s.client.Update(ctx, obj)
-		if err != nil {
-			logger.Error(err, "failed to update metadata")
-			s.recorder.RecordErrorEvent(obj, "MetadataUpdate", err)
+	if changed {
+		if err := s.writeThrough(obj, func(shadow client.Object) error {
+			return s.client.Update(ctx, shadow)
+		}); err != nil {
+			logger.Error(err, "failed to write the reconciled object")
+			s.recorder.RecordErrorEvent(obj, "ObjectUpdate", err)
 			return ctrl.Result{}, err
-		}
-
-		// Restore the conditions that were set during action execution
-		for _, c := range conditions {
-			obj.GetStatus().SetCondition(c)
 		}
 	}
 
@@ -341,6 +314,55 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return result, nil
+}
+
+// writeThrough sends a copy, so the server's response never lands on the object being reconciled
+// and discards what this pass resolved.
+func (s *Synchronizer[T, P]) writeThrough(obj T, write func(client.Object) error) error {
+	shadow := obj.DeepCopyObject().(client.Object)
+	if err := write(shadow); err != nil {
+		return err
+	}
+	obj.SetResourceVersion(shadow.GetResourceVersion())
+	obj.SetGeneration(shadow.GetGeneration())
+	return nil
+}
+
+// Status has its own subresource and is never carried by the write this gates.
+func changedIgnoringStatus(obj, original client.Object) (bool, error) {
+	withoutStatus := func(o client.Object) (map[string]any, error) {
+		content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(o)
+		delete(content, "status")
+		return content, err
+	}
+
+	desired, err := withoutStatus(obj)
+	if err != nil {
+		return false, err
+	}
+	read, err := withoutStatus(original)
+	if err != nil {
+		return false, err
+	}
+	return !equality.Semantic.DeepEqual(desired, read), nil
+}
+
+// A conflict on the closing write means something outside this reconcile wrote the object, not that
+// the status in hand is obsolete.
+func (s *Synchronizer[T, P]) retryStatusUpdate(ctx context.Context, obj T) error {
+	current := s.reconciler.New()
+	if err := s.client.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
+		return err
+	}
+
+	if current.GetUID() != obj.GetUID() {
+		return nil
+	}
+
+	obj.SetResourceVersion(current.GetResourceVersion())
+	return s.writeThrough(obj, func(shadow client.Object) error {
+		return s.client.Status().Update(ctx, shadow)
+	})
 }
 
 func (s *Synchronizer[T, P]) deferredStatusUpdateIsStale(ctx context.Context, obj T, err error) bool {

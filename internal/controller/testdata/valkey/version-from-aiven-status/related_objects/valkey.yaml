@@ -1,0 +1,9 @@
+---
+apiVersion: aiven.io/v1alpha1
+kind: Valkey
+metadata:
+  name: valkey-legacy-team-legacy-valkey
+  namespace: legacy-team
+status:
+  state: RUNNING
+  version: 9.1.2

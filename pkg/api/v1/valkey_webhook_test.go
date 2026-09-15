@@ -39,8 +39,9 @@ func TestValkeyValidatorValidateCreate(t *testing.T) {
 			valkey: newValkey("my-valkey", "my-team", ValkeyVersionV8_1),
 		},
 		{
-			name:   "allows creating on a deprecated version",
-			valkey: newValkey("my-valkey", "my-team", ValkeyVersionV9_0),
+			name:      "rejects creating on a deprecated version",
+			valkey:    newValkey("my-valkey", "my-team", ValkeyVersionV9_0),
+			wantError: "Valkey 9.0 is no longer available for new instances",
 		},
 		{
 			name:   "allows name at exactly the max length",
@@ -95,9 +96,11 @@ func TestValkeyValidatorDeprecationWarning(t *testing.T) {
 	validator := &ValkeyValidator{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			old := newValkey("my-valkey", "my-team", tt.version)
 			obj := newValkey("my-valkey", "my-team", tt.version)
+			obj.Spec.Memory = ValkeyMemory8GB
 
-			warnings, err := validator.ValidateCreate(context.Background(), obj)
+			warnings, err := validator.ValidateUpdate(context.Background(), old, obj)
 			requireNoError(t, err)
 			if got := len(warnings) > 0; got != tt.wantWarning {
 				t.Fatalf("warnings present = %v, want %v (%v)", got, tt.wantWarning, warnings)

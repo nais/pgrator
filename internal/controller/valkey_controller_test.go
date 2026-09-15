@@ -44,7 +44,7 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 			Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: v1.ValkeyVersionV9_1},
 		}
 
-		result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireNoError(t, err)
 		requireEqual(t, result.Spec.Project, "test-project", "project")
 		requireEqual(t, result.Spec.Plan, "startup-4", "plan")
@@ -59,13 +59,13 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 		requireEqual(t, result.Name, "valkey-"+testTeamName+"-"+testValkeyName, "namespaced name")
 	})
 
-	t.Run("refuses to build a spec with an unresolved version", func(t *testing.T) {
+	t.Run("refuses to build a spec when no version is known", func(t *testing.T) {
 		valkey := &v1.Valkey{
 			ObjectMeta: metav1.ObjectMeta{Name: testValkeyName, Namespace: testTeamName},
 			Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB},
 		}
 
-		_, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		_, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireErrorContains(t, err, "spec.version is unset")
 	})
 
@@ -80,7 +80,7 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 			},
 		}
 
-		result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireNoError(t, err)
 		requireNotNil(t, result.Spec.UserConfig, "user config")
 		requireNotNil(t, result.Spec.UserConfig.ValkeyMaxmemoryPolicy, "maxmemory policy")
@@ -98,7 +98,7 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 			},
 		}
 
-		result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireNoError(t, err)
 		requireNotNil(t, result.Spec.UserConfig, "user config")
 		requireNotNil(t, result.Spec.UserConfig.ValkeyNotifyKeyspaceEvents, "notify keyspace events")
@@ -119,7 +119,7 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 			},
 		}
 
-		result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireNoError(t, err)
 		requireEqual(t, result.Spec.Plan, "business-14", "plan")
 		requireNotNil(t, result.Spec.UserConfig, "user config")
@@ -144,7 +144,7 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 			Spec: v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: v1.ValkeyVersionV9_1},
 		}
 
-		result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+		result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 		requireNoError(t, err)
 		requireEqual(t, result.Labels["team"], "labeled-team", "team label")
 		requireEqual(t, result.Labels["custom-label"], "custom-value", "custom label")
@@ -154,9 +154,6 @@ func TestCreateAivenValkeySpec(t *testing.T) {
 	})
 }
 
-// Exercises the version Update resolves against what Aiven reports as running: the value it puts
-// on the object, the one it sends in user config, and whether it asks for the change to be
-// recorded. Recording itself is covered by TestRecordValkeyVersion.
 func TestValkeyVersionAdoption(t *testing.T) {
 	const adoptionNamespace = "adoption-team"
 
@@ -205,9 +202,6 @@ func TestValkeyVersionAdoption(t *testing.T) {
 			requireNoError(t, err)
 			requireEqual(t, valkey.Spec.Version, tt.want, "version recorded on the object")
 			requireEqual(t, aivenValkeyUserConfigVersion(t, actions), string(tt.want), "version configured at Aiven")
-
-			adopted := tt.specVersion != tt.want
-			requireEqual(t, hasRecordVersionAction(actions, tt.want), adopted, "record-version action emitted")
 		})
 	}
 
@@ -215,74 +209,7 @@ func TestValkeyVersionAdoption(t *testing.T) {
 		valkey := newValkeyAt("blocked", v1.ValkeyVersionV8_1)
 
 		_, _, err := reconciler.Update(valkey, ValkeyPreparedData{}, runningAt("blocked", "9.0.4"))
-		requireErrorContains(t, err, "which cannot be recorded")
-	})
-}
-
-func TestRecordValkeyVersion(t *testing.T) {
-	const recordNamespace = "record-version-test"
-	ensureNamespace(t, recordNamespace)
-
-	create := func(t *testing.T, name string, version v1.ValkeyVersion) *v1.Valkey {
-		t.Helper()
-		valkey := &v1.Valkey{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: recordNamespace},
-			Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: version},
-		}
-		requireNoError(t, k8sClient.Create(ctx, valkey))
-		t.Cleanup(func() { _ = k8sClient.Delete(ctx, valkey) })
-		return valkey
-	}
-
-	get := func(t *testing.T, valkey *v1.Valkey) *v1.Valkey {
-		t.Helper()
-		stored := &v1.Valkey{}
-		requireNoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: valkey.Name, Namespace: valkey.Namespace}, stored))
-		return stored
-	}
-
-	t.Run("records the version on the stored object", func(t *testing.T) {
-		valkey := create(t, "adopts", "")
-
-		err := (&recordValkeyVersion{valkey: valkey.DeepCopy(), version: v1.ValkeyVersionV9_1, recorder: events.NewRecorder(kevents.NewFakeRecorder(10))}).Do(ctx, k8sClient, scheme.Scheme, nil)
-		requireNoError(t, err)
-
-		requireEqual(t, get(t, valkey).Spec.Version, v1.ValkeyVersionV9_1, "recorded version")
-	})
-
-	// The whole point of re-reading: the copy the action carries is stale by the time it runs, and
-	// must not be written back over whatever the object looks like now.
-	t.Run("preserves changes made after the action was built", func(t *testing.T) {
-		valkey := create(t, "concurrently-edited", "")
-		stale := valkey.DeepCopy()
-
-		current := get(t, valkey)
-		current.Spec.Memory = v1.ValkeyMemory8GB
-		requireNoError(t, k8sClient.Update(ctx, current))
-
-		err := (&recordValkeyVersion{valkey: stale, version: v1.ValkeyVersionV9_1, recorder: events.NewRecorder(kevents.NewFakeRecorder(10))}).Do(ctx, k8sClient, scheme.Scheme, nil)
-		requireNoError(t, err)
-
-		stored := get(t, valkey)
-		requireEqual(t, stored.Spec.Version, v1.ValkeyVersionV9_1, "recorded version")
-		requireEqual(t, stored.Spec.Memory, v1.ValkeyMemory8GB, "memory set after the action was built")
-	})
-
-	t.Run("writes nothing when the stored version already matches", func(t *testing.T) {
-		valkey := create(t, "already-current", v1.ValkeyVersionV9_1)
-		before := get(t, valkey).ResourceVersion
-
-		err := (&recordValkeyVersion{valkey: valkey.DeepCopy(), version: v1.ValkeyVersionV9_1, recorder: events.NewRecorder(kevents.NewFakeRecorder(10))}).Do(ctx, k8sClient, scheme.Scheme, nil)
-		requireNoError(t, err)
-
-		requireEqual(t, get(t, valkey).ResourceVersion, before, "resource version")
-	})
-
-	t.Run("ignores an object that no longer exists", func(t *testing.T) {
-		valkey := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "already-gone", Namespace: recordNamespace}}
-
-		err := (&recordValkeyVersion{valkey: valkey, version: v1.ValkeyVersionV9_1, recorder: events.NewRecorder(kevents.NewFakeRecorder(10))}).Do(ctx, k8sClient, scheme.Scheme, nil)
-		requireNoError(t, err)
+		requireErrorContains(t, err, "cannot adopt the running version")
 	})
 }
 
@@ -291,7 +218,6 @@ func TestValkeyAdoptionReconciliation(t *testing.T) {
 	ensureNamespace(t, adoptNamespace)
 	syncReconciler := newValkeySynchronizer(scheme.Scheme)
 
-	// Reconciles once so the Aiven Valkey exists, then has Aiven report a newer running version.
 	reconciledValkeyOn := func(t *testing.T, name, reportedVersion string) types.NamespacedName {
 		t.Helper()
 
@@ -325,11 +251,10 @@ func TestValkeyAdoptionReconciliation(t *testing.T) {
 		stored := &v1.Valkey{}
 		requireNoError(t, k8sClient.Get(ctx, key, stored))
 		requireEqual(t, stored.Spec.Version, v1.ValkeyVersionV9_1, "adopted version")
+		requireEqual(t, stored.Status.ObservedGeneration, stored.Generation, "observed generation")
 	})
 
-	// Recording the version bumps the object's resourceVersion mid-reconcile, so a metadata write in
-	// the same pass is left holding a stale one. Only reachable without a finalizer already present.
-	t.Run("converges when adoption coincides with a finalizer write", func(t *testing.T) {
+	t.Run("adopts and adds the finalizer in a single reconcile", func(t *testing.T) {
 		key := reconciledValkeyOn(t, "coinciding", "9.1.2")
 
 		stored := &v1.Valkey{}
@@ -337,15 +262,11 @@ func TestValkeyAdoptionReconciliation(t *testing.T) {
 		stored.Finalizers = nil
 		requireNoError(t, k8sClient.Update(ctx, stored))
 
-		if _, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
-			t.Logf("first reconcile failed as expected: %v", err)
-		}
-
 		_, err := syncReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		requireNoError(t, err)
 
 		requireNoError(t, k8sClient.Get(ctx, key, stored))
-		requireEqual(t, stored.Spec.Version, v1.ValkeyVersionV9_1, "adopted version after recovery")
+		requireEqual(t, stored.Spec.Version, v1.ValkeyVersionV9_1, "adopted version")
 		requireSliceContains(t, stored.GetFinalizers(), "valkey.nais.io/finalizer")
 	})
 }
@@ -365,15 +286,6 @@ func aivenValkeyUserConfigVersion(t *testing.T, actions []action.Action) string 
 
 	t.Fatal("no Aiven Valkey action was produced")
 	return ""
-}
-
-func hasRecordVersionAction(actions []action.Action, version v1.ValkeyVersion) bool {
-	for _, a := range actions {
-		if record, ok := a.(*recordValkeyVersion); ok && record.version == version {
-			return true
-		}
-	}
-	return false
 }
 
 func TestCreateValkeyServiceIntegrationSpec(t *testing.T) {
@@ -575,7 +487,7 @@ func TestMaxMemoryPolicyHandling(t *testing.T) {
 				},
 			}
 
-			result, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant)
+			result, _, err := rcvalkey.CreateSpec(scheme.Scheme, valkey, aiven, tenant, "")
 			requireNoError(t, err)
 			requireNotNil(t, result.Spec.UserConfig, "user config")
 			requireNotNil(t, result.Spec.UserConfig.ValkeyMaxmemoryPolicy, "maxmemory policy")

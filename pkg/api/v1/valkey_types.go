@@ -1,8 +1,9 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/nais/pgrator/pkg/api"
@@ -40,69 +41,99 @@ const (
 	ValkeyVersionV9_1 ValkeyVersion = "9.1"
 )
 
-type valkeyUpgradePath []ValkeyVersion
-
-func (u valkeyUpgradePath) String() string {
-	versions := make([]string, len(u))
-	for i, v := range u {
-		versions[i] = string(v)
-	}
-	return strings.Join(versions, ", ")
+type valkeyVersionInfo struct {
+	version ValkeyVersion
+	// Declared rather than derived from ordering, because an upgrade may require an intermediate
+	// step and "newer" would then admit a jump Aiven refuses.
+	upgradesTo []ValkeyVersion
+	creatable  bool
+	warning    string
+	refusal    string // required when creatable is false
 }
 
-// 9.0 is never a destination: it is past its Aiven creation-support date, and neither Aiven nor
-// upstream Valkey documents 8.1 as a version 9.0 can be upgraded from. It stays a legal current
-// value so instances already there keep reconciling.
-var valkeyUpgradePaths = map[ValkeyVersion]valkeyUpgradePath{
-	ValkeyVersionV8_1: {ValkeyVersionV9_1},
-	ValkeyVersionV9_0: {ValkeyVersionV9_1},
-	ValkeyVersionV9_1: {},
+// Ascending; position is what newerThan compares.
+var valkeyVersions = []valkeyVersionInfo{
+	{version: ValkeyVersionV8_1, creatable: true, upgradesTo: []ValkeyVersion{ValkeyVersionV9_1}},
+	{
+		version:    ValkeyVersionV9_0,
+		upgradesTo: []ValkeyVersion{ValkeyVersionV9_1},
+		warning:    "Valkey 9.0 reached end-of-life at Aiven on 2026-08-31 and will be force-upgraded",
+		refusal:    "Valkey 9.0 is no longer available for new instances",
+	},
+	{version: ValkeyVersionV9_1, creatable: true},
 }
 
-// Deprecated versions stay creatable; Aiven force-upgrades them rather than rejecting them.
-var deprecatedValkeyVersions = map[ValkeyVersion]string{
-	ValkeyVersionV9_0: "Valkey 9.0 reached end-of-life at Aiven on 2026-08-31 and will be force-upgraded; move to 9.1",
+func (v ValkeyVersion) index() int {
+	return slices.IndexFunc(valkeyVersions, func(info valkeyVersionInfo) bool { return info.version == v })
 }
 
-// ValidateUpgradePath validates that upgrading from oldVersion to this version is allowed
 func (v ValkeyVersion) ValidateUpgradePath(oldVersion ValkeyVersion) error {
 	if v == oldVersion {
 		return nil
 	}
 
-	path, ok := valkeyUpgradePaths[oldVersion]
-	if !ok {
+	index := oldVersion.index()
+	if index < 0 {
 		return fmt.Errorf("unknown Valkey version: %q", oldVersion)
 	}
 
-	if len(path) == 0 {
+	destinations := valkeyVersions[index].upgradesTo
+	if len(destinations) == 0 {
 		return fmt.Errorf("cannot change Valkey version from %s to %s: no further upgrades available", oldVersion, v)
 	}
-
-	for _, allowed := range path {
-		if allowed == v {
-			return nil
-		}
+	if slices.Contains(destinations, v) {
+		return nil
 	}
 
-	return fmt.Errorf("cannot change Valkey version from %s to %s: new version must be one of [%s]", oldVersion, v, path)
+	names := make([]string, len(destinations))
+	for i, destination := range destinations {
+		names[i] = string(destination)
+	}
+	return fmt.Errorf("cannot change Valkey version from %s to %s: new version must be one of [%s]", oldVersion, v, strings.Join(names, ", "))
 }
 
-// DeprecationWarning returns the admission warning for a deprecated version, if any
+func (v ValkeyVersion) ValidateNewInstance() error {
+	if v == "" {
+		return errors.New("spec.version is required")
+	}
+
+	index := v.index()
+	if index < 0 {
+		return fmt.Errorf("unknown Valkey version: %q", v)
+	}
+	if !valkeyVersions[index].creatable {
+		return errors.New(valkeyVersions[index].refusal)
+	}
+	return nil
+}
+
 func (v ValkeyVersion) DeprecationWarning() (string, bool) {
-	warning, ok := deprecatedValkeyVersions[v]
-	return warning, ok
-}
-
-// ValkeyVersionFromAiven maps a version string reported by Aiven onto the supported enum.
-// Aiven reports the running patch version, which is more specific than the configured major.minor.
-func ValkeyVersionFromAiven(reported string) (ValkeyVersion, bool) {
-	for version := range valkeyUpgradePaths {
-		if reported == string(version) || strings.HasPrefix(reported, string(version)+".") {
-			return version, true
-		}
+	if index := v.index(); index >= 0 && valkeyVersions[index].warning != "" {
+		return valkeyVersions[index].warning, true
 	}
 	return "", false
+}
+
+// Membership is not permission; filter through ValidateNewInstance or ValidateUpgradePath.
+// Not ValkeyVersionFromAiven: it drops the patch component, so it accepts values admission rejects.
+func KnownValkeyVersions() []ValkeyVersion {
+	versions := make([]ValkeyVersion, 0, len(valkeyVersions))
+	for _, info := range valkeyVersions {
+		versions = append(versions, info.version)
+	}
+	return versions
+}
+
+// Aiven reports `major.minor` with an optional patch suffix; the enum is `major.minor`.
+func ValkeyVersionFromAiven(reported string) (ValkeyVersion, bool) {
+	major, rest, _ := strings.Cut(reported, ".")
+	minor, _, _ := strings.Cut(rest, ".")
+
+	version := ValkeyVersion(major + "." + minor)
+	if version.index() < 0 {
+		return "", false
+	}
+	return version, true
 }
 
 // +kubebuilder:validation:Enum=allkeys-lfu;allkeys-lru;allkeys-random;noeviction;volatile-lfu;volatile-lru;volatile-random;volatile-ttl
@@ -250,15 +281,20 @@ func (v *Valkey) AivenPlan() (string, error) {
 	return plan, nil
 }
 
-// ResolveVersion returns the version to configure at Aiven.
-// Aiven upgrades services on its own schedule, so a running version newer than the spec is adopted
-// rather than overwritten; the caller persists the result back onto the object.
-func (v *Valkey) ResolveVersion(aivenReportedVersion string) (ValkeyVersion, error) {
+// Resolve returns the version to configure at Aiven, given what Aiven reports as running.
+// Aiven upgrades services on its own schedule, so a running version newer than the receiver is
+// adopted rather than overwritten; the caller stores the result as the new desired version.
+func (v ValkeyVersion) Resolve(aivenReportedVersion string) (ValkeyVersion, error) {
 	if aivenReportedVersion == "" {
-		if v.Spec.Version == "" {
+		if v == "" {
 			return "", fmt.Errorf("spec.version is unset and Aiven reports no running version; set spec.version explicitly")
 		}
-		return v.Spec.Version, nil
+		// With nothing to order against, no other check runs, and an unknown version would reach
+		// Aiven verbatim.
+		if v.index() < 0 {
+			return "", fmt.Errorf("unsupported Valkey version %q in spec.version", v)
+		}
+		return v, nil
 	}
 
 	// Aiven's version set is open-ended, so a version we cannot name is one we cannot order against
@@ -268,7 +304,7 @@ func (v *Valkey) ResolveVersion(aivenReportedVersion string) (ValkeyVersion, err
 		return "", fmt.Errorf("unsupported Valkey version %q reported by Aiven", aivenReportedVersion)
 	}
 
-	if v.Spec.Version == "" {
+	if v == "" {
 		return running, nil
 	}
 
@@ -276,36 +312,26 @@ func (v *Valkey) ResolveVersion(aivenReportedVersion string) (ValkeyVersion, err
 	// request, and sending it is how the upgrade gets made. The request still has to be a legal
 	// step, which admission cannot check for a version being set for the first time — it has no
 	// client with which to read what is running.
-	if !running.newerThan(v.Spec.Version) {
-		if err := v.Spec.Version.ValidateUpgradePath(running); err != nil {
+	if !running.newerThan(v) {
+		if err := v.ValidateUpgradePath(running); err != nil {
 			return "", fmt.Errorf("spec.version cannot be applied to an instance running %s: %w", running, err)
 		}
-		return v.Spec.Version, nil
+		return v, nil
 	}
 
 	// Adopting a version the upgrade table forbids would produce a spec the webhook rejects, so
 	// pgrator would configure Aiven and then fail to record what it had just done.
-	if err := running.ValidateUpgradePath(v.Spec.Version); err != nil {
-		return "", fmt.Errorf("instance is running %s, which cannot be recorded: %w", running, err)
+	if err := running.ValidateUpgradePath(v); err != nil {
+		return "", fmt.Errorf("cannot adopt the running version %s: %w", running, err)
 	}
 
 	return running, nil
 }
 
+// An unknown version sorts below every known one, which routes it into ValidateUpgradePath and its
+// explicit error rather than letting it win a comparison.
 func (v ValkeyVersion) newerThan(other ValkeyVersion) bool {
-	major, minor := v.parts()
-	otherMajor, otherMinor := other.parts()
-	if major != otherMajor {
-		return major > otherMajor
-	}
-	return minor > otherMinor
-}
-
-func (v ValkeyVersion) parts() (int, int) {
-	majorText, minorText, _ := strings.Cut(string(v), ".")
-	major, _ := strconv.Atoi(majorText)
-	minor, _ := strconv.Atoi(minorText)
-	return major, minor
+	return v.index() > other.index()
 }
 
 func (v *Valkey) CanBeDeleted() (string, bool) {

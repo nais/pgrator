@@ -54,24 +54,26 @@ func Minimal(valkey *v1.Valkey) *aiven_v1alpha1.Valkey {
 	}
 }
 
-// CreateSpec creates an Aiven Valkey resource from a nais.io Valkey spec
+// The returned version is the one configured at Aiven, for the caller to record.
+// Resolving here rather than in the caller leaves no path that can configure Aiven with a version
+// never weighed against what Aiven reports as running.
 func CreateSpec(
 	scheme *runtime.Scheme,
 	valkey *v1.Valkey,
 	aiven config.Aiven,
 	tenant config.Tenant,
-) (*aiven_v1alpha1.Valkey, error) {
+	aivenReportedVersion string,
+) (*aiven_v1alpha1.Valkey, v1.ValkeyVersion, error) {
 	aivenValkey := Minimal(valkey)
 
-	// The caller resolves the version against what Aiven reports as running and assigns it back
-	// onto the object. Without that, an empty version would reach Aiven as a blank pin.
-	if valkey.Spec.Version == "" {
-		return nil, fmt.Errorf("spec.version is unset; ResolveVersion must run first")
+	version, err := valkey.Spec.Version.Resolve(aivenReportedVersion)
+	if err != nil {
+		return nil, "", err
 	}
 
 	plan, err := valkey.AivenPlan()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	aivenValkey.Spec = aiven_v1alpha1.ValkeySpec{
@@ -84,20 +86,20 @@ func CreateSpec(
 			"app":    valkey.GetName(),
 			"tenant": tenant.Name,
 		},
-		UserConfig: aivenValkeyUserConfig(valkey),
+		UserConfig: aivenValkeyUserConfig(valkey, version),
 	}
 
 	err = controllerutil.SetControllerReference(valkey, aivenValkey, scheme)
 	if err != nil {
-		return nil, fmt.Errorf("setting controller reference: %w", err)
+		return nil, "", fmt.Errorf("setting controller reference: %w", err)
 	}
 
-	return aivenValkey, nil
+	return aivenValkey, version, nil
 }
 
-func aivenValkeyUserConfig(valkey *v1.Valkey) *aiven_v1alpha1.ValkeyUserConfig {
+func aivenValkeyUserConfig(valkey *v1.Valkey, version v1.ValkeyVersion) *aiven_v1alpha1.ValkeyUserConfig {
 	userConfig := aiven_v1alpha1.ValkeyUserConfig{
-		ValkeyVersion:           new(string(valkey.Spec.Version)),
+		ValkeyVersion:           new(string(version)),
 		ValkeyNumberOfDatabases: valkey.Spec.Databases,
 	}
 
