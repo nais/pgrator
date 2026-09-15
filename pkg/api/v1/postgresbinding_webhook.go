@@ -16,7 +16,6 @@ type PostgresBindingValidator struct {
 	reader client.Reader
 }
 
-// SetupWebhookWithManager sets up the webhook with the Manager.
 func (p *PostgresBinding) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, p).
 		WithValidator(&PostgresBindingValidator{reader: mgr.GetAPIReader()}).

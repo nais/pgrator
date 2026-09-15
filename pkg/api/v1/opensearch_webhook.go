@@ -9,10 +9,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// OpenSearchValidator validates OpenSearch resources
 type OpenSearchValidator struct{}
 
-// SetupWebhookWithManager sets up the webhook with the Manager.
 func (o *OpenSearch) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, o).
 		WithValidator(&OpenSearchValidator{}).

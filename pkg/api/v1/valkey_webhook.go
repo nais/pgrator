@@ -10,10 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// ValkeyValidator validates Valkey resources
 type ValkeyValidator struct{}
 
-// SetupWebhookWithManager sets up the webhook with the Manager.
 func (v *Valkey) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, v).
 		WithValidator(&ValkeyValidator{}).
@@ -24,8 +22,8 @@ func (v *Valkey) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *ValkeyValidator) ValidateCreate(_ context.Context, obj *Valkey) (admission.Warnings, error) {
-	if obj.Spec.Version == "" {
-		return nil, fmt.Errorf("validation failed: spec.version is required")
+	if err := obj.Spec.Version.ValidateNewInstance(); err != nil {
+		return nil, fmt.Errorf("validation failed: %s", err)
 	}
 	return obj.validate()
 }
@@ -51,8 +49,6 @@ func (v *ValkeyValidator) ValidateDelete(_ context.Context, obj *Valkey) (admiss
 func (v *Valkey) validate() (admission.Warnings, error) {
 	var errs []string
 
-	// Validate name length for generated Aiven service name
-	// Format: valkey-{namespace}-{name} must be <= 63 characters
 	maxNameLength := 63 - len("valkey-") - len(v.GetNamespace()) - len("-")
 	if maxNameLength <= 0 {
 		return nil, fmt.Errorf("metadata.namespace is too long; cannot construct service name \"valkey-%s-%s\" within 63 characters", v.GetNamespace(), v.GetName())
@@ -61,8 +57,7 @@ func (v *Valkey) validate() (admission.Warnings, error) {
 		errs = append(errs, fmt.Sprintf("metadata.name is too long; max length is %d characters", maxNameLength))
 	}
 
-	// Validate version is known
-	if _, ok := valkeyUpgradePaths[v.Spec.Version]; !ok {
+	if v.Spec.Version.index() < 0 {
 		errs = append(errs, fmt.Sprintf("unknown Valkey version: %q", v.Spec.Version))
 	}
 

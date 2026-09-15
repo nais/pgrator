@@ -1,0 +1,30 @@
+---
+action: createOrUpdate
+matcher: Equal
+object:
+  apiVersion: aiven.io/v1alpha1
+  kind: Valkey
+  metadata:
+    labels:
+      team: legacy-team
+      valkey.nais.io/name: legacy-valkey
+    name: valkey-legacy-team-legacy-valkey
+    namespace: legacy-team
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Valkey
+        name: legacy-valkey
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    project: test-project
+    plan: startup-4
+    projectVpcId: test-vpc-id
+    terminationProtection: true
+    tags:
+      team: legacy-team
+      app: legacy-valkey
+      tenant: test-tenant
+    userConfig:
+      valkey_version: "9.1"

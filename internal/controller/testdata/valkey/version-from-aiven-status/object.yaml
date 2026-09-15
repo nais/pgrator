@@ -1,0 +1,11 @@
+---
+apiVersion: nais.io/v1
+kind: Valkey
+metadata:
+  name: legacy-valkey
+  namespace: legacy-team
+  labels:
+    team: legacy-team
+spec:
+  tier: SingleNode
+  memory: 4GB
