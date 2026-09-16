@@ -26,7 +26,7 @@ func ExampleOpenSearchForDocumentation() api.NaisObject {
 			StorageGB: 80,
 			ShardIndexingPressure: &OpenSearchShardIndexingPressure{
 				Enabled:  true,
-				Enforced: false,
+				Enforced: true,
 			},
 			Indices: &OpenSearchIndices{
 				QueryBoolMaxClauseCount: new(1024),
