@@ -568,7 +568,7 @@ type exampleRenderer struct {
 	manifest any
 }
 
-func (r exampleRenderer) render(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+func (r exampleRenderer) render(w io.Writer, level int, jsonpath, key string, parent, node apiext.JSONSchemaProps) {
 	buf := bytes.NewBuffer(nil)
 	enc := yaml.NewEncoder(buf)
 	enc.SetIndent(2)
@@ -584,7 +584,7 @@ type referenceRenderer struct {
 	example any
 }
 
-func (r referenceRenderer) render(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+func (r referenceRenderer) render(w io.Writer, level int, jsonpath, key string, parent, node apiext.JSONSchemaProps) {
 	if jsonpath == ".metadata" || jsonpath == ".status" {
 		return
 	}
