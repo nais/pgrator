@@ -33,8 +33,6 @@ import (
 
 // Generate documentation for Nais CRDs
 
-var exampleResource any
-
 // ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
 // Add new CRD examples here when adding new CRDs to the project.
 var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
@@ -290,11 +288,14 @@ func run() error {
 				)
 			}
 
-			err = marshalToInterface(&exampleResource, exampleFunc())
+			// rawExample is the CR decoded to map[string]any; getStructSubPath walks it with reflection.
+			var rawExample any
+			err = marshalToInterface(&rawExample, exampleFunc())
 			if err != nil {
 				return err
 			}
-			exampleResource = naisifyManifest(exampleResource)
+			// manifestExample is the naisified full manifest (type:/name:/spec:) rendered in example.md.
+			manifestExample := naisifyManifest(rawExample)
 
 			// Use group/version/kind directory structure
 			kindLower := strings.ToLower(gk.Kind)
@@ -309,14 +310,16 @@ func run() error {
 
 			referenceTemplate := filepath.Join(templateDir, "reference.md")
 			referenceOutput := filepath.Join(outputDir, "reference.md")
-			err = Write(WriteReferenceDoc, referenceTemplate, referenceOutput, schemata.Properties["spec"])
+			referenceRenderer := referenceRenderer{example: rawExample}
+			err = Write(referenceRenderer.render, referenceTemplate, referenceOutput, schemata.Properties["spec"])
 			if err != nil {
 				return fmt.Errorf("failed to write reference doc for %s: %w", gk.Kind, err)
 			}
 
 			exampleTemplate := filepath.Join(templateDir, "example.md")
 			exampleOutput := filepath.Join(outputDir, "example.md")
-			err = Write(WriteExampleDoc, exampleTemplate, exampleOutput, schemata)
+			exampleRenderer := exampleRenderer{manifest: manifestExample}
+			err = Write(exampleRenderer.render, exampleTemplate, exampleOutput, schemata)
 			if err != nil {
 				return fmt.Errorf("failed to write example doc for %s: %w", gk.Kind, err)
 			}
@@ -561,11 +564,15 @@ func hasRequired(node apiext.JSONSchemaProps, key string) bool {
 	return slices.Contains(node.Items.Schema.Required, key)
 }
 
-func WriteExampleDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+type exampleRenderer struct {
+	manifest any
+}
+
+func (r exampleRenderer) render(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
 	buf := bytes.NewBuffer(nil)
 	enc := yaml.NewEncoder(buf)
 	enc.SetIndent(2)
-	_ = enc.Encode(exampleResource)
+	_ = enc.Encode(r.manifest)
 	_ = enc.Close()
 
 	_, _ = io.WriteString(w, "``` yaml\n")
@@ -573,7 +580,11 @@ func WriteExampleDoc(w io.Writer, level int, jsonpath string, key string, parent
 	_, _ = io.WriteString(w, "```\n")
 }
 
-func WriteReferenceDoc(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
+type referenceRenderer struct {
+	example any
+}
+
+func (r referenceRenderer) render(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps) {
 	if jsonpath == ".metadata" || jsonpath == ".status" {
 		return
 	}
@@ -657,7 +668,7 @@ func WriteReferenceDoc(w io.Writer, level int, jsonpath string, key string, pare
 	if len(jsonpath) > 0 {
 		entry.formatStraight(w)
 
-		example, err := getStructSubPath("spec"+jsonpath, exampleResource)
+		example, err := getStructSubPath("spec"+jsonpath, r.example)
 		if err == nil {
 			_, _ = io.WriteString(w, "??? example\n")
 			_, _ = io.WriteString(w, "    ``` yaml\n")
@@ -687,7 +698,7 @@ func WriteReferenceDoc(w io.Writer, level int, jsonpath string, key string, pare
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		WriteReferenceDoc(w, level+1, jsonpath+"."+k, k, node, node.Properties[k])
+		r.render(w, level+1, jsonpath+"."+k, k, node, node.Properties[k])
 	}
 
 	if isTenantSpecific {
