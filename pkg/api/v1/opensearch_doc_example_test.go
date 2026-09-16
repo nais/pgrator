@@ -32,8 +32,8 @@ var ignoredOpenSearchFields = []string{
 // Test that the example OpenSearch contains examples for all fields encountered.
 // Examples MUST contain a non-zero value to be valid, so no empty strings, false booleans, or zero ints.
 func TestExampleOpenSearchForDocumentation(t *testing.T) {
-	valkey := v1.ExampleValkeyForDocumentation()
-	keys := testutil.ZeroFields(valkey)
+	openSearch := v1.ExampleOpenSearchForDocumentation()
+	keys := testutil.ZeroFields(openSearch)
 
 	for _, key := range keys {
 		if !slices.Contains(ignoredOpenSearchFields, key) {
