@@ -12,13 +12,13 @@ database outside the tenant cluster.
 
 NAIS API authenticates the person through the existing NAIS login backed by
 ZITADEL and authorizes an access request. API creates exactly one pgrator-owned
-`PostgresAccess` resource. Its interface contains the requested logical
-Postgres, one explicitly selected ready `PostgresInstance`, `read` or
-`readwrite` access, the authenticated NAIS username, an absolute expiry of at
-most one hour, and the CLI-generated ephemeral WireGuard public key. API does
-not know CNPG Cluster or Service names, `DatabaseRole` fields, password Secret
-format, or the tunnel-operator resource format. A caller can never supply a
-host, port, database role, group role, or Secret name.
+`PostgresAccess` resource. Its interface contains one explicitly selected ready
+`PostgresInstance`, `read` or `readwrite` access, the authenticated NAIS user's
+email address, an absolute expiry of at most one hour, and the CLI-generated
+ephemeral WireGuard public key. The logical Postgres is derived from the
+instance. API does not know CNPG Cluster or Service names, `DatabaseRole`
+fields, password Secret format, or the tunnel-operator resource format. A
+caller can never supply a host, port, database role, group role, or Secret name.
 
 `PostgresAccess` is a deep orchestration module. Its controller resolves the
 selected instance's CNPG target and manages these implementation resources:
@@ -29,13 +29,15 @@ selected instance's CNPG target and manages these implementation resources:
 - one per-user, per-instance CNPG `DatabaseRole` that is not owned by the
   access resource and therefore survives its deletion.
 
-The DatabaseRole is a stable personal database identity. Its name contains the
-NAIS username and a deterministic suffix derived from the physical instance,
-normalized and shortened with a stable hash to PostgreSQL's 63-byte identifier
-limit. It is visible as `current_user` in PostgreSQL and SQL audit logs. This is
-intentional: NAIS usernames are approved audit identities and are expected to
-be present in those logs. The role has no superuser, createdb, createrole,
-replication, or bypass-RLS privilege and does not issue a client certificate.
+The DatabaseRole is a stable personal database identity. Its technical name is
+derived from the local part of the NAIS user's email address and the physical
+instance, normalized to a Kubernetes-compatible name and shortened with a
+stable hash of the full email address and instance to PostgreSQL's 63-byte
+identifier limit. It is visible as `current_user` in PostgreSQL and SQL audit
+logs. This is intentional: the role can be correlated to the full email address
+held in PostgresAccess and API audit data without putting the email domain in
+PostgreSQL. The role has no superuser, createdb, createrole, replication, or
+bypass-RLS privilege and does not issue a client certificate.
 
 While a PostgresAccess is active, pgrator configures the stable role with the
 access resource's password Secret, `login: true`, `validUntil` equal to the
@@ -105,8 +107,8 @@ decision.
 - API owns authorization, PostgresAccess creation, credential delivery, and
   audit correlation. Pgrator owns target derivation and orchestration. CNPG
   owns database-role reconciliation. Tunnel-operator owns WireGuard transport.
-- A personal role is visible as PostgreSQL `current_user`, giving SQL audit the
-  actual NAIS username rather than a gateway IP, shared account, or opaque grant.
+- A personal role is visible as PostgreSQL `current_user`, giving SQL audit a
+  stable, person-correlatable identity rather than a gateway IP or shared account.
 - Person-owned objects in `public` deliberately outlive individual access
   resources. Their owner role does too. Lifecycle cleanup of those objects is a
   separate product and operational concern.

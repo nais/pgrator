@@ -1,0 +1,6 @@
+instance:
+  metadata:
+    name: orders-restore
+    namespace: myteam
+  spec:
+    postgres: orders

@@ -175,6 +175,13 @@ func TestGoldenPostgresBinding(t *testing.T) {
 	)
 }
 
+func TestGoldenPostgresAccess(t *testing.T) {
+	postgresAccessReconciler := &PostgresAccessReconciler{Recorder: recorder}
+	runGoldenTestsForResource[*v1.PostgresAccess, PostgresAccessPreparedData, v1.PostgresAccess](
+		t, postgresAccessReconciler, "postgresaccess", config.Config{}, func(config.Config) {},
+	)
+}
+
 func TestGoldenValkey(t *testing.T) {
 	valkeyReconciler := &ValkeyReconciler{
 		Aiven: config.Aiven{
