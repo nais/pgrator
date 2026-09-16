@@ -2,7 +2,9 @@
 package access
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -11,6 +13,8 @@ import (
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const roleNameLimit = 63
@@ -27,6 +31,42 @@ func DatabaseRoleName(username, instance string) string {
 		base = strings.TrimRight(base[:roleNameLimit-len(suffix)], "-")
 	}
 	return base + suffix
+}
+
+// CredentialSecretName returns the short-lived Secret name for one access.
+func CredentialSecretName(access *v1.PostgresAccess) string {
+	return access.Name + "-credentials"
+}
+
+// CreateCredentialSecret creates a basic-auth Secret that CNPG can use to set
+// the current access password. Password generation is deliberately separate so
+// a reconciler can preserve an existing credential across retries.
+func CreateCredentialSecret(scheme *runtime.Scheme, access *v1.PostgresAccess, password string) (*corev1.Secret, error) {
+	secret := &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CredentialSecretName(access),
+			Namespace: access.Namespace,
+			Labels:    map[string]string{"cnpg.io/reload": "true"},
+		},
+		Type: corev1.SecretTypeBasicAuth,
+		StringData: map[string]string{
+			corev1.BasicAuthUsernameKey: DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance),
+			corev1.BasicAuthPasswordKey: password,
+		},
+	}
+	if err := controllerutil.SetControllerReference(access, secret, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on credential Secret: %w", err)
+	}
+	return secret, nil
+}
+
+func NewPassword() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate password: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
 func normalizeName(value string) string {
@@ -53,29 +93,49 @@ func normalizeName(value string) string {
 // CreateDatabaseRole creates the durable CNPG representation of a personal
 // database identity. Access-specific login, credential and privilege state is
 // added by the PostgresAccess lifecycle in a later reconciliation step.
-func CreateDatabaseRole(access *v1.PostgresAccess) *cnpgv1.DatabaseRole {
+func CreateDatabaseRole(access *v1.PostgresAccess, active bool) *cnpgv1.DatabaseRole {
+	roleName := DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)
+	configuration := cnpgv1.RoleConfiguration{
+		Name:        roleName,
+		Comment:     "Personal database identity",
+		Login:       active,
+		Superuser:   false,
+		CreateDB:    false,
+		CreateRole:  false,
+		Replication: false,
+		BypassRLS:   false,
+	}
+	if active {
+		configuration.PasswordSecret = &cnpgv1.LocalObjectReference{Name: CredentialSecretName(access)}
+		configuration.ValidUntil = &access.Spec.ExpiresAt
+		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel)}
+	} else {
+		configuration.DisablePassword = true
+	}
 	return &cnpgv1.DatabaseRole{
 		TypeMeta: metav1.TypeMeta{Kind: "DatabaseRole", APIVersion: cnpgv1.SchemeGroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance),
+			Name:      roleName,
 			Namespace: access.Namespace,
 			Labels: map[string]string{
 				"postgres.nais.io/instance": access.Spec.PostgresInstance,
 			},
 		},
 		Spec: cnpgv1.DatabaseRoleSpec{
-			ClusterRef:    corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresInstance)},
-			ReclaimPolicy: cnpgv1.DatabaseRoleReclaimRetain,
-			RoleConfiguration: cnpgv1.RoleConfiguration{
-				Name:        DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance),
-				Comment:     "Personal database identity",
-				Login:       false,
-				Superuser:   false,
-				CreateDB:    false,
-				CreateRole:  false,
-				Replication: false,
-				BypassRLS:   false,
-			},
+			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresInstance)},
+			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
+			RoleConfiguration: configuration,
 		},
+	}
+}
+
+func groupRole(level v1.PostgresAccessLevel) string {
+	switch level {
+	case v1.PostgresAccessLevelRead:
+		return rccnpg.ReadRole
+	case v1.PostgresAccessLevelReadWrite:
+		return rccnpg.ReadWriteRole
+	default:
+		return rccnpg.ReadWriteCreateRole
 	}
 }

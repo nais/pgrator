@@ -176,7 +176,7 @@ func TestGoldenPostgresBinding(t *testing.T) {
 }
 
 func TestGoldenPostgresAccess(t *testing.T) {
-	postgresAccessReconciler := &PostgresAccessReconciler{Recorder: recorder}
+	postgresAccessReconciler := &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 	runGoldenTestsForResource[*v1.PostgresAccess, PostgresAccessPreparedData, v1.PostgresAccess](
 		t, postgresAccessReconciler, "postgresaccess", config.Config{}, func(config.Config) {},
 	)

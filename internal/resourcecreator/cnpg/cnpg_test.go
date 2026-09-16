@@ -137,6 +137,11 @@ func TestAuditConfigurationExemptsApplicationRoles(t *testing.T) {
 	assertSQLContains(t, postInitApplicationSQL(), "ALTER ROLE app SET pgaudit.log = 'none'")
 }
 
+func TestReadWriteCreateRoleHasExplicitCreatePrivilege(t *testing.T) {
+	assertSQLContains(t, postInitSQL(), "CREATE ROLE app_readwritecreate NOLOGIN")
+	assertSQLContains(t, postInitApplicationSQL(), "GRANT CREATE ON SCHEMA public TO app_readwritecreate;")
+}
+
 func assertSQLContains(t *testing.T, statements []string, want string) {
 	t.Helper()
 	for _, statement := range statements {

@@ -13,12 +13,13 @@ database outside the tenant cluster.
 NAIS API authenticates the person through the existing NAIS login backed by
 ZITADEL and authorizes an access request. API creates exactly one pgrator-owned
 `PostgresAccess` resource. Its interface contains one explicitly selected ready
-`PostgresInstance`, `read` or `readwrite` access, the authenticated NAIS user's
-email address, an absolute expiry of at most one hour, and the CLI-generated
-ephemeral WireGuard public key. The logical Postgres is derived from the
-instance. API does not know CNPG Cluster or Service names, `DatabaseRole`
-fields, password Secret format, or the tunnel-operator resource format. A
-caller can never supply a host, port, database role, group role, or Secret name.
+`PostgresInstance`, `read`, `readwrite`, or `readwritecreate` access, the
+authenticated NAIS user's email address, an absolute expiry of at most one hour,
+and the CLI-generated ephemeral WireGuard public key. The logical Postgres is
+derived from the instance. API does not know CNPG Cluster or Service names,
+`DatabaseRole` fields, password Secret format, or the tunnel-operator resource
+format. A caller can never supply a host, port, database role, group role, or
+Secret name.
 
 `PostgresAccess` is a deep orchestration module. Its controller resolves the
 selected instance's CNPG target and manages these implementation resources:
@@ -43,10 +44,17 @@ While a PostgresAccess is active, pgrator configures the stable role with the
 access resource's password Secret, `login: true`, `validUntil` equal to the
 access expiry, and only the authorized privileges. `read` grants membership in
 the existing read group. `readwrite` grants membership in the existing
-readwrite group and `CREATE` on the shared `public` schema. The latter is
-deliberate: personal users may create durable objects in `public` and later
-return as the same role to inspect or remove their own objects. `CREATE TEMP`
-is therefore also available during an authorized readwrite access.
+readwrite group. `readwritecreate` grants membership in a distinct group with
+readwrite privileges and `CREATE` on the shared `public` schema. The explicit
+level lets personal users create durable objects and later return as the same
+role to inspect or remove their own objects without extending workload
+`readwrite` access. `CREATE TEMP` is therefore also available during an
+authorized readwritecreate access.
+
+The `readwritecreate` group is initialized with each new PostgresInstance. It
+is not offered for instances created before this decision until they have an
+explicit database-privilege migration; pgrator must not silently claim that the
+level works on those instances.
 
 The role name and objects are durable; its password and effective privileges are
 not. Euthanaisa has an expiry annotation only on PostgresAccess. At expiry it
@@ -57,13 +65,13 @@ allows deletion to finish. It does not drop the role, terminate sessions, or
 delete user-owned objects. This gives Euthanaisa one authoritative TTL without
 making it perform database actions.
 
-There is at most one active PostgresAccess for a `{NAIS username,
-PostgresInstance}` pair. A new access replaces the previous one. Pgrator rotates
-the stable role to the new password Secret and manages the old access as stale,
-so a delayed finalizer from it must not remove the newer credential or
-privileges. Existing connections from the old access may continue until their
-tunnel or client connection closes, but cannot open new connections after
-password rotation. This is deliberately not a hard session cutoff.
+There is at most one active PostgresAccess for a `{NAIS email,
+PostgresInstance}` pair. API serializes access replacement: it creates a new
+resource only after the old resource is fully deleted. Pgrator can consequently
+treat the active PostgresAccess as the sole writer of the mutable credential and
+privilege fields on the stable role. Existing connections may continue until
+their tunnel or client connection closes. This is deliberately not a hard
+session cutoff.
 
 PostgresAccess reports ready only when CNPG reports the DatabaseRole applied and
 the tunnel-operator reports Tunnel ready. API can retrieve the generated
@@ -112,8 +120,8 @@ decision.
 - Person-owned objects in `public` deliberately outlive individual access
   resources. Their owner role does too. Lifecycle cleanup of those objects is a
   separate product and operational concern.
-- Pgrator must make replacement and finalization generation-safe: an old access
-  must never clear the password or privileges installed by a newer access.
+- API serializes replacement for one person and instance, so pgrator does not
+  need concurrent-writer arbitration for the stable role's active credential.
 - The API and CLI wait for PostgresAccess ready and need no knowledge of its
   CNPG or tunnel implementation resources.
 - Connection support begins with `psql`; GUI support requires validation that it

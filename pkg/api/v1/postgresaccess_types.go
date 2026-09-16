@@ -9,8 +9,9 @@ import (
 type PostgresAccessLevel string
 
 const (
-	PostgresAccessLevelRead      PostgresAccessLevel = "read"
-	PostgresAccessLevelReadWrite PostgresAccessLevel = "readwrite"
+	PostgresAccessLevelRead            PostgresAccessLevel = "read"
+	PostgresAccessLevelReadWrite       PostgresAccessLevel = "readwrite"
+	PostgresAccessLevelReadWriteCreate PostgresAccessLevel = "readwritecreate"
 )
 
 // PostgresAccessSpec defines one immutable, time-limited personal access request.
@@ -26,7 +27,7 @@ type PostgresAccessSpec struct {
 	Username string `json:"username"`
 
 	// AccessLevel is the requested database access level.
-	// +kubebuilder:validation:Enum=read;readwrite
+	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accessLevel is immutable"
 	AccessLevel PostgresAccessLevel `json:"accessLevel"`
 

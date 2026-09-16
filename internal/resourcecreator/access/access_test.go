@@ -44,7 +44,7 @@ func TestCreateDatabaseRole(t *testing.T) {
 		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore",
 	}}
 
-	role := CreateDatabaseRole(access)
+	role := CreateDatabaseRole(access, false)
 	if role.Name != "frode-sundby-orders-restore-39901eb0e00a4f9c" {
 		t.Errorf("role metadata name = %q", role.Name)
 	}
