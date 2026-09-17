@@ -7,13 +7,16 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/nais/pgrator/internal/config"
 	rcaccess "github.com/nais/pgrator/internal/resourcecreator/access"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,6 +31,7 @@ import (
 // personal access. Session credentials, privileges and transport are added by
 // later PostgresAccess reconciliation steps.
 type PostgresAccessReconciler struct {
+	Config   *config.Config
 	Recorder events.Recorder
 	Scheme   *runtime.Scheme
 }
@@ -35,12 +39,14 @@ type PostgresAccessReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &PostgresAccessReconciler{}
 
 type PostgresAccessPreparedData struct {
-	Instance *v1.PostgresInstance `yaml:"instance"`
-	Password string               `yaml:"-"`
-	Role     *cnpgv1.DatabaseRole `yaml:"-"`
+	Instance *v1.PostgresInstance   `yaml:"instance"`
+	Password string                 `yaml:"-"`
+	Role     *cnpgv1.DatabaseRole   `yaml:"-"`
+	Tunnel   *tunnelv1alpha1.Tunnel `yaml:"-"`
 }
 
 const postgresAccessInstanceIndex = "spec.postgresInstance"
+const postgresAccessReadyCondition = "Ready"
 const maximumPostgresAccessLifetime = time.Hour
 const postgresAccessDeactivationRetry = time.Second
 
@@ -50,8 +56,25 @@ func (r *PostgresAccessReconciler) New() *v1.PostgresAccess { return &v1.Postgre
 
 // DatabaseRoles deliberately are not owned by PostgresAccess. The identity
 // survives expiry so its user can return to objects it owns in the database.
+// The Tunnel and its per-access NetworkPolicy are owned so they are garbage
+// collected when the PostgresAccess is deleted.
 func (r *PostgresAccessReconciler) OwnedTypes() []reconciler.OwnedType {
-	return []reconciler.OwnedType{{Type: &corev1.Secret{}}}
+	return []reconciler.OwnedType{
+		{Type: &corev1.Secret{}},
+		{
+			Type: &tunnelv1alpha1.Tunnel{},
+			AdditionalPredicate: predicate.Funcs{
+				CreateFunc: func(event.CreateEvent) bool { return true },
+				DeleteFunc: func(event.DeleteEvent) bool { return true },
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldTunnel, oldOK := e.ObjectOld.(*tunnelv1alpha1.Tunnel)
+					newTunnel, newOK := e.ObjectNew.(*tunnelv1alpha1.Tunnel)
+					return oldOK && newOK && !reflect.DeepEqual(oldTunnel.Status, newTunnel.Status)
+				},
+			},
+		},
+		{Type: &networkingv1.NetworkPolicy{}},
+	}
 }
 
 func (r *PostgresAccessReconciler) AdditionalTypes() []client.Object { return nil }
@@ -206,6 +229,9 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if !recoveryComplete(cluster) {
 		return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
 	}
+
+	prep := PostgresAccessPreparedData{Instance: instance}
+
 	secret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.CredentialSecretName(access)}
 	if err := reader.Get(ctx, secretKey, secret); err != nil {
@@ -216,13 +242,36 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 		if err != nil {
 			return PostgresAccessPreparedData{}, ctrl.Result{}, err
 		}
-		return PostgresAccessPreparedData{Instance: instance, Password: password}, ctrl.Result{}, nil
+		prep.Password = password
+	} else {
+		password, ok := secret.Data[corev1.BasicAuthPasswordKey]
+		if !ok {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("credential Secret %q has no password", secret.Name)
+		}
+		prep.Password = string(password)
 	}
-	password, ok := secret.Data[corev1.BasicAuthPasswordKey]
-	if !ok {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("credential Secret %q has no password", secret.Name)
+
+	prep.Role = r.personalDatabaseRole(ctx, reader, access)
+	prep.Tunnel = r.ownedTunnel(ctx, reader, access)
+	return prep, ctrl.Result{}, nil
+}
+
+func (r *PostgresAccessReconciler) personalDatabaseRole(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) *cnpgv1.DatabaseRole {
+	role := &cnpgv1.DatabaseRole{}
+	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}
+	if err := reader.Get(ctx, key, role); err != nil {
+		return nil
 	}
-	return PostgresAccessPreparedData{Instance: instance, Password: string(password)}, ctrl.Result{}, nil
+	return role
+}
+
+func (r *PostgresAccessReconciler) ownedTunnel(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) *tunnelv1alpha1.Tunnel {
+	tunnel := &tunnelv1alpha1.Tunnel{}
+	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.TunnelName(access)}
+	if err := reader.Get(ctx, key, tunnel); err != nil {
+		return nil
+	}
+	return tunnel
 }
 
 func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
@@ -232,9 +281,29 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	}
 	role := rcaccess.CreateDatabaseRole(access, true)
 	access.GetStatus().(*v1.PostgresAccessStatus).DatabaseRole = role.Spec.Name
+
+	if r.Config == nil {
+		return nil, ctrl.Result{}, fmt.Errorf("PostgresAccessReconciler.Config is nil")
+	}
+	tunnel, err := rcaccess.CreateTunnel(r.Scheme, access, r.Config)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating Tunnel spec: %w", err)
+	}
+	netpol, err := rcaccess.CreateTunnelNetworkPolicy(r.Scheme, access)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating Tunnel NetworkPolicy spec: %w", err)
+	}
+
+	status := access.GetStatus().(*v1.PostgresAccessStatus)
+	status.Tunnel = tunnelStatusFromTunnel(access, prepared.Tunnel)
+
+	setPostgresAccessReadyCondition(status, prepared.Role, prepared.Tunnel)
+
 	return []action.Action{
 		action.ExclusiveCreateOrUpdate(secret, access, existsConditionGetter, r.Recorder),
 		action.DurableCreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
+		action.CreateOrUpdate(tunnel, access, tunnelConditionGetter, r.Recorder),
+		action.CreateOrUpdate(netpol, access, existsConditionGetter, r.Recorder),
 	}, ctrl.Result{}, nil
 }
 
@@ -263,4 +332,81 @@ func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []meta
 		status = metav1.ConditionTrue
 	}
 	return []metav1.Condition{{Type: "DatabaseRoleReady", Status: status, Reason: "Applied", Message: role.Status.Message, ObservedGeneration: role.Status.ObservedGeneration}}
+}
+
+func tunnelConditionGetter(object client.Object, _ *runtime.Scheme) []metav1.Condition {
+	tunnel, ok := object.(*tunnelv1alpha1.Tunnel)
+	if !ok {
+		return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionFalse, Reason: "Pending"}}
+	}
+	if tunnelIsReady(tunnel) {
+		return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionTrue, Reason: "Ready", ObservedGeneration: tunnel.GetGeneration()}}
+	}
+	msg := "Tunnel is not ready"
+	if tunnel.Status.Message != "" {
+		msg = tunnel.Status.Message
+	}
+	return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionFalse, Reason: "Pending", Message: msg, ObservedGeneration: tunnel.GetGeneration()}}
+}
+
+func setPostgresAccessReadyCondition(status *v1.PostgresAccessStatus, role *cnpgv1.DatabaseRole, tunnel *tunnelv1alpha1.Tunnel) {
+	ready := databaseRoleIsReady(role) && tunnelIsReady(tunnel)
+	condition := metav1.Condition{
+		Type:   postgresAccessReadyCondition,
+		Reason: "Pending",
+	}
+	if ready {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "Ready"
+		condition.Message = "Database role and tunnel are ready"
+	} else {
+		condition.Status = metav1.ConditionFalse
+		condition.Message = readyPendingMessage(role, tunnel)
+	}
+	status.SetCondition(condition)
+}
+
+func tunnelStatusFromTunnel(access *v1.PostgresAccess, tunnel *tunnelv1alpha1.Tunnel) v1.PostgresAccessTunnelStatus {
+	s := v1.PostgresAccessTunnelStatus{Name: rcaccess.TunnelName(access)}
+	if tunnel == nil {
+		return s
+	}
+	s.Endpoint = tunnel.Status.ForwarderEndpoint
+	s.GatewayPublicKey = tunnel.Status.GatewayPublicKey
+	s.Phase = string(tunnel.Status.Phase)
+	s.Ready = tunnelIsReady(tunnel)
+	return s
+}
+
+func databaseRoleIsReady(role *cnpgv1.DatabaseRole) bool {
+	return role != nil && role.Status.Applied != nil && *role.Status.Applied &&
+		role.Status.ObservedGeneration == role.GetGeneration()
+}
+
+func tunnelIsReady(tunnel *tunnelv1alpha1.Tunnel) bool {
+	if tunnel == nil {
+		return false
+	}
+	return tunnel.Status.Phase == tunnelv1alpha1.TunnelPhaseReady
+}
+
+func readyPendingMessage(role *cnpgv1.DatabaseRole, tunnel *tunnelv1alpha1.Tunnel) string {
+	var reasons []string
+	if !databaseRoleIsReady(role) {
+		reasons = append(reasons, "database role is not applied")
+	}
+	if !tunnelIsReady(tunnel) {
+		reasons = append(reasons, "tunnel is not ready")
+	}
+	if len(reasons) == 0 {
+		return "resource is ready"
+	}
+	return "waiting for " + joinReasons(reasons)
+}
+
+func joinReasons(reasons []string) string {
+	if len(reasons) == 1 {
+		return reasons[0]
+	}
+	return reasons[0] + " and " + reasons[1]
 }

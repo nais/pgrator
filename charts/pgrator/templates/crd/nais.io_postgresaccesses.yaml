@@ -180,6 +180,25 @@ spec:
                 reconcileTime:
                   format: date-time
                   type: string
+                tunnel:
+                  description: Tunnel is the connection status for the Tunnel owned by this access.
+                  properties:
+                    endpoint:
+                      description: Endpoint is the gateway endpoint the client should connect to.
+                      type: string
+                    gatewayPublicKey:
+                      description: GatewayPublicKey is the gateway's WireGuard public key.
+                      type: string
+                    name:
+                      description: Name is the Tunnel resource owned by this PostgresAccess.
+                      type: string
+                    phase:
+                      description: Phase is the high-level Tunnel phase reported by tunnel-operator.
+                      type: string
+                    ready:
+                      description: Ready reports whether the Tunnel is ready for the client to connect.
+                      type: boolean
+                  type: object
               type: object
           required:
             - spec

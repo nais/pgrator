@@ -23,7 +23,9 @@ instance's PostgreSQL RW target and manages:
 
 - one controller-owned tunnel-operator `Tunnel` for that target;
 - one controller-owned `kubernetes.io/basic-auth` Secret holding a random SCRAM
-  password; and
+  password;
+- one controller-owned `NetworkPolicy` permitting only that Tunnel gateway to
+  reach the resolved CNPG primary on TCP/5432; and
 - one durable CNPG `DatabaseRole` per user and physical instance. This role is
   not owned by PostgresAccess and survives access deletion.
 
@@ -51,8 +53,9 @@ migration exists.
 
 The role name and user-owned objects are durable; its password and effective
 privileges are not. Euthanaisa expiry exists only on PostgresAccess and only
-deletes that parent. Kubernetes removes owned Tunnel and password Secret. Before
-the finalizer releases PostgresAccess, pgrator removes the password reference and
+deletes that parent. Kubernetes removes owned Tunnel, password Secret, and
+per-access database-ingress NetworkPolicy. Before the finalizer releases
+PostgresAccess, pgrator removes the password reference and
 active memberships, disables login, and waits for CNPG to confirm that state. It
 does not drop the role, terminate sessions, or remove user-owned objects.
 

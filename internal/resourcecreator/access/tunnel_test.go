@@ -1,0 +1,117 @@
+package access
+
+import (
+	"testing"
+
+	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/initscheme"
+	v1 "github.com/nais/pgrator/pkg/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	initscheme.InitScheme(s)
+	return s
+}
+
+func TestCreateTunnelOwnedByPostgresAccess(t *testing.T) {
+	access := &v1.PostgresAccess{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"},
+		Spec: v1.PostgresAccessSpec{
+			PostgresInstance:         "orders",
+			Username:                 "user@nav.no",
+			ClientWireGuardPublicKey: "client-pub",
+		},
+	}
+	cfg := &config.Config{TunnelEnvironment: "dev"}
+	tunnel, err := CreateTunnel(testScheme(t), access, cfg)
+	if err != nil {
+		t.Fatalf("CreateTunnel: %v", err)
+	}
+	if tunnel.Name != access.Name {
+		t.Errorf("tunnel name = %q, want %q", tunnel.Name, access.Name)
+	}
+	if tunnel.Namespace != access.Namespace {
+		t.Errorf("tunnel namespace = %q, want %q", tunnel.Namespace, access.Namespace)
+	}
+	if tunnel.Spec.Environment != "dev" {
+		t.Errorf("tunnel environment = %q, want %q", tunnel.Spec.Environment, "dev")
+	}
+	if tunnel.Spec.TeamSlug != access.Namespace {
+		t.Errorf("tunnel teamSlug = %q, want %q", tunnel.Spec.TeamSlug, access.Namespace)
+	}
+	if tunnel.Spec.ClientPublicKey != access.Spec.ClientWireGuardPublicKey {
+		t.Errorf("tunnel clientPublicKey = %q, want %q", tunnel.Spec.ClientPublicKey, access.Spec.ClientWireGuardPublicKey)
+	}
+	if tunnel.Spec.Target.Host != "pg-orders-rw.team.svc.cluster.local" {
+		t.Errorf("tunnel target host = %q, want %q", tunnel.Spec.Target.Host, "pg-orders-rw.team.svc.cluster.local")
+	}
+	if tunnel.Spec.Target.Port != 5432 {
+		t.Errorf("tunnel target port = %d, want 5432", tunnel.Spec.Target.Port)
+	}
+	if tunnel.Spec.ActiveDeadlineSeconds != nil {
+		t.Errorf("tunnel activeDeadlineSeconds = %d, want nil; PostgresAccess expiry owns lifecycle", *tunnel.Spec.ActiveDeadlineSeconds)
+	}
+	if tunnel.Spec.Target.ResolvedIP != "" {
+		t.Error("tunnel target must not use resolvedIP")
+	}
+	if tunnel.Spec.Target.PodSelector == nil {
+		t.Fatal("tunnel target podSelector is nil")
+	}
+	if got := tunnel.Spec.Target.PodSelector.MatchLabels["cnpg.io/cluster"]; got != "pg-orders" {
+		t.Errorf("tunnel podSelector cluster = %q, want pg-orders", got)
+	}
+	if got := tunnel.Spec.Target.PodSelector.MatchLabels["cnpg.io/instanceRole"]; got != "primary" {
+		t.Errorf("tunnel podSelector role = %q, want primary", got)
+	}
+	refs := metav1.GetControllerOf(tunnel)
+	if refs == nil {
+		t.Fatal("Tunnel must be owned by PostgresAccess")
+	}
+	if refs.Kind != "PostgresAccess" || refs.Name != access.Name {
+		t.Errorf("tunnel owner = %s/%s, want PostgresAccess/%s", refs.Kind, refs.Name, access.Name)
+	}
+}
+
+func TestCreateTunnelNetworkPolicyPermitsOnlyGatewayPods(t *testing.T) {
+	access := &v1.PostgresAccess{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"},
+		Spec:       v1.PostgresAccessSpec{PostgresInstance: "orders"},
+	}
+	netpol, err := CreateTunnelNetworkPolicy(testScheme(t), access)
+	if err != nil {
+		t.Fatalf("CreateTunnelNetworkPolicy: %v", err)
+	}
+	if netpol.Name != "my-access-tunnel" {
+		t.Errorf("network policy name = %q, want %q", netpol.Name, "my-access-tunnel")
+	}
+	if len(netpol.Spec.PolicyTypes) != 1 || netpol.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
+		t.Errorf("network policy policyTypes = %v, want [Ingress]", netpol.Spec.PolicyTypes)
+	}
+	if netpol.Spec.PodSelector.MatchLabels["cnpg.io/cluster"] != "pg-orders" {
+		t.Error("network policy must select the CNPG primary")
+	}
+	if len(netpol.Spec.Ingress) != 1 {
+		t.Fatalf("network policy ingress rules = %d, want 1", len(netpol.Spec.Ingress))
+	}
+	from := netpol.Spec.Ingress[0].From
+	if len(from) != 1 || from[0].PodSelector == nil {
+		t.Fatalf("ingress from = %v, want single podSelector", from)
+	}
+	if got := from[0].PodSelector.MatchLabels["tunnels.nais.io/tunnel"]; got != access.Name {
+		t.Errorf("ingress peer label = %q, want %q", got, access.Name)
+	}
+	ports := netpol.Spec.Ingress[0].Ports
+	if len(ports) != 1 || ports[0].Protocol == nil || *ports[0].Protocol != corev1.ProtocolTCP || ports[0].Port.IntValue() != 5432 {
+		t.Errorf("ingress ports = %v, want TCP/5432", ports)
+	}
+	refs := metav1.GetControllerOf(netpol)
+	if refs == nil || refs.Kind != "PostgresAccess" || refs.Name != access.Name {
+		t.Error("network policy must be owned by PostgresAccess")
+	}
+}

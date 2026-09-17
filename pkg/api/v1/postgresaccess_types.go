@@ -41,6 +41,21 @@ type PostgresAccessSpec struct {
 	ClientWireGuardPublicKey string `json:"clientWireGuardPublicKey"`
 }
 
+// PostgresAccessTunnelStatus exposes the API-safe subset of the Tunnel status
+// that callers (nais-api/CLI) need to surface a connection endpoint to the user.
+type PostgresAccessTunnelStatus struct {
+	// Name is the Tunnel resource owned by this PostgresAccess.
+	Name string `json:"name,omitempty"`
+	// Endpoint is the gateway endpoint the client should connect to.
+	Endpoint string `json:"endpoint,omitempty"`
+	// GatewayPublicKey is the gateway's WireGuard public key.
+	GatewayPublicKey string `json:"gatewayPublicKey,omitempty"`
+	// Phase is the high-level Tunnel phase reported by tunnel-operator.
+	Phase string `json:"phase,omitempty"`
+	// Ready reports whether the Tunnel is ready for the client to connect.
+	Ready bool `json:"ready,omitempty"`
+}
+
 // PostgresAccessStatus defines the observed state of PostgresAccess.
 type PostgresAccessStatus struct {
 	api.BaseStatus `json:",inline"`
@@ -48,6 +63,10 @@ type PostgresAccessStatus struct {
 	// DatabaseRole is the stable PostgreSQL identity derived for this access.
 	// +optional
 	DatabaseRole string `json:"databaseRole,omitempty"`
+
+	// Tunnel is the connection status for the Tunnel owned by this access.
+	// +optional
+	Tunnel PostgresAccessTunnelStatus `json:"tunnel,omitempty"`
 }
 
 // +kubebuilder:object:root=true

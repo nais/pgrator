@@ -76,8 +76,6 @@ func setupTestEnvironment() error {
 		testEnv.BinaryAssetsDirectory = envTestBinaryDir
 	}
 
-	testEnv.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-
 	var err error
 	cfg, err = testEnv.Start()
 	if err != nil {
@@ -176,9 +174,10 @@ func TestGoldenPostgresBinding(t *testing.T) {
 }
 
 func TestGoldenPostgresAccess(t *testing.T) {
-	postgresAccessReconciler := &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
+	defaultCfg := config.Config{TunnelEnvironment: "test"}
+	postgresAccessReconciler := &PostgresAccessReconciler{Config: &defaultCfg, Recorder: recorder, Scheme: scheme.Scheme}
 	runGoldenTestsForResource[*v1.PostgresAccess, PostgresAccessPreparedData, v1.PostgresAccess](
-		t, postgresAccessReconciler, "postgresaccess", config.Config{}, func(config.Config) {},
+		t, postgresAccessReconciler, "postgresaccess", defaultCfg, func(cfg config.Config) { *postgresAccessReconciler.Config = cfg },
 	)
 }
 

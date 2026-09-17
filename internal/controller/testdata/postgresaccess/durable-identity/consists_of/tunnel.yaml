@@ -1,0 +1,20 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: nais.io/v1alpha1
+  kind: Tunnel
+  metadata:
+    name: frode-orders-access
+    namespace: myteam
+  spec:
+    teamSlug: myteam
+    environment: test
+    target:
+      host: pg-orders-restore-rw.myteam.svc.cluster.local
+      port: 5432
+      podSelector:
+        matchLabels:
+          cnpg.io/cluster: pg-orders-restore
+          cnpg.io/instanceRole: primary
+    clientPublicKey: test-public-key

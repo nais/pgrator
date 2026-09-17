@@ -21,6 +21,11 @@ type Config struct {
 	// from CNPG pods (which must reach the API server) through their NetworkPolicy.
 	APIServerIP string `env:"API_SERVER_IP" yaml:"apiServerIP"`
 
+	// TunnelEnvironment is the nais environment name (e.g. "dev" or "prod") used
+	// by tunnel-operator to select the correct gateway configuration. It is a
+	// platform setting and never derived from client input.
+	TunnelEnvironment string `env:"TUNNEL_ENVIRONMENT, required" yaml:"tunnelEnvironment"`
+
 	DryRun      bool `env:"DRY_RUN" yaml:"dryRun"`
 	Development bool `env:"DEVELOPMENT" yaml:"development"`
 
