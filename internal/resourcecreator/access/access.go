@@ -56,7 +56,8 @@ func boundedName(name, suffix string, maxLen int) string {
 
 // CreateCredentialSecret creates the controller-owned connection Secret for one
 // access. It contains the raw email username, password, and the cluster's
-// public CA certificate; no private material is included.
+// public CA certificate; it does not contain any client certificate or private
+// key material.
 func CreateCredentialSecret(scheme *runtime.Scheme, access *v1.PostgresAccess, password, caCertificate string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
