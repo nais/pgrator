@@ -169,6 +169,7 @@ helm_resource(
     flags=[
         "--create-namespace",
         "--set=development=true",
+        "--set=tunnelEnvironment=test",
         "--set=controllerManager.container.image.repository=pgrator",
         "--set=controllerManager.container.image.tag=latest",
         "--set=google.projectId=test-project",

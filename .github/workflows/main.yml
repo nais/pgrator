@@ -187,7 +187,7 @@ jobs:
           helm install prometheus-crds prometheus-community/prometheus-operator-crds
       - name: Install Helm chart for project
         run: |
-          helm install my-release ./charts/pgrator --create-namespace --namespace pgrator-system
+          helm install my-release ./charts/pgrator --create-namespace --namespace pgrator-system --set tunnelEnvironment=test
       - name: Check Helm release status
         run: |
           helm status my-release --namespace pgrator-system
