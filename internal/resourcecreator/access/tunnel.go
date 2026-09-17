@@ -18,6 +18,15 @@ import (
 const (
 	// tunnelPodLabel is the label tunnel-operator places on gateway pods.
 	tunnelPodLabel = "tunnels.nais.io/tunnel"
+	// gatewayManagedByLabel and gatewayComponentLabel are additional labels
+	// tunnel-operator places on gateway pods (see gatewayLabels in
+	// tunnel-operator). Selecting them alongside tunnelPodLabel keeps the
+	// NetworkPolicy boundary at tunnel-operator gateways, not any pod able to
+	// set the tunnel label.
+	gatewayManagedByLabel = "app.kubernetes.io/managed-by"
+	gatewayManagedByValue = "tunnel-operator"
+	gatewayComponentLabel = "app.kubernetes.io/component"
+	gatewayComponentValue = "tunnel-gateway"
 	// primaryInstanceRole is the CNPG label value for the primary instance.
 	primaryInstanceRole = "primary"
 	// cnpgClusterLabel is the CNPG cluster label.
@@ -27,22 +36,16 @@ const (
 )
 
 // TunnelName returns the deterministic Tunnel resource name for a PostgresAccess.
-// PostgresAccess resource names are Kubernetes DNS subdomain labels, so they are
-// safe to reuse here.
+// The name is bounded to the label-value limit because tunnel-operator copies it
+// into the tunnels.nais.io/tunnel label on gateway pods.
 func TunnelName(access *v1.PostgresAccess) string {
-	return access.Name
+	return boundedName(access.Name, "", validation.LabelValueMaxLength)
 }
 
 // TunnelNetworkPolicyName returns the deterministic NetworkPolicy name that
 // permits the tunnel gateway to reach the CNPG primary for one access.
 func TunnelNetworkPolicyName(access *v1.PostgresAccess) string {
-	suffix := "-tunnel"
-	maxNameLen := validation.DNS1123SubdomainMaxLength - len(suffix)
-	name := access.Name
-	if len(name) > maxNameLen {
-		name = name[:maxNameLen]
-	}
-	return name + suffix
+	return boundedName(access.Name, "-tunnel", validation.DNS1123SubdomainMaxLength)
 }
 
 // CreateTunnel builds the Tunnel owned by a PostgresAccess.
@@ -56,9 +59,6 @@ func CreateTunnel(scheme *runtime.Scheme, access *v1.PostgresAccess) (*tunnelv1a
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      TunnelName(access),
 			Namespace: access.Namespace,
-			Labels: map[string]string{
-				"postgres.nais.io/access": access.Name,
-			},
 		},
 		Spec: tunnelv1alpha1.TunnelSpec{
 			TeamSlug: access.Namespace,
@@ -94,9 +94,6 @@ func CreateTunnelNetworkPolicy(scheme *runtime.Scheme, access *v1.PostgresAccess
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      TunnelNetworkPolicyName(access),
 			Namespace: access.Namespace,
-			Labels: map[string]string{
-				"postgres.nais.io/access": access.Name,
-			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
@@ -112,7 +109,9 @@ func CreateTunnelNetworkPolicy(scheme *runtime.Scheme, access *v1.PostgresAccess
 						{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									tunnelPodLabel: TunnelName(access),
+									tunnelPodLabel:        TunnelName(access),
+									gatewayManagedByLabel: gatewayManagedByValue,
+									gatewayComponentLabel: gatewayComponentValue,
 								},
 							},
 						},

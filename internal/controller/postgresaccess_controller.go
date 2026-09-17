@@ -38,6 +38,7 @@ var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &P
 
 type PostgresAccessPreparedData struct {
 	Instance *v1.PostgresInstance   `yaml:"instance"`
+	Cluster  *cnpgv1.Cluster        `yaml:"-"`
 	Password string                 `yaml:"-"`
 	Role     *cnpgv1.DatabaseRole   `yaml:"-"`
 	Tunnel   *tunnelv1alpha1.Tunnel `yaml:"-"`
@@ -123,7 +124,7 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 				newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-				return oldOK && newOK && recoveryComplete(oldCluster) != recoveryComplete(newCluster)
+				return oldOK && newOK && (recoveryComplete(oldCluster) != recoveryComplete(newCluster) || rccnpg.ReadWriteCreateCapable(oldCluster) != rccnpg.ReadWriteCreateCapable(newCluster))
 			},
 		},
 	}}
@@ -200,7 +201,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 		return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
 	}
 
-	prep := PostgresAccessPreparedData{Instance: instance}
+	prep := PostgresAccessPreparedData{Instance: instance, Cluster: cluster}
 
 	secret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.CredentialSecretName(access)}
@@ -245,6 +246,23 @@ func (r *PostgresAccessReconciler) ownedTunnel(ctx context.Context, reader clien
 }
 
 func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if access.Spec.AccessLevel == v1.PostgresAccessLevelReadWriteCreate && !rccnpg.ReadWriteCreateCapable(prepared.Cluster) {
+		// The instance's cluster was initialized without the app_readwritecreate
+		// group role, so CNPG could never apply the DatabaseRole. The access spec
+		// is immutable; fail the access instead of reconciling it forever.
+		r.Recorder.RecordEvent(access, corev1.EventTypeWarning, "UnsupportedAccessLevel",
+			"accessLevel readwritecreate is not available on PostgresInstance %q: its cluster was initialized without the %s group role",
+			access.Spec.PostgresInstance, rccnpg.ReadWriteCreateRole)
+		access.GetStatus().(*v1.PostgresAccessStatus).SetCondition(metav1.Condition{
+			Type:               postgresAccessReadyCondition,
+			Status:             metav1.ConditionFalse,
+			Reason:             "UnsupportedAccessLevel",
+			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PostgresInstance),
+			ObservedGeneration: access.GetGeneration(),
+		})
+		return nil, ctrl.Result{}, nil
+	}
+
 	secret, err := rcaccess.CreateCredentialSecret(r.Scheme, access, prepared.Password)
 	if err != nil {
 		return nil, ctrl.Result{}, err
@@ -286,11 +304,12 @@ func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []meta
 	if !ok || role.Status.Applied == nil {
 		return []metav1.Condition{{Type: "DatabaseRoleReady", Status: metav1.ConditionFalse, Reason: "Pending"}}
 	}
-	status := metav1.ConditionFalse
-	if *role.Status.Applied {
-		status = metav1.ConditionTrue
+	// CNPG may still report Applied=true for an older generation; only the
+	// current generation proves the intended privileges are in effect.
+	if *role.Status.Applied && role.Status.ObservedGeneration == role.GetGeneration() {
+		return []metav1.Condition{{Type: "DatabaseRoleReady", Status: metav1.ConditionTrue, Reason: "Applied", Message: role.Status.Message, ObservedGeneration: role.Status.ObservedGeneration}}
 	}
-	return []metav1.Condition{{Type: "DatabaseRoleReady", Status: status, Reason: "Applied", Message: role.Status.Message, ObservedGeneration: role.Status.ObservedGeneration}}
+	return []metav1.Condition{{Type: "DatabaseRoleReady", Status: metav1.ConditionFalse, Reason: "Pending", Message: role.Status.Message, ObservedGeneration: role.Status.ObservedGeneration}}
 }
 
 func tunnelConditionGetter(object client.Object, _ *runtime.Scheme) []metav1.Condition {

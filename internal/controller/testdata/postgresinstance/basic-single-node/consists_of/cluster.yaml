@@ -7,6 +7,8 @@ object:
   metadata:
     name: pg-mydb
     namespace: myteam
+    annotations:
+      postgres.nais.io/readwritecreate-capable: "true"
     labels:
       postgres.nais.io/name: mydb
     ownerReferences:

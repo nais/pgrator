@@ -381,6 +381,15 @@ func (r *PostgresInstanceReconciler) Update(obj *v1.PostgresInstance, prepared P
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
 		}
+		// postInitSQL, which creates the app_readwritecreate group role, runs only
+		// at initdb. Mark the cluster as readwritecreate-capable only when this
+		// reconcile creates a fresh initdb cluster; once set, the marker is
+		// preserved across reconciles. Clusters that predate the role and clusters
+		// bootstrapped by recovery stay unmarked.
+		freshInitDBCluster := !clusterExists && prepared.RecoverySource == nil
+		if freshInitDBCluster || rccnpg.ReadWriteCreateCapable(existingCluster) {
+			metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, rccnpg.ReadWriteCreateCapableAnnotation, "true")
+		}
 		if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
 			return nil, ctrl.Result{}, err
 		}

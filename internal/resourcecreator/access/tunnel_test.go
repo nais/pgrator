@@ -1,6 +1,7 @@
 package access
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nais/pgrator/internal/initscheme"
@@ -9,6 +10,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 const postgresAccessKind = "PostgresAccess"
@@ -100,8 +102,15 @@ func TestCreateTunnelNetworkPolicyPermitsOnlyGatewayPods(t *testing.T) {
 	if len(from) != 1 || from[0].PodSelector == nil {
 		t.Fatalf("ingress from = %v, want single podSelector", from)
 	}
-	if got := from[0].PodSelector.MatchLabels["tunnels.nais.io/tunnel"]; got != access.Name {
+	peerLabels := from[0].PodSelector.MatchLabels
+	if got := peerLabels["tunnels.nais.io/tunnel"]; got != access.Name {
 		t.Errorf("ingress peer label = %q, want %q", got, access.Name)
+	}
+	if got := peerLabels["app.kubernetes.io/managed-by"]; got != "tunnel-operator" {
+		t.Errorf("ingress peer managed-by = %q, want tunnel-operator", got)
+	}
+	if got := peerLabels["app.kubernetes.io/component"]; got != "tunnel-gateway" {
+		t.Errorf("ingress peer component = %q, want tunnel-gateway; the policy must admit only tunnel-operator gateway pods", got)
 	}
 	ports := netpol.Spec.Ingress[0].Ports
 	if len(ports) != 1 || ports[0].Protocol == nil || *ports[0].Protocol != corev1.ProtocolTCP || ports[0].Port.IntValue() != 5432 {
@@ -110,5 +119,41 @@ func TestCreateTunnelNetworkPolicyPermitsOnlyGatewayPods(t *testing.T) {
 	refs := metav1.GetControllerOf(netpol)
 	if refs == nil || refs.Kind != postgresAccessKind || refs.Name != access.Name {
 		t.Error("network policy must be owned by PostgresAccess")
+	}
+}
+
+// Long access names must still produce valid, distinct child resource names:
+// the Tunnel name becomes a gateway pod label value (max 63), and names that
+// share a long common prefix must not collide after shortening.
+func TestAccessChildNamesBoundedAndCollisionResistant(t *testing.T) {
+	prefix := strings.Repeat("a", 240)
+	first := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-first", Namespace: "team"}}
+	second := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-second", Namespace: "team"}}
+
+	if got, want := TunnelName(first), 63; len(got) > want {
+		t.Errorf("TunnelName() length = %d, want <= %d (label value limit)", len(got), want)
+	}
+	if TunnelName(first) == TunnelName(second) {
+		t.Error("TunnelName() collides for access names sharing a long prefix")
+	}
+
+	if got, want := TunnelNetworkPolicyName(first), validation.DNS1123SubdomainMaxLength; len(got) > want {
+		t.Errorf("TunnelNetworkPolicyName() length = %d, want <= %d", len(got), want)
+	}
+	if TunnelNetworkPolicyName(first) == TunnelNetworkPolicyName(second) {
+		t.Error("TunnelNetworkPolicyName() collides for access names sharing a long prefix")
+	}
+	if !strings.HasSuffix(TunnelNetworkPolicyName(first), "-tunnel") {
+		t.Errorf("TunnelNetworkPolicyName() = %q, want -tunnel suffix", TunnelNetworkPolicyName(first))
+	}
+
+	if got, want := CredentialSecretName(first), validation.DNS1123SubdomainMaxLength; len(got) > want {
+		t.Errorf("CredentialSecretName() length = %d, want <= %d", len(got), want)
+	}
+	if CredentialSecretName(first) == CredentialSecretName(second) {
+		t.Error("CredentialSecretName() collides for access names sharing a long prefix")
+	}
+	if !strings.HasSuffix(CredentialSecretName(first), "-credentials") {
+		t.Errorf("CredentialSecretName() = %q, want -credentials suffix", CredentialSecretName(first))
 	}
 }

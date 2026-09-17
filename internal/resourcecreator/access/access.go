@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -35,7 +36,20 @@ func DatabaseRoleName(username, instance string) string {
 
 // CredentialSecretName returns the short-lived Secret name for one access.
 func CredentialSecretName(access *v1.PostgresAccess) string {
-	return access.Name + "-credentials"
+	return boundedName(access.Name, "-credentials", validation.DNS1123SubdomainMaxLength)
+}
+
+// boundedName returns name+suffix, shortened deterministically with a hash tag
+// when the result would exceed maxLen. The hash keeps distinct long inputs from
+// colliding after truncation.
+func boundedName(name, suffix string, maxLen int) string {
+	if len(name)+len(suffix) <= maxLen {
+		return name + suffix
+	}
+	hash := sha256.Sum256([]byte(name))
+	tag := fmt.Sprintf("-%x", hash[:4])
+	keep := maxLen - len(suffix) - len(tag)
+	return strings.TrimRight(name[:keep], "-") + tag + suffix
 }
 
 // CreateCredentialSecret creates a basic-auth Secret that CNPG can use to set
@@ -117,9 +131,6 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
 			Namespace: access.Namespace,
-			Labels: map[string]string{
-				"postgres.nais.io/instance": access.Spec.PostgresInstance,
-			},
 		},
 		Spec: cnpgv1.DatabaseRoleSpec{
 			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresInstance)},

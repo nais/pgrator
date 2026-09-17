@@ -6,6 +6,7 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
@@ -145,4 +146,82 @@ func findReadyCondition(conditions []metav1.Condition) *metav1.Condition {
 		}
 	}
 	return nil
+}
+
+// readwritecreate needs the app_readwritecreate group role, which only exists
+// on clusters initialized by a pgrator version that creates it. Accesses asking
+// for it on an uncapable instance must fail with an honest condition instead of
+// reconciling a DatabaseRole CNPG can never apply.
+func TestPostgresAccessReadWriteCreateRequiresCapableCluster(t *testing.T) {
+	newAccess := func(level v1.PostgresAccessLevel) *v1.PostgresAccess {
+		return &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", Generation: 1}, Spec: v1.PostgresAccessSpec{
+			Username: "frode.sundby@nav.no", PostgresInstance: "orders", AccessLevel: level, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
+		}}
+	}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
+	capableCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name: "pg-orders", Namespace: "team",
+		Annotations: map[string]string{rccnpg.ReadWriteCreateCapableAnnotation: "true"},
+	}}
+	uncapableCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders", Namespace: "team"}}
+
+	t.Run("rejected on uncapable cluster", func(t *testing.T) {
+		access := newAccess(v1.PostgresAccessLevelReadWriteCreate)
+		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		requireNoError(t, err)
+		if len(actions) != 0 {
+			t.Fatalf("Update() actions = %d, want 0 for an unsupported access level", len(actions))
+		}
+		cond := findReadyCondition(access.Status.Conditions)
+		if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "UnsupportedAccessLevel" {
+			t.Errorf("Ready condition = %v, want False/UnsupportedAccessLevel", cond)
+		}
+	})
+
+	t.Run("reconciled on capable cluster", func(t *testing.T) {
+		access := newAccess(v1.PostgresAccessLevelReadWriteCreate)
+		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: capableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		requireNoError(t, err)
+		if len(actions) != 4 {
+			t.Fatalf("Update() actions = %d, want 4", len(actions))
+		}
+		role, ok := actions[1].GetObject().(*cnpgv1.DatabaseRole)
+		if !ok {
+			t.Fatalf("action object = %T, want DatabaseRole", actions[1].GetObject())
+		}
+		if len(role.Spec.InRoles) != 1 || role.Spec.InRoles[0] != rccnpg.ReadWriteCreateRole {
+			t.Errorf("inRoles = %v, want [%s]", role.Spec.InRoles, rccnpg.ReadWriteCreateRole)
+		}
+	})
+
+	t.Run("other levels unaffected by capability", func(t *testing.T) {
+		access := newAccess(v1.PostgresAccessLevelReadWrite)
+		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		requireNoError(t, err)
+		if len(actions) != 4 {
+			t.Fatalf("Update() actions = %d, want 4", len(actions))
+		}
+	})
+}
+
+// DatabaseRoleReady must not report ready from a stale CNPG status: Applied=true
+// for an older generation says nothing about the current intended privileges.
+func TestDatabaseRoleConditionGetterRequiresCurrentGeneration(t *testing.T) {
+	applied := true
+	newRole := func(generation, observed int64) *cnpgv1.DatabaseRole {
+		return &cnpgv1.DatabaseRole{
+			ObjectMeta: metav1.ObjectMeta{Generation: generation},
+			Status:     cnpgv1.DatabaseRoleStatus{Applied: &applied, ObservedGeneration: observed},
+		}
+	}
+
+	conditions := databaseRoleConditionGetter(newRole(2, 1), scheme.Scheme)
+	if conditions[0].Status != metav1.ConditionFalse {
+		t.Errorf("DatabaseRoleReady = %v, want False while CNPG has not applied the current generation", conditions[0].Status)
+	}
+
+	conditions = databaseRoleConditionGetter(newRole(2, 2), scheme.Scheme)
+	if conditions[0].Status != metav1.ConditionTrue {
+		t.Errorf("DatabaseRoleReady = %v, want True once the current generation is applied", conditions[0].Status)
+	}
 }

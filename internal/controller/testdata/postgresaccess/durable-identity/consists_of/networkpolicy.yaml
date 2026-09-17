@@ -19,6 +19,8 @@ object:
           - podSelector:
               matchLabels:
                 tunnels.nais.io/tunnel: frode-orders-access
+                app.kubernetes.io/managed-by: tunnel-operator
+                app.kubernetes.io/component: tunnel-gateway
         ports:
           - protocol: TCP
             port: 5432

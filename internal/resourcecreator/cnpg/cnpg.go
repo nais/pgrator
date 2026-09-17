@@ -34,6 +34,13 @@ const (
 	// ReadWriteCreateRole additionally grants CREATE in the shared public schema.
 	ReadWriteCreateRole = "app_readwritecreate"
 
+	// ReadWriteCreateCapableAnnotation marks a CNPG Cluster whose initdb
+	// bootstrap created ReadWriteCreateRole. postInitSQL runs exactly once at
+	// initdb, so clusters created before the role existed (or bootstrapped by
+	// recovery) never ran it; the annotation is stamped only when this
+	// controller creates a fresh initdb cluster, and is preserved afterwards.
+	ReadWriteCreateCapableAnnotation = "postgres.nais.io/readwritecreate-capable"
+
 	// Every cluster runs a primary and a warm standby, so a lost node or a drained
 	// pod fails over instead of taking the database down. HighAvailability adds a
 	// third instance and turns on synchronous replication, which trades write
@@ -391,6 +398,12 @@ func bootstrap(recovery *RecoverySource) *cnpgv1.BootstrapConfiguration {
 		PostInitSQL:            postInitSQL(),
 		PostInitApplicationSQL: postInitApplicationSQL(),
 	}}
+}
+
+// ReadWriteCreateCapable reports whether the cluster is known to have the
+// ReadWriteCreateRole group role; see ReadWriteCreateCapableAnnotation.
+func ReadWriteCreateCapable(cluster *cnpgv1.Cluster) bool {
+	return cluster != nil && cluster.GetAnnotations()[ReadWriteCreateCapableAnnotation] == "true"
 }
 
 // CreateScheduledBackup starts a base backup when created and schedules nightly

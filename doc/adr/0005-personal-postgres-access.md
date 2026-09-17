@@ -47,9 +47,12 @@ password Secret, and exactly one privilege group on the durable role:
   objects without extending workload readwrite access. Users can later return
   as the same role and remove objects they own.
 
-`readwritecreate` is initialized only for new PostgresInstances. It is not
-offered for pre-existing instances until an explicit database-privilege
-migration exists.
+`readwritecreate` is initialized only for new PostgresInstances. Pgrator marks
+a CNPG Cluster `postgres.nais.io/readwritecreate-capable: "true"` when it
+creates a fresh initdb cluster (postInitSQL runs exactly once, at initdb), and
+rejects `readwritecreate` PostgresAccesses targeting unmarked clusters with a
+`False`/`UnsupportedAccessLevel` Ready condition. Pre-existing and recovered
+instances stay ineligible until an explicit database-privilege migration exists.
 
 The PostgreSQL role name, OID, and user-owned objects are durable; the
 DatabaseRole CR is not. Euthanaisa expiry deletes PostgresAccess, and Kubernetes
