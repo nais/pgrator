@@ -31,6 +31,8 @@ const (
 	// the GRANTs themselves are a one-time bootstrap step.
 	ReadRole      = "app_read"
 	ReadWriteRole = "app_readwrite"
+	// ReadWriteCreateRole additionally grants CREATE in the shared public schema.
+	ReadWriteCreateRole = "app_readwritecreate"
 
 	// Every cluster runs a primary and a warm standby, so a lost node or a drained
 	// pod fails over instead of taking the database down. HighAvailability adds a
@@ -112,6 +114,9 @@ const (
 
 	// pgIdentMap names the pg_ident map referenced from the pooler pg_hba rule.
 	pgIdentMap = "pooler"
+	// tunnelGatewaySelectorName identifies tunnel-operator gateway Pods, which
+	// are the only clients permitted to authenticate personal users with SCRAM.
+	tunnelGatewaySelectorName = "tunnel-gateway"
 )
 
 func objectMeta(postgres *v1.Postgres, name string) metav1.ObjectMeta {
@@ -244,6 +249,11 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 					// certificate alone is not enough to impersonate a role.
 					fmt.Sprintf("hostssl all all ${podselector:%s} cert map=%s", poolerSelectorName, pgIdentMap),
 
+					// Personal access is transported by a dedicated tunnel gateway and
+					// authenticates with a short-lived SCRAM password, not a client
+					// certificate. This must precede the general cert rule below.
+					fmt.Sprintf("hostssl all all ${podselector:%s} scram-sha-256", tunnelGatewaySelectorName),
+
 					// Certificate authentication for all other clients. Without a
 					// map, PostgreSQL requires the certificate CN to equal the role,
 					// so clients connecting directly prove their own identity.
@@ -276,6 +286,13 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 							PoolerNameLabel: PoolerName(postgres),
 						},
 					},
+				},
+				{
+					Name: tunnelGatewaySelectorName,
+					Selector: metav1.LabelSelector{MatchLabels: map[string]string{
+						"app.kubernetes.io/managed-by": "tunnel-operator",
+						"app.kubernetes.io/component":  "tunnel-gateway",
+					}},
 				},
 			},
 
@@ -506,6 +523,7 @@ func postInitSQL() []string {
 	return []string{
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
+		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteCreateRole),
 		"ALTER ROLE postgres SET pgaudit.log = 'none'",
 	}
 }
@@ -514,16 +532,19 @@ func postInitSQL() []string {
 // the group roles' object-level privileges and sets schema-less default
 // privileges for objects the app owner creates later (in any schema).
 func postInitApplicationSQL() []string {
-	both := ReadRole + ", " + ReadWriteRole
+	both := ReadRole + ", " + ReadWriteRole + ", " + ReadWriteCreateRole
 	return []string{
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", OwnerRole),
 		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
 		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
 		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
 		fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;", ReadWriteRole),
+		fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;", ReadWriteCreateRole),
+		fmt.Sprintf("GRANT CREATE ON SCHEMA public TO %s;", ReadWriteCreateRole),
 		fmt.Sprintf("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %s;", both),
 		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT ON TABLES TO %s;", OwnerRole, ReadRole),
 		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;", OwnerRole, ReadWriteRole),
+		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;", OwnerRole, ReadWriteCreateRole),
 		fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT USAGE, SELECT ON SEQUENCES TO %s;", OwnerRole, both),
 	}
 }

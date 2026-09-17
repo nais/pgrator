@@ -38,6 +38,7 @@ object:
     postgresql:
       pg_hba:
         - hostssl all all ${podselector:pooler} cert map=pooler
+        - hostssl all all ${podselector:tunnel-gateway} scram-sha-256
         - hostssl all all all cert
         - hostnossl all all all reject
       pg_ident:
@@ -47,3 +48,8 @@ object:
         selector:
           matchLabels:
             cnpg.io/poolerName: pg-mydb-pooler
+      - name: tunnel-gateway
+        selector:
+          matchLabels:
+            app.kubernetes.io/managed-by: tunnel-operator
+            app.kubernetes.io/component: tunnel-gateway

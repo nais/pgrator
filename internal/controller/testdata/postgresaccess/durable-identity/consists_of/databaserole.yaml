@@ -1,0 +1,25 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: frode-sundby-orders-restore-39901eb0e00a4f9c
+    namespace: myteam
+  spec:
+    cluster:
+      name: pg-orders-restore
+    name: frode-sundby-orders-restore-39901eb0e00a4f9c
+    databaseRoleReclaimPolicy: retain
+    login: true
+    passwordSecret:
+      name: frode-orders-access-credentials
+    validUntil: "2026-09-16T12:00:00Z"
+    inRoles:
+      - app_readwrite
+    superuser: false
+    createdb: false
+    createrole: false
+    replication: false
+    bypassrls: false

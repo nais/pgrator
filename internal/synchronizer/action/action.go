@@ -26,6 +26,7 @@ type action struct {
 	owner           api.NaisObject
 	conditionGetter ConditionGetter
 	recorder        events.Recorder
+	skipOwnership   bool
 }
 
 func (a *action) GetObject() client.Object {
@@ -34,6 +35,10 @@ func (a *action) GetObject() client.Object {
 
 func (a *action) GetOwner() api.NaisObject {
 	return a.owner
+}
+
+func (a *action) SkipOwnership() bool {
+	return a.skipOwnership
 }
 
 func copyMeta(dst, src runtime.Object) error {

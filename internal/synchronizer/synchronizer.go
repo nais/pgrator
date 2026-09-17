@@ -492,6 +492,9 @@ func (s *Synchronizer[T, P]) isCRDAvailable(mgr ctrl.Manager, obj client.Object)
 func (s *Synchronizer[T, P]) UpdatingOwnership(actions []action.Action, relatedObjects reconciler.RelatedObjects) {
 	// Add owner annotation to referenced objects
 	for _, a := range actions {
+		if durable, ok := a.(interface{ SkipOwnership() bool }); ok && durable.SkipOwnership() {
+			continue
+		}
 		obj := a.GetObject()
 		existing := relatedObjects.GetMatching(obj)
 		if existing != nil {

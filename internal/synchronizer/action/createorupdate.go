@@ -77,3 +77,18 @@ func CreateOrUpdate(obj client.Object, owner api.NaisObject, conditionGetter Con
 		},
 	}
 }
+
+// DurableCreateOrUpdate writes a resource that outlives the resource currently
+// being reconciled. It deliberately does not register ownership, so generic
+// unreferenced-resource cleanup cannot delete it with the current owner.
+func DurableCreateOrUpdate(obj client.Object, owner api.NaisObject, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+	return &createOrUpdate{
+		action: action{
+			obj:             obj,
+			owner:           owner,
+			conditionGetter: conditionGetter,
+			recorder:        recorder,
+			skipOwnership:   true,
+		},
+	}
+}
