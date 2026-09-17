@@ -12,7 +12,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/imdario/mergo v0.3.16
 	github.com/nais/pgrator/pkg/api v0.0.0-20260526070414-2a7817745dce
-	github.com/nais/tunnel-operator v0.0.0-20260916075347-d4588759fc05
+	github.com/nais/tunnel-operator v0.0.0-20260917082219-aa5181554ed2
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.93.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
