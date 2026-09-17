@@ -464,25 +464,6 @@ func certificateRoleName(ctx context.Context, reader client.Reader, binding *v1.
 	return "", nil
 }
 
-func readSecretData(ctx context.Context, reader client.Reader, key client.ObjectKey, keys ...string) (map[string][]byte, bool, error) {
-	secret := &core_v1.Secret{}
-	if err := reader.Get(ctx, key, secret); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("getting Secret %q: %w", key.Name, err)
-	}
-	data := make(map[string][]byte, len(keys))
-	for _, key := range keys {
-		value, ok := secret.Data[key]
-		if !ok || len(value) == 0 {
-			return nil, false, nil
-		}
-		data[key] = value
-	}
-	return data, true, nil
-}
-
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
 	for _, credential := range obj.Spec.Credentials {
