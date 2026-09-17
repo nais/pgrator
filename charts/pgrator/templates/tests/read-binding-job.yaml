@@ -1,0 +1,85 @@
+{{- if .Values.runTests }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pgrator-e2e-read
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+    app: pgrator-e2e
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,test
+    helm.sh/hook-weight: "3"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "chart.labels" . | nindent 8 }}
+        app: pgrator-e2e
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      containers:
+        - name: postgres
+          image: europe-north1-docker.pkg.dev/nais-io/nais/images/kafka-debug:2025-01-22-132723-a7c7314
+          command:
+            - bash
+            - -ec
+            - |
+              cp /var/run/secrets/pgrator/read.tls.key /tmp/read.tls.key
+              chmod 0600 /tmp/read.tls.key
+
+              export PGHOST="$READ_PGHOST"
+              export PGPORT="$READ_PGPORT"
+              export PGDATABASE="$READ_PGDATABASE"
+              export PGUSER="$READ_PGUSER"
+              export PGSSLMODE="$READ_PGSSLMODE"
+              export PGSSLROOTCERT=/var/run/secrets/pgrator/ca.crt
+              export PGSSLCERT=/var/run/secrets/pgrator/read.tls.crt
+              export PGSSLKEY=/tmp/read.tls.key
+
+              echo "Verifying a TLS connection to the pgrator-managed pooler"
+              psql -v ON_ERROR_STOP=1 -c 'SELECT current_user, current_database()'
+
+              echo "Verifying the read role cannot create tables"
+              if psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE pgrator_e2e_must_fail (id integer)'; then
+                echo "read role unexpectedly created a table" >&2
+                exit 1
+              fi
+          envFrom:
+            - secretRef:
+                name: pgrator-e2e-connection
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1069
+            runAsNonRoot: true
+            runAsUser: 1069
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: connection
+              mountPath: /var/run/secrets/pgrator
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      securityContext:
+        fsGroup: 1069
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: connection
+          secret:
+            secretName: pgrator-e2e-connection
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}
+{{- end }}

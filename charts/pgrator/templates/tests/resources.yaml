@@ -1,0 +1,70 @@
+{{- if .Values.runTests }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["nais.io"]
+    resources: ["postgres", "postgresbindings"]
+    verbs: ["delete", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pgrator-e2e-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: pgrator-e2e-cleanup
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: nais.io/v1
+kind: Postgres
+metadata:
+  name: pgrator-e2e
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,test
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  majorVersion: "17"
+---
+apiVersion: nais.io/v1
+kind: PostgresBinding
+metadata:
+  name: pgrator-e2e-read
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,test
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  postgres: pgrator-e2e
+  secretName: pgrator-e2e-connection
+  consumer:
+    workload:
+      name: pgrator-e2e
+      type: job
+  credentials:
+    - read
+{{- end }}

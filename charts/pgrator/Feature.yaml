@@ -7,6 +7,7 @@ dependencies:
       - monitoring-crds
 environmentKinds:
   - tenant
+timeout: 20m0s
 values:
   controllerManager.container.image.tag:
     displayName: Image tag
@@ -44,3 +45,6 @@ values:
     computed:
       # Owner names and a unique UID suffix are added within the 63-character GCS limit.
       template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}'
+  runTests:
+    computed:
+      template: '{{ eq .Tenant.Name "ci-nais" }}'

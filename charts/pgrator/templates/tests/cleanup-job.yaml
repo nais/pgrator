@@ -1,0 +1,52 @@
+{{- if .Values.runTests }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,post-rollback,pre-delete,test
+    helm.sh/hook-weight: "4"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      serviceAccountName: pgrator-e2e-cleanup
+      restartPolicy: Never
+      containers:
+        - name: cleanup
+          image: europe-north1-docker.pkg.dev/nais-io/nais/images/kafka-debug:2025-01-22-132723-a7c7314
+          command:
+            - bash
+            - -ec
+            - |
+              kubectl delete postgresbinding.nais.io/pgrator-e2e-read --ignore-not-found --wait=true --timeout=2m
+              kubectl delete postgres.nais.io/pgrator-e2e --ignore-not-found --wait=true --timeout=2m
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1069
+            runAsNonRoot: true
+            runAsUser: 1069
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      securityContext:
+        fsGroup: 1069
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

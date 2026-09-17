@@ -1,6 +1,7 @@
 apiServerIP: ""
 dryRun: false
 development: false
+runTests: false
 
 google:
   projectId: ""
