@@ -6,7 +6,6 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
@@ -17,11 +16,10 @@ import (
 )
 
 func makePostgresAccessReconciler() *PostgresAccessReconciler {
-	cfg := &config.Config{TunnelEnvironment: "test"}
-	return &PostgresAccessReconciler{Config: cfg, Recorder: recorder, Scheme: scheme.Scheme}
+	return &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 }
 
-func TestPostgresAccessReconcilesDurableDatabaseRoleAndTunnel(t *testing.T) {
+func TestPostgresAccessReconcilesDatabaseRoleAndTunnel(t *testing.T) {
 	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
 		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore", AccessLevel: v1.PostgresAccessLevelReadWrite, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
 	}}
@@ -47,8 +45,9 @@ func TestPostgresAccessReconcilesDurableDatabaseRoleAndTunnel(t *testing.T) {
 	if role.Spec.ReclaimPolicy != cnpgv1.DatabaseRoleReclaimRetain {
 		t.Errorf("reclaim policy = %q, want retain", role.Spec.ReclaimPolicy)
 	}
-	if metav1.GetControllerOf(role) != nil {
-		t.Error("durable DatabaseRole must not be controlled by PostgresAccess")
+	owner := metav1.GetControllerOf(role)
+	if owner == nil || owner.Kind != "PostgresAccess" || owner.Name != access.Name {
+		t.Error("DatabaseRole must be controlled by PostgresAccess")
 	}
 	if !role.Spec.Login || role.Spec.PasswordSecret == nil || len(role.Spec.InRoles) != 1 || role.Spec.InRoles[0] != "app_readwrite" {
 		t.Error("active DatabaseRole is missing its credential or readwrite membership")
@@ -59,9 +58,6 @@ func TestPostgresAccessReconcilesDurableDatabaseRoleAndTunnel(t *testing.T) {
 	tunnel, ok := actions[2].GetObject().(*tunnelv1alpha1.Tunnel)
 	if !ok {
 		t.Fatalf("action object = %T, want Tunnel", actions[2].GetObject())
-	}
-	if tunnel.Spec.Environment != "test" {
-		t.Errorf("tunnel environment = %q, want %q", tunnel.Spec.Environment, "test")
 	}
 	if tunnel.Spec.Target.Host != "pg-orders-restore-rw.team.svc.cluster.local" {
 		t.Errorf("tunnel target host = %q, want %q", tunnel.Spec.Target.Host, "pg-orders-restore-rw.team.svc.cluster.local")
@@ -99,43 +95,12 @@ func TestPostgresAccessPrepareRejectsInvalidExpiry(t *testing.T) {
 	}
 }
 
-func TestPostgresAccessDeletionDisablesTheDurableRole(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore", AccessLevel: v1.PostgresAccessLevelReadWrite,
-	}}
-	r := &PostgresAccessReconciler{Recorder: recorder}
-	active := &cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: "frode-sundby-orders-restore-39901eb0e00a4f9c"}}
-	actions, result, err := r.Delete(access, PostgresAccessPreparedData{Role: active}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
-	requireNoError(t, err)
-	if result.RequeueAfter != postgresAccessDeactivationRetry {
-		t.Errorf("Delete() requeue after = %s, want %s", result.RequeueAfter, postgresAccessDeactivationRetry)
-	}
-	if len(actions) != 1 {
-		t.Fatalf("Delete() actions = %d, want 1", len(actions))
-	}
-	role, ok := actions[0].GetObject().(*cnpgv1.DatabaseRole)
-	if !ok {
-		t.Fatalf("action object = %T, want DatabaseRole", actions[0].GetObject())
-	}
-	if role.Spec.Login || !role.Spec.DisablePassword || len(role.Spec.InRoles) != 0 || role.Spec.PasswordSecret != nil {
-		t.Error("deletion must remove active credential and privileges without deleting the role")
-	}
-}
-
-func TestPostgresAccessDeletionCompletesAfterCNPGDisablesRole(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore",
-	}}
-	applied := true
-	role := &cnpgv1.DatabaseRole{
-		ObjectMeta: metav1.ObjectMeta{Generation: 2},
-		Spec:       cnpgv1.DatabaseRoleSpec{RoleConfiguration: cnpgv1.RoleConfiguration{DisablePassword: true}},
-		Status:     cnpgv1.DatabaseRoleStatus{Applied: &applied, ObservedGeneration: 2},
-	}
-	actions, result, err := (&PostgresAccessReconciler{Recorder: recorder}).Delete(access, PostgresAccessPreparedData{Role: role}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}}
+	actions, result, err := (&PostgresAccessReconciler{Recorder: recorder}).Delete(access, PostgresAccessPreparedData{}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
 	if len(actions) != 0 || !result.IsZero() {
-		t.Error("deletion must complete only after CNPG confirms the disabled role")
+		t.Error("Delete() must let garbage collection remove access-owned resources")
 	}
 }
 

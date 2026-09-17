@@ -26,8 +26,8 @@ instance's PostgreSQL RW target and manages:
   password;
 - one controller-owned `NetworkPolicy` permitting only that Tunnel gateway to
   reach the resolved CNPG primary on TCP/5432; and
-- one durable CNPG `DatabaseRole` per user and physical instance. This role is
-  not owned by PostgresAccess and survives access deletion.
+- one controller-owned CNPG `DatabaseRole` per user and physical instance,
+  configured with `ReclaimPolicy: Retain`.
 
 The DatabaseRole is the stable personal database identity. Its technical name
 uses the local part of the user's email and physical instance, normalized to a
@@ -51,13 +51,14 @@ password Secret, and exactly one privilege group on the durable role:
 offered for pre-existing instances until an explicit database-privilege
 migration exists.
 
-The role name and user-owned objects are durable; its password and effective
-privileges are not. Euthanaisa expiry exists only on PostgresAccess and only
-deletes that parent. Kubernetes removes owned Tunnel, password Secret, and
-per-access database-ingress NetworkPolicy. Before the finalizer releases
-PostgresAccess, pgrator removes the password reference and
-active memberships, disables login, and waits for CNPG to confirm that state. It
-does not drop the role, terminate sessions, or remove user-owned objects.
+The PostgreSQL role name, OID, and user-owned objects are durable; the
+DatabaseRole CR is not. Euthanaisa expiry deletes PostgresAccess, and Kubernetes
+garbage-collects its owned Tunnel, password Secret, database-ingress
+NetworkPolicy, and DatabaseRole CR. CNPG's `ReclaimPolicy: Retain` keeps the
+actual PostgreSQL role and the objects it owns. A later access for the same
+canonical NAIS identity and physical instance recreates the same named
+DatabaseRole and rotates its password and `validUntil`. Pgrator does not wait
+for CNPG during finalization, terminate sessions, or remove user-owned objects.
 
 There is at most one active PostgresAccess per `{NAIS email, PostgresInstance}`.
 API serializes replacement and creates a new resource only after the old one is
@@ -82,8 +83,9 @@ authorization, not directly trusted by PostgreSQL in this design.
   90-day lifecycle and no CRL do not fit short-lived personal credentials.
 - API directly creates Tunnel, Secret, and DatabaseRole. Rejected: it leaks
   CNPG lifecycle and physical target discovery into API.
-- One expiring DatabaseRole per access. Rejected: recreating a name creates a
-  new PostgreSQL OID and loses ownership of durable user-created objects.
+- Dropping the PostgreSQL role with access expiry. Rejected: it would create a
+  new OID on later access and lose ownership of durable user-created objects.
+  The DatabaseRole CR is instead garbage-collected with `ReclaimPolicy: Retain`.
 - Tunnel-operator manages database identities. Rejected: it couples generic
   byte transport to PostgreSQL authorization.
 - Kubernetes `pods/portforward` as human data plane. Rejected: the per-tunnel

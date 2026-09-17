@@ -9,7 +9,6 @@ object:
     namespace: myteam
   spec:
     teamSlug: myteam
-    environment: test
     target:
       host: pg-orders-restore-rw.myteam.svc.cluster.local
       port: 5432

@@ -3,7 +3,6 @@ package access
 import (
 	"testing"
 
-	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -11,6 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+const postgresAccessKind = "PostgresAccess"
 
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
@@ -28,8 +29,7 @@ func TestCreateTunnelOwnedByPostgresAccess(t *testing.T) {
 			ClientWireGuardPublicKey: "client-pub",
 		},
 	}
-	cfg := &config.Config{TunnelEnvironment: "dev"}
-	tunnel, err := CreateTunnel(testScheme(t), access, cfg)
+	tunnel, err := CreateTunnel(testScheme(t), access)
 	if err != nil {
 		t.Fatalf("CreateTunnel: %v", err)
 	}
@@ -38,9 +38,6 @@ func TestCreateTunnelOwnedByPostgresAccess(t *testing.T) {
 	}
 	if tunnel.Namespace != access.Namespace {
 		t.Errorf("tunnel namespace = %q, want %q", tunnel.Namespace, access.Namespace)
-	}
-	if tunnel.Spec.Environment != "dev" {
-		t.Errorf("tunnel environment = %q, want %q", tunnel.Spec.Environment, "dev")
 	}
 	if tunnel.Spec.TeamSlug != access.Namespace {
 		t.Errorf("tunnel teamSlug = %q, want %q", tunnel.Spec.TeamSlug, access.Namespace)
@@ -73,7 +70,7 @@ func TestCreateTunnelOwnedByPostgresAccess(t *testing.T) {
 	if refs == nil {
 		t.Fatal("Tunnel must be owned by PostgresAccess")
 	}
-	if refs.Kind != "PostgresAccess" || refs.Name != access.Name {
+	if refs.Kind != postgresAccessKind || refs.Name != access.Name {
 		t.Errorf("tunnel owner = %s/%s, want PostgresAccess/%s", refs.Kind, refs.Name, access.Name)
 	}
 }
@@ -111,7 +108,7 @@ func TestCreateTunnelNetworkPolicyPermitsOnlyGatewayPods(t *testing.T) {
 		t.Errorf("ingress ports = %v, want TCP/5432", ports)
 	}
 	refs := metav1.GetControllerOf(netpol)
-	if refs == nil || refs.Kind != "PostgresAccess" || refs.Name != access.Name {
+	if refs == nil || refs.Kind != postgresAccessKind || refs.Name != access.Name {
 		t.Error("network policy must be owned by PostgresAccess")
 	}
 }

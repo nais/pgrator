@@ -1,6 +1,4 @@
 apiServerIP: ""
-# Nais environment used for controller-owned tunnel-operator resources.
-tunnelEnvironment: ""
 dryRun: false
 development: false
 

@@ -90,10 +90,10 @@ func normalizeName(value string) string {
 	return name
 }
 
-// CreateDatabaseRole creates the durable CNPG representation of a personal
-// database identity. Access-specific login, credential and privilege state is
-// added by the PostgresAccess lifecycle in a later reconciliation step.
-func CreateDatabaseRole(access *v1.PostgresAccess, active bool) *cnpgv1.DatabaseRole {
+// CreateDatabaseRole creates the CNPG representation of a personal database
+// identity. The DatabaseRole CR is owned by the access, while Retain keeps the
+// PostgreSQL role and objects it owns after the access is deleted.
+func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, active bool) (*cnpgv1.DatabaseRole, error) {
 	roleName := DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)
 	configuration := cnpgv1.RoleConfiguration{
 		Name:        roleName,
@@ -112,7 +112,7 @@ func CreateDatabaseRole(access *v1.PostgresAccess, active bool) *cnpgv1.Database
 	} else {
 		configuration.DisablePassword = true
 	}
-	return &cnpgv1.DatabaseRole{
+	role := &cnpgv1.DatabaseRole{
 		TypeMeta: metav1.TypeMeta{Kind: "DatabaseRole", APIVersion: cnpgv1.SchemeGroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      roleName,
@@ -127,6 +127,10 @@ func CreateDatabaseRole(access *v1.PostgresAccess, active bool) *cnpgv1.Database
 			RoleConfiguration: configuration,
 		},
 	}
+	if err := controllerutil.SetControllerReference(access, role, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on DatabaseRole: %w", err)
+	}
+	return role, nil
 }
 
 func groupRole(level v1.PostgresAccessLevel) string {

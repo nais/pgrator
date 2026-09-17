@@ -44,7 +44,10 @@ func TestCreateDatabaseRole(t *testing.T) {
 		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore",
 	}}
 
-	role := CreateDatabaseRole(access, false)
+	role, err := CreateDatabaseRole(testScheme(t), access, false)
+	if err != nil {
+		t.Fatalf("CreateDatabaseRole() error = %v", err)
+	}
 	if role.Name != "frode-sundby-orders-restore-39901eb0e00a4f9c" {
 		t.Errorf("role metadata name = %q", role.Name)
 	}
@@ -61,7 +64,11 @@ func TestCreateDatabaseRole(t *testing.T) {
 		t.Error("durable identity has unexpected active or privileged role attributes")
 	}
 	if role.Spec.PasswordSecret != nil || len(role.Spec.InRoles) != 0 {
-		t.Error("durable identity must not have access-specific credentials or memberships")
+		t.Error("inactive identity must not have access-specific credentials or memberships")
+	}
+	owner := metav1.GetControllerOf(role)
+	if owner == nil || owner.Kind != "PostgresAccess" || owner.Name != access.Name {
+		t.Error("DatabaseRole must be owned by PostgresAccess")
 	}
 	if strings.Contains(role.Spec.Comment, access.Spec.Username) {
 		t.Error("role comment must not expose the user's full email address")

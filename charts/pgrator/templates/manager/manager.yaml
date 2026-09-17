@@ -37,8 +37,6 @@ spec:
               value: {{ .Values.google.location }}
             - name: API_SERVER_IP
               value: {{ .Values.apiServerIP }}
-            - name: TUNNEL_ENVIRONMENT
-              value: {{ required "tunnelEnvironment is required" .Values.tunnelEnvironment | quote }}
             - name: AIVEN_PROJECT
               value: {{ .Values.aiven.project | quote }}
             - name: AIVEN_PROJECT_VPC_ID

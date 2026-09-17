@@ -119,7 +119,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	postgresAccessReconciler := &controller.PostgresAccessReconciler{Config: cfg, Recorder: recorder, Scheme: scheme}
+	postgresAccessReconciler := &controller.PostgresAccessReconciler{Recorder: recorder, Scheme: scheme}
 	postgresAccessController := synchronizer.NewSynchronizer(
 		mgr.GetClient(), mgr.GetScheme(), postgresAccessReconciler, recorder)
 	if err := postgresAccessController.SetupWithManager(mgr); err != nil {

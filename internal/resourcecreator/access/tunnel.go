@@ -3,7 +3,6 @@ package access
 import (
 	"fmt"
 
-	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
@@ -47,7 +46,7 @@ func TunnelNetworkPolicyName(access *v1.PostgresAccess) string {
 }
 
 // CreateTunnel builds the Tunnel owned by a PostgresAccess.
-func CreateTunnel(scheme *runtime.Scheme, access *v1.PostgresAccess, cfg *config.Config) (*tunnelv1alpha1.Tunnel, error) {
+func CreateTunnel(scheme *runtime.Scheme, access *v1.PostgresAccess) (*tunnelv1alpha1.Tunnel, error) {
 	clusterName := cnpg.ClusterNameFor(access.Spec.PostgresInstance)
 	tunnel := &tunnelv1alpha1.Tunnel{
 		TypeMeta: metav1.TypeMeta{
@@ -62,8 +61,7 @@ func CreateTunnel(scheme *runtime.Scheme, access *v1.PostgresAccess, cfg *config
 			},
 		},
 		Spec: tunnelv1alpha1.TunnelSpec{
-			TeamSlug:    access.Namespace,
-			Environment: cfg.TunnelEnvironment,
+			TeamSlug: access.Namespace,
 			Target: tunnelv1alpha1.TunnelTarget{
 				Host: serviceFQDN(clusterName, access.Namespace),
 				Port: 5432,

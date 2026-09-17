@@ -7,7 +7,6 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/nais/pgrator/internal/config"
 	rcaccess "github.com/nais/pgrator/internal/resourcecreator/access"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/action"
@@ -31,7 +30,6 @@ import (
 // personal access. Session credentials, privileges and transport are added by
 // later PostgresAccess reconciliation steps.
 type PostgresAccessReconciler struct {
-	Config   *config.Config
 	Recorder events.Recorder
 	Scheme   *runtime.Scheme
 }
@@ -48,19 +46,29 @@ type PostgresAccessPreparedData struct {
 const postgresAccessInstanceIndex = "spec.postgresInstance"
 const postgresAccessReadyCondition = "Ready"
 const maximumPostgresAccessLifetime = time.Hour
-const postgresAccessDeactivationRetry = time.Second
 
 func (r *PostgresAccessReconciler) Name() string { return "postgresaccess.nais.io" }
 
 func (r *PostgresAccessReconciler) New() *v1.PostgresAccess { return &v1.PostgresAccess{} }
 
-// DatabaseRoles deliberately are not owned by PostgresAccess. The identity
-// survives expiry so its user can return to objects it owns in the database.
-// The Tunnel and its per-access NetworkPolicy are owned so they are garbage
-// collected when the PostgresAccess is deleted.
+// PostgresAccess owns its declarative access resources. The DatabaseRole uses
+// Retain so CNPG preserves the PostgreSQL role and objects it owns after the
+// access and DatabaseRole CR are deleted.
 func (r *PostgresAccessReconciler) OwnedTypes() []reconciler.OwnedType {
 	return []reconciler.OwnedType{
 		{Type: &corev1.Secret{}},
+		{
+			Type: &cnpgv1.DatabaseRole{},
+			AdditionalPredicate: predicate.Funcs{
+				CreateFunc: func(event.CreateEvent) bool { return true },
+				DeleteFunc: func(event.DeleteEvent) bool { return true },
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldRole, oldOK := e.ObjectOld.(*cnpgv1.DatabaseRole)
+					newRole, newOK := e.ObjectNew.(*cnpgv1.DatabaseRole)
+					return oldOK && newOK && !reflect.DeepEqual(oldRole.Status, newRole.Status)
+				},
+			},
+		},
 		{
 			Type: &tunnelv1alpha1.Tunnel{},
 			AdditionalPredicate: predicate.Funcs{
@@ -118,18 +126,6 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 				return oldOK && newOK && recoveryComplete(oldCluster) != recoveryComplete(newCluster)
 			},
 		},
-	}, {
-		Type: &cnpgv1.DatabaseRole{},
-		Map:  r.accessesForDatabaseRole,
-		Predicate: predicate.Funcs{
-			CreateFunc: func(event.CreateEvent) bool { return true },
-			DeleteFunc: func(event.DeleteEvent) bool { return true },
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldRole, oldOK := e.ObjectOld.(*cnpgv1.DatabaseRole)
-				newRole, newOK := e.ObjectNew.(*cnpgv1.DatabaseRole)
-				return oldOK && newOK && !reflect.DeepEqual(oldRole.Status, newRole.Status)
-			},
-		},
 	}}
 }
 
@@ -171,35 +167,9 @@ func (r *PostgresAccessReconciler) accessesForInstanceName(ctx context.Context, 
 	return requests, nil
 }
 
-func (r *PostgresAccessReconciler) accessesForDatabaseRole(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
-	role, ok := object.(*cnpgv1.DatabaseRole)
-	if !ok {
-		return nil, nil
-	}
-	accesses := &v1.PostgresAccessList{}
-	if err := reader.List(ctx, accesses, client.InNamespace(role.Namespace)); err != nil {
-		return nil, fmt.Errorf("listing PostgresAccess resources for DatabaseRole %q: %w", role.Name, err)
-	}
-	requests := make([]reconcile.Request, 0)
-	for _, access := range accesses.Items {
-		if rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance) == role.Name {
-			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&access)})
-		}
-	}
-	return requests, nil
-}
-
 func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) (PostgresAccessPreparedData, ctrl.Result, error) {
 	if !access.GetDeletionTimestamp().IsZero() {
-		role := &cnpgv1.DatabaseRole{}
-		key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}
-		if err := reader.Get(ctx, key, role); err != nil {
-			if apierrors.IsNotFound(err) {
-				return PostgresAccessPreparedData{}, ctrl.Result{}, nil
-			}
-			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting personal DatabaseRole for deletion: %w", err)
-		}
-		return PostgresAccessPreparedData{Role: role}, ctrl.Result{}, nil
+		return PostgresAccessPreparedData{}, ctrl.Result{}, nil
 	}
 	now := time.Now()
 	if access.Spec.ExpiresAt.Time.Before(now) {
@@ -279,13 +249,13 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	role := rcaccess.CreateDatabaseRole(access, true)
+	role, err := rcaccess.CreateDatabaseRole(r.Scheme, access, true)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
+	}
 	access.GetStatus().(*v1.PostgresAccessStatus).DatabaseRole = role.Spec.Name
 
-	if r.Config == nil {
-		return nil, ctrl.Result{}, fmt.Errorf("PostgresAccessReconciler.Config is nil")
-	}
-	tunnel, err := rcaccess.CreateTunnel(r.Scheme, access, r.Config)
+	tunnel, err := rcaccess.CreateTunnel(r.Scheme, access)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Tunnel spec: %w", err)
 	}
@@ -301,25 +271,14 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 
 	return []action.Action{
 		action.ExclusiveCreateOrUpdate(secret, access, existsConditionGetter, r.Recorder),
-		action.DurableCreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
+		action.CreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
 		action.CreateOrUpdate(tunnel, access, tunnelConditionGetter, r.Recorder),
 		action.CreateOrUpdate(netpol, access, existsConditionGetter, r.Recorder),
 	}, ctrl.Result{}, nil
 }
 
-func (r *PostgresAccessReconciler) Delete(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	if prepared.Role == nil || databaseRoleIsDisabled(prepared.Role) {
-		return nil, ctrl.Result{}, nil
-	}
-	role := rcaccess.CreateDatabaseRole(access, false)
-	return []action.Action{action.DurableCreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder)}, ctrl.Result{RequeueAfter: postgresAccessDeactivationRetry}, nil
-}
-
-func databaseRoleIsDisabled(role *cnpgv1.DatabaseRole) bool {
-	return role.Status.Applied != nil && *role.Status.Applied &&
-		role.Status.ObservedGeneration == role.Generation &&
-		!role.Spec.Login && role.Spec.DisablePassword &&
-		role.Spec.PasswordSecret == nil && len(role.Spec.InRoles) == 0
+func (r *PostgresAccessReconciler) Delete(*v1.PostgresAccess, PostgresAccessPreparedData, reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	return nil, ctrl.Result{}, nil
 }
 
 func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []metav1.Condition {

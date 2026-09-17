@@ -174,10 +174,10 @@ func TestGoldenPostgresBinding(t *testing.T) {
 }
 
 func TestGoldenPostgresAccess(t *testing.T) {
-	defaultCfg := config.Config{TunnelEnvironment: "test"}
-	postgresAccessReconciler := &PostgresAccessReconciler{Config: &defaultCfg, Recorder: recorder, Scheme: scheme.Scheme}
+	defaultCfg := config.Config{}
+	postgresAccessReconciler := &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 	runGoldenTestsForResource[*v1.PostgresAccess, PostgresAccessPreparedData, v1.PostgresAccess](
-		t, postgresAccessReconciler, "postgresaccess", defaultCfg, func(cfg config.Config) { *postgresAccessReconciler.Config = cfg },
+		t, postgresAccessReconciler, "postgresaccess", defaultCfg, func(config.Config) {},
 	)
 }
 
