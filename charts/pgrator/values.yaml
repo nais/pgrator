@@ -2,6 +2,8 @@ apiServerIP: ""
 dryRun: false
 development: false
 runTests: false
+# Test resources run as a tenant workload, not in the controller namespace.
+testNamespace: nais-verification
 
 google:
   projectId: ""

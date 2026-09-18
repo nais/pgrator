@@ -1,11 +1,12 @@
 {{- if .Values.runTests }}
 {{- $testName := include "chart.e2eTestName" . }}
+{{- $testNamespace := required "testNamespace is required when runTests is true" .Values.testNamespace }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ $testName }}-read
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $testNamespace }}
   labels:
     {{- include "chart.labels" . | nindent 4 }}
     app: {{ $testName }}

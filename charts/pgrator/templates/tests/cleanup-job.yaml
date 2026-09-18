@@ -1,10 +1,11 @@
 {{- if .Values.runTests }}
+{{- $testNamespace := required "testNamespace is required when runTests is true" .Values.testNamespace }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: pgrator-e2e-cleanup
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $testNamespace }}
   labels:
     {{- include "chart.labels" . | nindent 4 }}
   annotations:
@@ -25,9 +26,6 @@ spec:
             - bash
             - -ec
             - |
-              # Remove the static-name generation once, then all release-scoped test runs.
-              kubectl delete postgresbinding.nais.io/pgrator-e2e-read --ignore-not-found --wait=true --timeout=2m
-              kubectl delete postgres.nais.io/pgrator-e2e --ignore-not-found --wait=true --timeout=2m
               kubectl delete postgresbindings.nais.io --selector=pgrator.nais.io/e2e=true --ignore-not-found --wait=true --timeout=2m
               kubectl delete postgres.nais.io --selector=pgrator.nais.io/e2e=true --ignore-not-found --wait=true --timeout=2m
           securityContext:
