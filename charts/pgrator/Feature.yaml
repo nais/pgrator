@@ -47,4 +47,5 @@ values:
       template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}'
   runTests:
     computed:
-      template: '{{ eq .Tenant.Name "ci-nais" }}'
+      # Temporary: let a manually assigned candidate exercise the hook in dev-nais.
+      template: '{{ or (eq .Tenant.Name "ci-nais") (eq .Tenant.Name "dev-nais") }}'
