@@ -2,14 +2,17 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	rcaccess "github.com/nais/pgrator/internal/resourcecreator/access"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -22,13 +25,14 @@ func makePostgresAccessReconciler() *PostgresAccessReconciler {
 
 func TestPostgresAccessReconcilesDatabaseRoleAndTunnel(t *testing.T) {
 	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore", AccessLevel: v1.PostgresAccessLevelReadWrite, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
+		Username: "personal-access-e2e@nav.no", PostgresInstance: "orders-restore", AccessLevel: v1.PostgresAccessLevelReadWrite, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
 	}}
 	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
 	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders-restore", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
+	caSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cluster.Name + "-ca", Namespace: cluster.Namespace}, Data: map[string][]byte{"ca.crt": []byte("test-ca-pem")}}
 	r := makePostgresAccessReconciler()
-	prepared, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(instance, postgres, cluster).Build(), access)
+	prepared, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(instance, postgres, cluster, caSecret).Build(), access)
 	requireNoError(t, err)
 	if prepared.Instance == nil || prepared.Instance.Name != instance.Name {
 		t.Fatal("Prepare() did not return referenced instance")
@@ -39,6 +43,24 @@ func TestPostgresAccessReconcilesDatabaseRoleAndTunnel(t *testing.T) {
 	if len(actions) != 4 {
 		t.Fatalf("Update() actions = %d, want 4", len(actions))
 	}
+	secret, ok := actions[0].GetObject().(*corev1.Secret)
+	if !ok {
+		t.Fatalf("action object = %T, want Secret", actions[0].GetObject())
+	}
+	wantCredentialSecretName := rcaccess.CredentialSecretName(access)
+	if secret.Name != wantCredentialSecretName {
+		t.Errorf("credential secret name = %q, want %q", secret.Name, wantCredentialSecretName)
+	}
+	if access.Status.CredentialSecretName != wantCredentialSecretName {
+		t.Errorf("status credentialSecretName = %q, want %q", access.Status.CredentialSecretName, wantCredentialSecretName)
+	}
+	if got := secret.StringData[corev1.BasicAuthUsernameKey]; got != access.Spec.Username {
+		t.Errorf("credential username = %q, want %q", got, access.Spec.Username)
+	}
+	if got := secret.StringData["ca.crt"]; got != prepared.CACertificate {
+		t.Errorf("credential ca.crt = %q, want %q", got, prepared.CACertificate)
+	}
+
 	role, ok := actions[1].GetObject().(*cnpgv1.DatabaseRole)
 	if !ok {
 		t.Fatalf("action object = %T, want DatabaseRole", actions[1].GetObject())
@@ -53,8 +75,17 @@ func TestPostgresAccessReconcilesDatabaseRoleAndTunnel(t *testing.T) {
 	if !role.Spec.Login || role.Spec.PasswordSecret == nil || len(role.Spec.InRoles) != 1 || role.Spec.InRoles[0] != "app_readwrite" {
 		t.Error("active DatabaseRole is missing its credential or readwrite membership")
 	}
+	if role.Spec.Name != access.Spec.Username {
+		t.Errorf("role spec name = %q, want %q", role.Spec.Name, access.Spec.Username)
+	}
+	if role.Name != rcaccess.DatabaseRoleResourceName(access.Spec.Username, access.Spec.PostgresInstance) {
+		t.Errorf("role metadata name = %q, want %q", role.Name, rcaccess.DatabaseRoleResourceName(access.Spec.Username, access.Spec.PostgresInstance))
+	}
 	if access.Status.DatabaseRole != role.Spec.Name {
 		t.Errorf("status database role = %q, want %q", access.Status.DatabaseRole, role.Spec.Name)
+	}
+	if access.Status.ServerName != "pg-orders-restore-rw.team.svc.cluster.local" {
+		t.Errorf("status serverName = %q, want %q", access.Status.ServerName, "pg-orders-restore-rw.team.svc.cluster.local")
 	}
 	tunnel, ok := actions[2].GetObject().(*tunnelv1alpha1.Tunnel)
 	if !ok {
@@ -88,12 +119,30 @@ func TestPostgresAccessPrepareRejectsMissingInstance(t *testing.T) {
 
 func TestPostgresAccessPrepareRejectsInvalidExpiry(t *testing.T) {
 	for _, expiry := range []time.Time{time.Now().Add(-time.Second), time.Now().Add(2 * time.Hour)} {
-		access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{ExpiresAt: metav1.NewTime(expiry)}}
+		access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{Username: "valid@nav.no", ExpiresAt: metav1.NewTime(expiry)}}
 		_, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), access)
 		if err == nil {
 			t.Error("Prepare() error = nil, want expiry validation error")
 		}
 	}
+}
+
+func TestPostgresAccessPrepareRejectsInvalidUsername(t *testing.T) {
+	validExpiry := metav1.NewTime(time.Now().Add(time.Hour))
+	for _, username := range []string{"", strings.Repeat("a", 64) + "@nav.no"} {
+		access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{Username: username, ExpiresAt: validExpiry}}
+		_, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), access)
+		if err == nil {
+			t.Errorf("Prepare() username = %q: error = nil, want validation error", username)
+		}
+	}
+}
+
+func TestPostgresAccessPrepareAcceptsRawEmailUsername(t *testing.T) {
+	access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{Username: "personal-access-e2e@nav.no", ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour))}}
+	_, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), access)
+	// Missing instance is expected after the username length check passes.
+	requireErrorContains(t, err, "getting PostgresInstance")
 }
 
 func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *testing.T) {
@@ -180,7 +229,7 @@ func TestPostgresAccessReadWriteCreateRequiresCapableCluster(t *testing.T) {
 
 	t.Run("reconciled on capable cluster", func(t *testing.T) {
 		access := newAccess(v1.PostgresAccessLevelReadWriteCreate)
-		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: capableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: capableCluster, Password: "secret", CACertificate: "ca"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 		requireNoError(t, err)
 		if len(actions) != 4 {
 			t.Fatalf("Update() actions = %d, want 4", len(actions))
@@ -196,7 +245,7 @@ func TestPostgresAccessReadWriteCreateRequiresCapableCluster(t *testing.T) {
 
 	t.Run("other levels unaffected by capability", func(t *testing.T) {
 		access := newAccess(v1.PostgresAccessLevelReadWrite)
-		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster, Password: "secret", CACertificate: "ca"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 		requireNoError(t, err)
 		if len(actions) != 4 {
 			t.Fatalf("Update() actions = %d, want 4", len(actions))

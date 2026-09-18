@@ -1,0 +1,77 @@
+{{- if .Values.runTests }}
+{{- $testName := include "chart.e2eTestName" . }}
+{{- $testNamespace := required "testNamespace is required when runTests is true" .Values.testNamespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ $testNamespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ $testNamespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["nais.io"]
+    resources: ["postgres", "postgresbindings"]
+    verbs: ["delete", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pgrator-e2e-cleanup
+  namespace: {{ $testNamespace }}
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pgrator-e2e-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: pgrator-e2e-cleanup
+    namespace: {{ $testNamespace }}
+---
+apiVersion: nais.io/v1
+kind: Postgres
+metadata:
+  name: {{ $testName }}
+  namespace: {{ $testNamespace }}
+  labels:
+    pgrator.nais.io/e2e: "true"
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,test
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  # dev-nais currently publishes PostgreSQL 18 as the supported CNPG image.
+  majorVersion: "18"
+---
+apiVersion: nais.io/v1
+kind: PostgresBinding
+metadata:
+  name: {{ $testName }}-read
+  namespace: {{ $testNamespace }}
+  labels:
+    pgrator.nais.io/e2e: "true"
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,test
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  postgres: {{ $testName }}
+  secretName: {{ $testName }}-connection
+  consumer:
+    workload:
+      name: {{ $testName }}
+      type: job
+  credentials:
+    - read
+{{- end }}

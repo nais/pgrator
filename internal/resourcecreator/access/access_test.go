@@ -6,10 +6,11 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestDatabaseRoleName(t *testing.T) {
+func TestDatabaseRoleResourceName(t *testing.T) {
 	tests := []struct {
 		name     string
 		username string
@@ -21,21 +22,21 @@ func TestDatabaseRoleName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := DatabaseRoleName(tt.username, tt.instance); got != tt.want {
-				t.Errorf("DatabaseRoleName() = %q, want %q", got, tt.want)
+			if got := DatabaseRoleResourceName(tt.username, tt.instance); got != tt.want {
+				t.Errorf("DatabaseRoleResourceName() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 
-	first := DatabaseRoleName("frode.sundby@nav.no", "orders")
-	second := DatabaseRoleName("frode.sundby@example.com", "orders")
+	first := DatabaseRoleResourceName("frode.sundby@nav.no", "orders")
+	second := DatabaseRoleResourceName("frode.sundby@example.com", "orders")
 	if first == second {
-		t.Error("different full email addresses must not share a role name")
+		t.Error("different full email addresses must not share a resource name")
 	}
 
-	long := DatabaseRoleName(strings.Repeat("a", 100)+"@nav.no", strings.Repeat("b", 100))
+	long := DatabaseRoleResourceName(strings.Repeat("a", 100)+"@nav.no", strings.Repeat("b", 100))
 	if len(long) > roleNameLimit {
-		t.Errorf("DatabaseRoleName() length = %d, want <= %d", len(long), roleNameLimit)
+		t.Errorf("DatabaseRoleResourceName() length = %d, want <= %d", len(long), roleNameLimit)
 	}
 }
 
@@ -48,11 +49,12 @@ func TestCreateDatabaseRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDatabaseRole() error = %v", err)
 	}
-	if role.Name != "frode-sundby-orders-restore-39901eb0e00a4f9c" {
-		t.Errorf("role metadata name = %q", role.Name)
+	wantResourceName := "frode-sundby-orders-restore-39901eb0e00a4f9c"
+	if role.Name != wantResourceName {
+		t.Errorf("role metadata name = %q, want %q", role.Name, wantResourceName)
 	}
-	if role.Spec.Name != role.Name {
-		t.Errorf("role spec name = %q, want %q", role.Spec.Name, role.Name)
+	if role.Spec.Name != access.Spec.Username {
+		t.Errorf("role spec name = %q, want %q", role.Spec.Name, access.Spec.Username)
 	}
 	if role.Spec.ClusterRef.Name != "pg-orders-restore" {
 		t.Errorf("cluster = %q, want pg-orders-restore", role.Spec.ClusterRef.Name)
@@ -70,7 +72,42 @@ func TestCreateDatabaseRole(t *testing.T) {
 	if owner == nil || owner.Kind != "PostgresAccess" || owner.Name != access.Name {
 		t.Error("DatabaseRole must be owned by PostgresAccess")
 	}
-	if strings.Contains(role.Spec.Comment, access.Spec.Username) {
-		t.Error("role comment must not expose the user's full email address")
+}
+
+func TestCreateDatabaseRoleUsesRawUsername(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: "personal-access-e2e@nav.no", PostgresInstance: "orders-restore",
+	}}
+
+	role, err := CreateDatabaseRole(testScheme(t), access, true)
+	if err != nil {
+		t.Fatalf("CreateDatabaseRole() error = %v", err)
+	}
+	if role.Spec.Name != access.Spec.Username {
+		t.Errorf("role spec name = %q, want %q", role.Spec.Name, access.Spec.Username)
+	}
+	if role.Name == access.Spec.Username {
+		t.Errorf("role metadata name must not be the raw username")
+	}
+	if role.Name != DatabaseRoleResourceName(access.Spec.Username, access.Spec.PostgresInstance) {
+		t.Errorf("role metadata name = %q, want deterministic resource name", role.Name)
+	}
+}
+
+func TestCreateCredentialSecretUsesRawUsername(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: "personal-access-e2e@nav.no", PostgresInstance: "orders-restore",
+	}}
+
+	caPEM := "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n"
+	secret, err := CreateCredentialSecret(testScheme(t), access, "hunter2", caPEM)
+	if err != nil {
+		t.Fatalf("CreateCredentialSecret() error = %v", err)
+	}
+	if got := secret.StringData[corev1.BasicAuthUsernameKey]; got != access.Spec.Username {
+		t.Errorf("credential username = %q, want %q", got, access.Spec.Username)
+	}
+	if got := secret.StringData["ca.crt"]; got != caPEM {
+		t.Errorf("credential ca.crt = %q, want %q", got, caPEM)
 	}
 }

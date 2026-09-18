@@ -37,11 +37,12 @@ type PostgresAccessReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &PostgresAccessReconciler{}
 
 type PostgresAccessPreparedData struct {
-	Instance *v1.PostgresInstance   `yaml:"instance"`
-	Cluster  *cnpgv1.Cluster        `yaml:"-"`
-	Password string                 `yaml:"-"`
-	Role     *cnpgv1.DatabaseRole   `yaml:"-"`
-	Tunnel   *tunnelv1alpha1.Tunnel `yaml:"-"`
+	Instance      *v1.PostgresInstance   `yaml:"instance"`
+	Cluster       *cnpgv1.Cluster        `yaml:"-"`
+	Password      string                 `yaml:"-"`
+	CACertificate string                 `yaml:"caCertificate,omitempty"`
+	Role          *cnpgv1.DatabaseRole   `yaml:"-"`
+	Tunnel        *tunnelv1alpha1.Tunnel `yaml:"-"`
 }
 
 const postgresAccessInstanceIndex = "spec.postgresInstance"
@@ -172,6 +173,9 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if !access.GetDeletionTimestamp().IsZero() {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, nil
 	}
+	if len(access.Spec.Username) == 0 || len(access.Spec.Username) > 63 {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("username must be between 1 and 63 bytes")
+	}
 	now := time.Now()
 	if access.Spec.ExpiresAt.Time.Before(now) {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be in the future")
@@ -201,7 +205,15 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 		return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
 	}
 
-	prep := PostgresAccessPreparedData{Instance: instance, Cluster: cluster}
+	ca, ok, err := readSecretData(ctx, reader, client.ObjectKey{Namespace: access.Namespace, Name: cluster.GetClientCASecretName()}, "ca.crt")
+	if err != nil {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CA Secret for cluster %q: %w", cluster.Name, err)
+	}
+	if !ok {
+		return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
+	}
+
+	prep := PostgresAccessPreparedData{Instance: instance, Cluster: cluster, CACertificate: string(ca["ca.crt"])}
 
 	secret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.CredentialSecretName(access)}
@@ -229,7 +241,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 
 func (r *PostgresAccessReconciler) personalDatabaseRole(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) *cnpgv1.DatabaseRole {
 	role := &cnpgv1.DatabaseRole{}
-	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}
+	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleResourceName(access.Spec.Username, access.Spec.PostgresInstance)}
 	if err := reader.Get(ctx, key, role); err != nil {
 		return nil
 	}
@@ -263,7 +275,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		return nil, ctrl.Result{}, nil
 	}
 
-	secret, err := rcaccess.CreateCredentialSecret(r.Scheme, access, prepared.Password)
+	secret, err := rcaccess.CreateCredentialSecret(r.Scheme, access, prepared.Password, prepared.CACertificate)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -283,6 +295,8 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	}
 
 	status := access.GetStatus().(*v1.PostgresAccessStatus)
+	status.CredentialSecretName = secret.Name
+	status.ServerName = tunnel.Spec.Target.Host
 	status.Tunnel = tunnelStatusFromTunnel(access, prepared.Tunnel)
 
 	setPostgresAccessReadyCondition(status, prepared.Role, prepared.Tunnel)

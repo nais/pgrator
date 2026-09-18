@@ -29,12 +29,13 @@ instance's PostgreSQL RW target and manages:
 - one controller-owned CNPG `DatabaseRole` per user and physical instance,
   configured with `ReclaimPolicy: Retain`.
 
-The DatabaseRole is the stable personal database identity. Its technical name
-uses the local part of the user's email and physical instance, normalized to a
-Kubernetes-compatible name and shortened with a stable hash of the full email
-and instance to PostgreSQL's 63-byte limit. It appears as `current_user` in SQL
-audit logs. The full email remains in PostgresAccess and API audit data rather
-than PostgreSQL. The role has no superuser, createdb, createrole, replication,
+The DatabaseRole is the stable personal database identity. The DatabaseRole
+Kubernetes resource name uses the local part of the user's email and physical
+instance, normalized to a Kubernetes-compatible name and shortened with a stable
+hash of the full email and instance to PostgreSQL's 63-byte limit. The actual
+PostgreSQL role name is the raw email address, used verbatim, and appears as
+`current_user` in SQL audit logs. The full email therefore also remains in
+PostgresAccess and API audit data. The role has no superuser, createdb, createrole, replication,
 or bypass-RLS privilege and does not issue a client certificate.
 
 While access is active, pgrator sets `login: true`, `validUntil`, the current

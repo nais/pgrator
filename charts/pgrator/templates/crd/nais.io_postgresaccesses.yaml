@@ -83,8 +83,11 @@ spec:
                     - message: postgresInstance is immutable
                       rule: self == oldSelf
                 username:
-                  description: Username is the authenticated NAIS user's email address.
-                  minLength: 3
+                  description: |-
+                    Username is the authenticated NAIS user's email address, used verbatim as
+                    the PostgreSQL role name. Must be non-empty and at most 63 bytes.
+                  maxLength: 63
+                  minLength: 1
                   type: string
                   x-kubernetes-validations:
                     - message: username is immutable
@@ -169,8 +172,13 @@ spec:
                   x-kubernetes-list-type: map
                 correlationID:
                   type: string
+                credentialSecretName:
+                  description: |-
+                    CredentialSecretName is the name of the controller-owned Secret that
+                    holds the short-lived database credentials for this access.
+                  type: string
                 databaseRole:
-                  description: DatabaseRole is the stable PostgreSQL identity derived for this access.
+                  description: DatabaseRole is the stable PostgreSQL identity for this access.
                   type: string
                 observedGeneration:
                   format: int64
@@ -179,6 +187,11 @@ spec:
                   type: string
                 reconcileTime:
                   format: date-time
+                  type: string
+                serverName:
+                  description: |-
+                    ServerName is the TLS verification hostname the client should use for
+                    the created Tunnel target.
                   type: string
                 tunnel:
                   description: Tunnel is the connection status for the Tunnel owned by this access.
