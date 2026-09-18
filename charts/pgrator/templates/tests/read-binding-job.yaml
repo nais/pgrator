@@ -42,8 +42,21 @@ spec:
               export PGSSLCERT=/var/run/secrets/pgrator/read.tls.crt
               export PGSSLKEY=/tmp/read.tls.key
 
-              echo "Verifying a TLS connection to the pgrator-managed pooler"
-              psql -v ON_ERROR_STOP=1 -c 'SELECT current_user, current_database()'
+              export PGCONNECT_TIMEOUT=5
+              connection_deadline=$((SECONDS + 300))
+              attempt=1
+
+              echo "Waiting up to five minutes for a TLS connection to the pgrator-managed pooler"
+              until psql -v ON_ERROR_STOP=1 -c 'SELECT current_user, current_database()'; do
+                if (( SECONDS >= connection_deadline )); then
+                  echo "could not connect to the pooler after ${attempt} attempts" >&2
+                  exit 1
+                fi
+
+                echo "connection attempt ${attempt} failed; retrying in five seconds" >&2
+                attempt=$((attempt + 1))
+                sleep 5
+              done
 
               echo "Verifying the read role cannot create tables"
               if psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE pgrator_e2e_must_fail (id integer)'; then
