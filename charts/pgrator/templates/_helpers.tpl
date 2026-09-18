@@ -13,6 +13,11 @@
 {{- end }}
 
 
+{{- define "chart.e2eTestName" -}}
+pgrator-e2e-{{ .Release.Revision }}
+{{- end }}
+
+
 {{- define "chart.labels" -}}
 {{- if .Chart.AppVersion -}}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}

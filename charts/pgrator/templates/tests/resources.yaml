@@ -1,4 +1,5 @@
 {{- if .Values.runTests }}
+{{- $testName := include "chart.e2eTestName" . }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -19,7 +20,7 @@ metadata:
 rules:
   - apiGroups: ["nais.io"]
     resources: ["postgres", "postgresbindings"]
-    verbs: ["delete", "get"]
+    verbs: ["delete", "get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -40,8 +41,10 @@ subjects:
 apiVersion: nais.io/v1
 kind: Postgres
 metadata:
-  name: pgrator-e2e
+  name: {{ $testName }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    pgrator.nais.io/e2e: "true"
   annotations:
     helm.sh/hook: post-install,post-upgrade,test
     helm.sh/hook-weight: "1"
@@ -53,18 +56,20 @@ spec:
 apiVersion: nais.io/v1
 kind: PostgresBinding
 metadata:
-  name: pgrator-e2e-read
+  name: {{ $testName }}-read
   namespace: {{ .Release.Namespace }}
+  labels:
+    pgrator.nais.io/e2e: "true"
   annotations:
     helm.sh/hook: post-install,post-upgrade,test
     helm.sh/hook-weight: "2"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
-  postgres: pgrator-e2e
-  secretName: pgrator-e2e-connection
+  postgres: {{ $testName }}
+  secretName: {{ $testName }}-connection
   consumer:
     workload:
-      name: pgrator-e2e
+      name: {{ $testName }}
       type: job
   credentials:
     - read

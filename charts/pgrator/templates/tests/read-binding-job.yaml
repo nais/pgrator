@@ -1,13 +1,14 @@
 {{- if .Values.runTests }}
+{{- $testName := include "chart.e2eTestName" . }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: pgrator-e2e-read
+  name: {{ $testName }}-read
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "chart.labels" . | nindent 4 }}
-    app: pgrator-e2e
+    app: {{ $testName }}
   annotations:
     helm.sh/hook: post-install,post-upgrade,test
     helm.sh/hook-weight: "3"
@@ -19,7 +20,7 @@ spec:
     metadata:
       labels:
         {{- include "chart.labels" . | nindent 8 }}
-        app: pgrator-e2e
+        app: {{ $testName }}
     spec:
       automountServiceAccountToken: false
       restartPolicy: Never
@@ -65,7 +66,7 @@ spec:
               fi
           envFrom:
             - secretRef:
-                name: pgrator-e2e-connection
+                name: {{ $testName }}-connection
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -91,7 +92,7 @@ spec:
       volumes:
         - name: connection
           secret:
-            secretName: pgrator-e2e-connection
+            secretName: {{ $testName }}-connection
             defaultMode: 0440
         - name: tmp
           emptyDir: {}

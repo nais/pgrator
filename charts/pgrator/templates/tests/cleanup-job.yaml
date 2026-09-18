@@ -8,7 +8,7 @@ metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: post-install,post-upgrade,post-rollback,pre-delete,test
+    helm.sh/hook: post-install,post-upgrade,post-rollback,pre-delete,pre-upgrade,test
     helm.sh/hook-weight: "4"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
@@ -25,8 +25,11 @@ spec:
             - bash
             - -ec
             - |
+              # Remove the static-name generation once, then all release-scoped test runs.
               kubectl delete postgresbinding.nais.io/pgrator-e2e-read --ignore-not-found --wait=true --timeout=2m
               kubectl delete postgres.nais.io/pgrator-e2e --ignore-not-found --wait=true --timeout=2m
+              kubectl delete postgresbindings.nais.io --selector=pgrator.nais.io/e2e=true --ignore-not-found --wait=true --timeout=2m
+              kubectl delete postgres.nais.io --selector=pgrator.nais.io/e2e=true --ignore-not-found --wait=true --timeout=2m
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
