@@ -47,7 +47,8 @@ metadata:
     helm.sh/hook-weight: "1"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
-  majorVersion: "17"
+  # dev-nais currently publishes PostgreSQL 18 as the supported CNPG image.
+  majorVersion: "18"
 ---
 apiVersion: nais.io/v1
 kind: PostgresBinding
