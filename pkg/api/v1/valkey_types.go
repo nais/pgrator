@@ -23,6 +23,7 @@ type ValkeyMemory string
 
 const (
 	ValkeyMemory1GB   ValkeyMemory = "1GB"
+	ValkeyMemory2GB   ValkeyMemory = "2GB"
 	ValkeyMemory4GB   ValkeyMemory = "4GB"
 	ValkeyMemory8GB   ValkeyMemory = "8GB"
 	ValkeyMemory14GB  ValkeyMemory = "14GB"
@@ -161,6 +162,7 @@ const (
 var valkeyAivenPlans = map[ValkeyTier]map[ValkeyMemory]string{
 	ValkeyTierSingleNode: {
 		ValkeyMemory1GB:   "hobbyist",
+		ValkeyMemory2GB:   "startup-2",
 		ValkeyMemory4GB:   "startup-4",
 		ValkeyMemory8GB:   "startup-8",
 		ValkeyMemory14GB:  "startup-14",
