@@ -8,7 +8,7 @@ metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: post-install,post-upgrade,post-rollback,pre-delete,pre-upgrade,test
+    helm.sh/hook: post-install,post-upgrade,post-rollback,pre-delete,test
     helm.sh/hook-weight: "4"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
