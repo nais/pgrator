@@ -33,6 +33,8 @@ import (
 
 // Generate documentation for Nais CRDs
 
+const valkeyKind = "Valkey"
+
 // ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
 // Add new CRD examples here when adding new CRDs to the project.
 var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
@@ -54,7 +56,7 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	{
 		Group:   v1.GroupVersion.Group,
 		Version: v1.GroupVersion.Version,
-		Kind:    "Valkey",
+		Kind:    valkeyKind,
 	}: v1.ExampleValkeyForDocumentation,
 	{
 		Group:   v1.GroupVersion.Group,
@@ -63,11 +65,10 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	}: v1.ExampleOpenSearchForDocumentation,
 }
 
-// NativeKinds are kinds that nais apply/validate also accept in the stripped,
-// flat native manifest form (version/type/name/labels/spec, no kind/metadata
-// wrapper), mapped to the accepted version.
+// NativeKinds are the public nais manifests published as JSON Schemas, mapped
+// to their native manifest version.
 var NativeKinds = map[schema.GroupVersionKind]string{
-	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "Valkey"}:     "v1",
+	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: valkeyKind}:   "v1",
 	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "OpenSearch"}: "v1",
 }
 
@@ -391,7 +392,14 @@ func processKindVersion(
 	referenceTemplate := filepath.Join(templateDir, "reference.md")
 	referenceOutput := filepath.Join(outputDir, "reference.md")
 	referenceRenderer := referenceRenderer{example: rawExample}
-	err = Write(referenceRenderer.render, referenceTemplate, referenceOutput, schemata.Properties["spec"])
+	referenceSchema := schemata.Properties["spec"]
+	if _, ok := NativeKinds[gvk]; ok {
+		referenceSchema, err = nativeSpecSchema(gvk, schemata)
+		if err != nil {
+			return "", false, err
+		}
+	}
+	err = Write(referenceRenderer.render, referenceTemplate, referenceOutput, referenceSchema)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to write reference doc for %s: %w", gk.Kind, err)
 	}
@@ -404,9 +412,11 @@ func processKindVersion(
 	}
 
 	if cfg.JSONSchema != "" {
-		filename, err = writeJSONSchema(cfg.JSONSchema, gvk, schemata)
-		if err != nil {
-			return "", false, err
+		if version, ok := NativeKinds[gvk]; ok {
+			filename, err = writeJSONSchema(cfg.JSONSchema, gvk, version, schemata)
+			if err != nil {
+				return "", false, err
+			}
 		}
 	}
 
@@ -415,72 +425,48 @@ func processKindVersion(
 	return filename, true, nil
 }
 
-// writeJSONSchema renders the published JSON Schema for the given kind into a
-// flat file named "<group>_<version>_<Kind>.json" in outputDir, and returns
-// the file's basename (for use in the aggregate all.json). The schema used
-// for markdown rendering (schemata) is deep-copied first so that publishing
-// never mutates it.
-func writeJSONSchema(outputDir string, gvk schema.GroupVersionKind, schemata apiext.JSONSchemaProps) (string, error) {
-	group, version, kind := gvk.Group, gvk.Version, gvk.Kind
-
-	published, err := deepCopySchema(schemata)
+// writeJSONSchema publishes the native manifest schema for a supported kind.
+// The CRD spec is copied so schema generation does not affect documentation.
+func writeJSONSchema(
+	outputDir string,
+	gvk schema.GroupVersionKind,
+	nativeVersion string,
+	schemata apiext.JSONSchemaProps,
+) (string, error) {
+	spec, err := nativeSpecSchema(gvk, schemata)
 	if err != nil {
 		return "", err
 	}
+	clearExamples(&spec)
+	additionalPropertiesFalse(&spec)
 
-	// The doc generator hijacks "example" to carry doc metadata (see Doc.ApplyToSchema).
-	// Strip it so the published schema is clean, standard JSON Schema.
-	clearExamples(&published)
-
-	// Make some changes to the schema to make it even more useful for validation etc.
-	published = setJSONSchemaEnum(published, "kind", strconv.Quote(kind))
-	published = setJSONSchemaEnum(published, "apiVersion", strconv.Quote(group+"/"+version))
-
-	published = setJSONSchemaRequired(published, ".", "kind", "metadata", "apiVersion")
-	published = setJSONSchemaRequired(published, "metadata", "name")
-
-	additionalPropertiesFalse(&published)
-
-	crdSchema, err := schemaToMap(published)
+	specSchema, err := schemaToMap(spec)
 	if err != nil {
 		return "", err
 	}
-
-	var doc map[string]any
-	if nativeVersion, ok := NativeKinds[gvk]; ok {
-		properties, _ := crdSchema["properties"].(map[string]any)
-		specSchema := properties["spec"]
-		doc = map[string]any{
-			"oneOf": []any{crdSchema, nativeEnvelope(kind, nativeVersion, specSchema)},
-		}
-	} else {
-		doc = crdSchema
-	}
-
+	doc := nativeEnvelope(gvk.Kind, nativeVersion, specSchema)
 	doc["$schema"] = "http://json-schema.org/schema#"
-	doc["x-kubernetes-group-version-kind"] = []map[string]string{
-		{
-			"group":   group,
-			"kind":    kind,
-			"version": version,
-		},
-	}
 
-	filename := fmt.Sprintf("%s_%s_%s.json", group, version, kind)
+	filename := fmt.Sprintf("%s_%s_%s.json", gvk.Group, gvk.Version, gvk.Kind)
 	if err := writeIndentedJSON(filepath.Join(outputDir, filename), doc); err != nil {
 		return "", err
 	}
-
 	return filename, nil
 }
 
-// nativeEnvelope builds the flat, stripped native manifest envelope
-// (version/type/name/labels/spec) accepted by nais apply/validate for kinds
-// in NativeKinds. This mirrors nais/cli's ParseManifest, which requires
-// version/type/name, allows an optional labels map, and rejects any other
-// top-level field (including "kind"/"metadata", which are CRD-envelope-only).
-// specSchema is the already-published spec schema (with additionalProperties:false
-// applied recursively), shared as-is.
+func nativeSpecSchema(gvk schema.GroupVersionKind, schemata apiext.JSONSchemaProps) (apiext.JSONSchemaProps, error) {
+	spec, err := deepCopySchema(schemata.Properties["spec"])
+	if err != nil {
+		return apiext.JSONSchemaProps{}, err
+	}
+	if gvk.Kind == valkeyKind {
+		delete(spec.Properties, "version")
+		delete(spec.Properties, "persistence") // Parsed by the CLI, but not applied.
+	}
+	return spec, nil
+}
+
+// nativeEnvelope builds the version/type/name/labels/spec manifest accepted by nais apply.
 func nativeEnvelope(kind, version string, specSchema any) map[string]any {
 	return map[string]any{
 		"type":                 "object",
@@ -1026,52 +1012,6 @@ func getStructSubPath(keyWithDots string, obj any) (any, error) {
 	return structure, nil
 }
 
-func runOnJSONSchemaProperty(
-	root apiext.JSONSchemaProps,
-	path string,
-	f func(*apiext.JSONSchemaProps),
-) apiext.JSONSchemaProps {
-	if path == "." {
-		f(&root)
-		return root
-	}
-
-	p := strings.Split(path, ".")
-	obj := root.Properties[p[0]]
-	if len(p) == 1 {
-		f(&obj)
-	} else {
-		runOnJSONSchemaProperty(obj, strings.Join(p[1:], "."), f)
-	}
-	root.Properties[p[0]] = obj
-	return root
-}
-
-func setJSONSchemaEnum(root apiext.JSONSchemaProps, path string, value string) apiext.JSONSchemaProps {
-	return runOnJSONSchemaProperty(root, path, func(obj *apiext.JSONSchemaProps) {
-		obj.Enum = append(obj.Enum, apiext.JSON{
-			Raw: []byte(value),
-		})
-	})
-}
-
-func setJSONSchemaRequired(root apiext.JSONSchemaProps, path string, values ...string) apiext.JSONSchemaProps {
-	return runOnJSONSchemaProperty(root, path, func(obj *apiext.JSONSchemaProps) {
-		if obj.Properties == nil {
-			obj.Properties = make(map[string]apiext.JSONSchemaProps)
-		}
-
-		for _, val := range values {
-			if _, ok := obj.Properties[val]; !ok {
-				obj.Properties[val] = apiext.JSONSchemaProps{
-					Type: "string",
-				}
-			}
-			obj.Required = append(obj.Required, val)
-		}
-	})
-}
-
 func naisifyManifest(v any) any {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1084,7 +1024,7 @@ func naisifyManifest(v any) any {
 		panic(err)
 	}
 
-	if old["kind"] != "OpenSearch" && old["kind"] != "Valkey" {
+	if old["kind"] != "OpenSearch" && old["kind"] != valkeyKind {
 		return old
 	}
 
@@ -1109,6 +1049,10 @@ func naisifyManifest(v any) any {
 				}
 			}
 		case "spec":
+			if old["kind"] == valkeyKind {
+				delete(v.(map[string]any), "version")
+				delete(v.(map[string]any), "persistence")
+			}
 			ret.Spec = v
 		}
 	}

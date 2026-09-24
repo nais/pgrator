@@ -139,6 +139,13 @@ jobs:
       - name: Upload JSON Schemas
         run: |
           gcloud storage cp --cache-control='public, max-age=300, no-transform' doc/output/openapi/*.json gs://nais-schemas/
+          objects="$(gcloud storage ls gs://nais-schemas/)"
+          for name in Postgres PostgresAccess PostgresBinding; do
+            object="gs://nais-schemas/nais.io_v1_${name}.json"
+            if grep -Fxq "$object" <<< "$objects"; then
+              gcloud storage rm "$object"
+            fi
+          done
 
   build:
     name: Build and push image
