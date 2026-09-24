@@ -21,8 +21,10 @@ type PostgresAccessSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresInstance is immutable"
 	PostgresInstance string `json:"postgresInstance"`
 
-	// Username is the authenticated NAIS user's email address.
-	// +kubebuilder:validation:MinLength=3
+	// Username is the authenticated NAIS user's email address, used verbatim as
+	// the PostgreSQL role name. Must be non-empty and at most 63 bytes.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="username is immutable"
 	Username string `json:"username"`
 
@@ -60,9 +62,19 @@ type PostgresAccessTunnelStatus struct {
 type PostgresAccessStatus struct {
 	api.BaseStatus `json:",inline"`
 
-	// DatabaseRole is the stable PostgreSQL identity derived for this access.
+	// CredentialSecretName is the name of the controller-owned Secret that
+	// holds the short-lived database credentials for this access.
+	// +optional
+	CredentialSecretName string `json:"credentialSecretName,omitempty"`
+
+	// DatabaseRole is the stable PostgreSQL identity for this access.
 	// +optional
 	DatabaseRole string `json:"databaseRole,omitempty"`
+
+	// ServerName is the TLS verification hostname the client should use for
+	// the created Tunnel target.
+	// +optional
+	ServerName string `json:"serverName,omitempty"`
 
 	// Tunnel is the connection status for the Tunnel owned by this access.
 	// +optional

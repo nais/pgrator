@@ -10,7 +10,7 @@ object:
   spec:
     cluster:
       name: pg-orders-restore
-    name: frode-sundby-orders-restore-39901eb0e00a4f9c
+    name: frode.sundby@nav.no
     databaseRoleReclaimPolicy: retain
     login: true
     passwordSecret:
