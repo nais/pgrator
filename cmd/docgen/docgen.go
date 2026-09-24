@@ -68,6 +68,7 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 // NativeKinds are the public nais manifests published as JSON Schemas, mapped
 // to their native manifest version.
 var NativeKinds = map[schema.GroupVersionKind]string{
+	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "Postgres"}:   "v1",
 	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: valkeyKind}:   "v1",
 	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "OpenSearch"}: "v1",
 }
@@ -1024,7 +1025,7 @@ func naisifyManifest(v any) any {
 		panic(err)
 	}
 
-	if old["kind"] != "OpenSearch" && old["kind"] != valkeyKind {
+	if old["kind"] != "OpenSearch" && old["kind"] != valkeyKind && old["kind"] != "Postgres" {
 		return old
 	}
 

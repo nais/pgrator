@@ -37,7 +37,7 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() object.NaisObject{
 ## JSON Schema output
 
 When `--openapi-output <dir>` is set, docgen writes schemas for the public native manifest kinds
-listed in `NativeKinds` in [docgen.go](docgen.go) (currently Valkey and OpenSearch). CRD-only and
+listed in `NativeKinds` in [docgen.go](docgen.go) (currently Postgres, Valkey and OpenSearch). CRD-only and
 internal kinds such as PostgresAccess and PostgresBinding are not published. Files are named:
 
 ```
@@ -59,7 +59,7 @@ Documentation examples and schemas are generated independently.
 An `all.json` file is also written to `<dir>`, referencing every generated schema file via `$ref`:
 
 ```json
-{"oneOf": [{"$ref": "nais.io_v1_OpenSearch.json"}, {"$ref": "nais.io_v1_Valkey.json"}]}
+{"oneOf": [{"$ref": "nais.io_v1_OpenSearch.json"}, {"$ref": "nais.io_v1_Postgres.json"}, {"$ref": "nais.io_v1_Valkey.json"}]}
 ```
 
 The refs are plain relative filenames, which resolve correctly once the files are served from the same

@@ -100,16 +100,21 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 			mustValidate(t, sch, manifest, false, "unknown spec field")
 			delete(spec, "unknownField")
 
-			if gvk.Kind == valkeyKind {
+			switch gvk.Kind {
+			case valkeyKind:
 				spec["version"] = "9.1"
 				mustValidate(t, sch, manifest, false, "CRD-only Valkey version")
 				delete(spec, "version")
 				spec["persistence"] = map[string]any{"disabled": true}
 				mustValidate(t, sch, manifest, false, "Valkey persistence ignored by CLI")
-			} else {
+			case "OpenSearch":
 				http := spec["http"].(map[string]any)
 				http["unknownField"] = unknownValue
 				mustValidate(t, sch, manifest, false, "unknown nested spec field")
+			case "Postgres":
+				extensions := spec["extensions"].([]any)
+				extensions[0].(map[string]any)["unknownField"] = unknownValue
+				mustValidate(t, sch, manifest, false, "unknown Postgres extension field")
 			}
 		})
 	}
@@ -136,6 +141,32 @@ func TestNativeValkeyDocumentationOmitsCRDOnlyVersion(t *testing.T) {
 			if strings.Contains(string(data), field) {
 				t.Errorf("%s describes unsupported native field %q", filename, field)
 			}
+		}
+	}
+}
+
+func TestPostgresDocumentationUsesNativeManifest(t *testing.T) {
+	outputDir := t.TempDir()
+	cfg := &Config{
+		APIDir: "../../pkg/api/...", OutputDir: outputDir,
+		TemplateDir: "../../doc/templates",
+	}
+	if err := runWithConfig(cfg); err != nil {
+		t.Fatalf("runWithConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputDir, "nais.io/v1/postgres/example.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	example := string(data)
+	for _, field := range []string{"version: v1", "type: Postgres", "name: mypostgres"} {
+		if !strings.Contains(example, field) {
+			t.Errorf("Postgres example missing %q", field)
+		}
+	}
+	for _, field := range []string{"apiVersion:", "kind: Postgres", "metadata:"} {
+		if strings.Contains(example, field) {
+			t.Errorf("Postgres example contains Kubernetes field %q", field)
 		}
 	}
 }
