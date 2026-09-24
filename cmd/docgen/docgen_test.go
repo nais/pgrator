@@ -142,6 +142,23 @@ func TestUnknownSpecFieldFailsValidation(t *testing.T) {
 	mustValidate(t, sch, m, false, "Postgres example with unknown spec field")
 }
 
+func TestPostgresExtensionRejectsUnknownFields(t *testing.T) {
+	schemaDir := generateSchemas(t)
+	gvk := schema.GroupVersionKind{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "Postgres"}
+	sch := loadSchema(t, schemaDir, schemaFilename(gvk))
+
+	var manifest map[string]any
+	if err := marshalToInterface(&manifest, v1.ExamplePostgresForDocumentation()); err != nil {
+		t.Fatalf("marshalToInterface: %v", err)
+	}
+	mustValidate(t, sch, manifest, true, "Postgres with valid extension")
+
+	spec := manifest["spec"].(map[string]any)
+	extensions := spec["extensions"].([]any)
+	extensions[0].(map[string]any)["unknownField"] = "boom"
+	mustValidate(t, sch, manifest, false, "Postgres with unknown extension field")
+}
+
 // TestAllSchemaAggregatesEveryFile checks that all.json exists, parses, and
 // every $ref points to a file that was actually generated.
 func TestAllSchemaAggregatesEveryFile(t *testing.T) {

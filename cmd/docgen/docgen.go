@@ -432,10 +432,6 @@ func writeJSONSchema(outputDir string, gvk schema.GroupVersionKind, schemata api
 	// Strip it so the published schema is clean, standard JSON Schema.
 	clearExamples(&published)
 
-	published.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
-		Allows: false,
-	}
-
 	// Make some changes to the schema to make it even more useful for validation etc.
 	published = setJSONSchemaEnum(published, "kind", strconv.Quote(kind))
 	published = setJSONSchemaEnum(published, "apiVersion", strconv.Quote(group+"/"+version))
@@ -443,7 +439,7 @@ func writeJSONSchema(outputDir string, gvk schema.GroupVersionKind, schemata api
 	published = setJSONSchemaRequired(published, ".", "kind", "metadata", "apiVersion")
 	published = setJSONSchemaRequired(published, "metadata", "name")
 
-	additionalPropertiesFalse(published.Properties)
+	additionalPropertiesFalse(&published)
 
 	crdSchema, err := schemaToMap(published)
 	if err != nil {
@@ -604,15 +600,50 @@ func clearExamples(props *apiext.JSONSchemaProps) {
 	}
 }
 
-func additionalPropertiesFalse(props map[string]apiext.JSONSchemaProps) {
-	for v, prop := range props {
-		if prop.AdditionalProperties == nil && prop.Type == "object" {
-			prop.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
-				Allows: false,
-			}
+func additionalPropertiesFalse(props *apiext.JSONSchemaProps) {
+	if props == nil {
+		return
+	}
+	if props.Type == "object" && props.AdditionalProperties == nil {
+		props.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{Allows: false}
+	}
+	for k, prop := range props.Properties {
+		additionalPropertiesFalse(&prop)
+		props.Properties[k] = prop
+	}
+	for k, prop := range props.PatternProperties {
+		additionalPropertiesFalse(&prop)
+		props.PatternProperties[k] = prop
+	}
+	if props.Items != nil {
+		additionalPropertiesFalse(props.Items.Schema)
+		for i := range props.Items.JSONSchemas {
+			additionalPropertiesFalse(&props.Items.JSONSchemas[i])
 		}
-		additionalPropertiesFalse(prop.Properties)
-		props[v] = prop
+	}
+	if props.AdditionalProperties != nil {
+		additionalPropertiesFalse(props.AdditionalProperties.Schema)
+	}
+	if props.AdditionalItems != nil {
+		additionalPropertiesFalse(props.AdditionalItems.Schema)
+	}
+	for i := range props.AllOf {
+		additionalPropertiesFalse(&props.AllOf[i])
+	}
+	for i := range props.OneOf {
+		additionalPropertiesFalse(&props.OneOf[i])
+	}
+	for i := range props.AnyOf {
+		additionalPropertiesFalse(&props.AnyOf[i])
+	}
+	additionalPropertiesFalse(props.Not)
+	for k, prop := range props.Dependencies {
+		additionalPropertiesFalse(prop.Schema)
+		props.Dependencies[k] = prop
+	}
+	for k, prop := range props.Definitions {
+		additionalPropertiesFalse(&prop)
+		props.Definitions[k] = prop
 	}
 }
 

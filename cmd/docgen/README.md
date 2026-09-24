@@ -44,16 +44,14 @@ file per CRD directly into `<dir>` (flat, no subdirectories), named:
 <group>_<version>_<Kind>.json
 ```
 
-e.g. `nais.io_v1_Postgres.json`. This matches the naming convention used by nais/liberator for
-its own published schemas, since both sets of files are published to the same GCS bucket
-(`gs://nais-json-schema-2c91`, served at `https://storage.googleapis.com/nais-json-schema-2c91/`).
+e.g. `nais.io_v1_Postgres.json`. The schemas are published to `gs://nais-schemas/` and served
+at `https://schemas.nais.io/`.
 
 Each schema:
 - Is a standard JSON Schema (draft-04-ish, as emitted by controller-tools), with `additionalProperties: false`
   enforced recursively.
-- Requires only `kind`, `apiVersion`, and `metadata` at the root, and only `metadata.name` — matching what the
-  Kubernetes apiserver actually enforces (the CRDs in `config/crd/bases/*.yaml` do not require
-  `metadata.labels.team` or `metadata.namespace`), so the published schema is never stricter than reality.
+- Requires `spec`, `kind`, `apiVersion`, and `metadata` at the CRD root, and `metadata.name` within metadata.
+  It does not require `metadata.labels.team` or `metadata.namespace`.
 - Does **not** contain the generator's internal `example` field, which is hijacked by `docgen.go` to carry
   documentation metadata (`Doc`/`ApplyToSchema`) and is stripped before publishing (`clearExamples`). The
   in-memory schema used to render markdown docs is left untouched (schemas are deep-copied first).
