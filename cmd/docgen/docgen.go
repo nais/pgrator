@@ -63,6 +63,14 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	}: v1.ExampleOpenSearchForDocumentation,
 }
 
+// NativeKinds are kinds that nais apply/validate also accept in the stripped,
+// flat native manifest form (version/type/name/labels/spec, no kind/metadata
+// wrapper), mapped to the accepted version.
+var NativeKinds = map[schema.GroupVersionKind]string{
+	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "Valkey"}:     "v1",
+	{Group: v1.GroupVersion.Group, Version: v1.GroupVersion.Version, Kind: "OpenSearch"}: "v1",
+}
+
 // ExcludedKinds are API types that must not appear in generated documentation.
 var ExcludedKinds = map[schema.GroupVersionKind]struct{}{
 	{
@@ -190,6 +198,10 @@ func run() error {
 	)
 	pflag.Parse()
 
+	return runWithConfig(cfg)
+}
+
+func runWithConfig(cfg *Config) error {
 	if cfg.APIDir == "" {
 		return fmt.Errorf("--api-dir is required")
 	}
@@ -226,13 +238,7 @@ func run() error {
 		Checker:   typechecker,
 	}
 
-	intstr := "k8s.io/apimachinery/pkg/util/intstr"
-	if override, ok := crd.KnownPackages[intstr]; ok {
-		if pars.PackageOverrides == nil {
-			pars.PackageOverrides = make(map[string]crd.PackageOverride)
-		}
-		pars.PackageOverrides[intstr] = override
-	}
+	registerPackageOverrides(pars)
 
 	for _, pkg := range packages {
 		pars.NeedPackage(pkg)
@@ -247,6 +253,8 @@ func run() error {
 	if len(kubeKinds) == 0 {
 		return fmt.Errorf("no objects in the roots")
 	}
+
+	var schemaFiles []string
 
 	for _, gk := range kubeKinds {
 		pars.NeedCRDFor(gk, nil)
@@ -264,86 +272,251 @@ func run() error {
 
 		// Process each version
 		for _, pkg := range matchingPackages {
-			gv := pars.GroupVersions[pkg]
-			log := slog.With("kind", gk.Kind, "group", gk.Group, "version", gv.Version)
-
-			gvk := schema.GroupVersionKind{
-				Group:   gk.Group,
-				Version: gv.Version,
-				Kind:    gk.Kind,
-			}
-			exampleFunc, ok := ExampleRegistry[gvk]
-			if !ok {
-				if _, excluded := ExcludedKinds[gvk]; excluded {
-					continue
-				}
-				return fmt.Errorf(
-					"'%s/%s/%s' is not supported; "+
-						"must be registered in ExampleRegistry config in docgen.go",
-					gk.Group, gv.Version, gk.Kind,
-				)
-			}
-
-			schemata, ok := pars.FlattenedSchemata[crd.TypeIdent{Package: pkg, Name: gk.Kind}]
-			if !ok {
-				return fmt.Errorf(
-					"schema generation failed for %s/%s/%s; "+
-						"double check the syntax of doctags (+nais:* and +kubebuilder:*)",
-					gk.Group, gv.Version, gk.Kind,
-				)
-			}
-
-			// rawExample is the CR decoded to map[string]any; getStructSubPath walks it with reflection.
-			var rawExample any
-			err = marshalToInterface(&rawExample, exampleFunc())
+			filename, generated, err := processKindVersion(cfg, pars, gk, pkg)
 			if err != nil {
 				return err
 			}
-			// manifestExample is the naisified full manifest (type:/name:/spec:) rendered in example.md.
-			manifestExample := naisifyManifest(rawExample)
-
-			// Use group/version/kind directory structure
-			kindLower := strings.ToLower(gk.Kind)
-			subDir := filepath.Join(gk.Group, gv.Version, kindLower)
-
-			outputDir := filepath.Join(cfg.OutputDir, subDir)
-			if err := os.MkdirAll(outputDir, 0o755); err != nil {
-				return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+			if !generated {
+				continue
 			}
-
-			templateDir := filepath.Join(cfg.TemplateDir, subDir)
-
-			referenceTemplate := filepath.Join(templateDir, "reference.md")
-			referenceOutput := filepath.Join(outputDir, "reference.md")
-			referenceRenderer := referenceRenderer{example: rawExample}
-			err = Write(referenceRenderer.render, referenceTemplate, referenceOutput, schemata.Properties["spec"])
-			if err != nil {
-				return fmt.Errorf("failed to write reference doc for %s: %w", gk.Kind, err)
+			if filename != "" {
+				schemaFiles = append(schemaFiles, filename)
 			}
+		}
+	}
 
-			exampleTemplate := filepath.Join(templateDir, "example.md")
-			exampleOutput := filepath.Join(outputDir, "example.md")
-			exampleRenderer := exampleRenderer{manifest: manifestExample}
-			err = Write(exampleRenderer.render, exampleTemplate, exampleOutput, schemata)
-			if err != nil {
-				return fmt.Errorf("failed to write example doc for %s: %w", gk.Kind, err)
-			}
-
-			if cfg.JSONSchema != "" {
-				if err := writeJSONSchema(cfg.JSONSchema, gk.Kind, gk.Group, gv.Version, schemata); err != nil {
-					return err
-				}
-			}
-
-			log.Info("Generated documentation", "output", outputDir)
+	if cfg.JSONSchema != "" {
+		if err := writeAllSchema(cfg.JSONSchema, schemaFiles); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func writeJSONSchema(path, kind, group, version string, schemata apiext.JSONSchemaProps) error {
-	path = filepath.Join(path, group, version, strings.ToLower(kind)+".json")
+// registerPackageOverrides configures crd.Parser overrides for well-known
+// Kubernetes types that don't carry their own validation markers.
+func registerPackageOverrides(pars *crd.Parser) {
+	pars.PackageOverrides = make(map[string]crd.PackageOverride)
+
+	intstr := "k8s.io/apimachinery/pkg/util/intstr"
+	if override, ok := crd.KnownPackages[intstr]; ok {
+		pars.PackageOverrides[intstr] = override
+	}
+
+	quantity := "k8s.io/apimachinery/pkg/api/resource"
+	if override, ok := crd.KnownPackages[quantity]; ok {
+		pars.PackageOverrides[quantity] = override
+	}
+
+	// Only override the Time-ish types with their well-known string encodings;
+	// unlike crd.KnownPackages, leave ObjectMeta to be parsed normally so its
+	// full field set (name, namespace, labels, ...) is still available for the
+	// published JSON schema.
+	metav1Package := "k8s.io/apimachinery/pkg/apis/meta/v1"
+	pars.PackageOverrides[metav1Package] = func(p *crd.Parser, pkg *loader.Package) {
+		p.Schemata[crd.TypeIdent{Name: "Time", Package: pkg}] = apiext.JSONSchemaProps{
+			Type:   "string",
+			Format: "date-time",
+		}
+		p.Schemata[crd.TypeIdent{Name: "MicroTime", Package: pkg}] = apiext.JSONSchemaProps{
+			Type:   "string",
+			Format: "date-time",
+		}
+		p.Schemata[crd.TypeIdent{Name: "Duration", Package: pkg}] = apiext.JSONSchemaProps{
+			Type: "string",
+		}
+		p.AddPackage(pkg)
+	}
+}
+
+// processKindVersion renders markdown docs and (optionally) the JSON schema
+// for a single Kind/version. It returns the generated schema filename (empty
+// if JSON schema output is disabled) and whether anything was generated at
+// all (false for excluded kinds).
+func processKindVersion(
+	cfg *Config,
+	pars *crd.Parser,
+	gk schema.GroupKind,
+	pkg *loader.Package,
+) (filename string, generated bool, err error) {
+	gv := pars.GroupVersions[pkg]
+	log := slog.With("kind", gk.Kind, "group", gk.Group, "version", gv.Version)
+
+	gvk := schema.GroupVersionKind{
+		Group:   gk.Group,
+		Version: gv.Version,
+		Kind:    gk.Kind,
+	}
+	exampleFunc, ok := ExampleRegistry[gvk]
+	if !ok {
+		if _, excluded := ExcludedKinds[gvk]; excluded {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf(
+			"'%s/%s/%s' is not supported; "+
+				"must be registered in ExampleRegistry config in docgen.go",
+			gk.Group, gv.Version, gk.Kind,
+		)
+	}
+
+	schemata, ok := pars.FlattenedSchemata[crd.TypeIdent{Package: pkg, Name: gk.Kind}]
+	if !ok {
+		return "", false, fmt.Errorf(
+			"schema generation failed for %s/%s/%s; "+
+				"double check the syntax of doctags (+nais:* and +kubebuilder:*)",
+			gk.Group, gv.Version, gk.Kind,
+		)
+	}
+
+	// rawExample is the CR decoded to map[string]any; getStructSubPath walks it with reflection.
+	var rawExample any
+	if err := marshalToInterface(&rawExample, exampleFunc()); err != nil {
+		return "", false, err
+	}
+	// manifestExample is the naisified full manifest (version:/type:/name:/spec:) rendered in example.md.
+	manifestExample := naisifyManifest(rawExample)
+
+	// Use group/version/kind directory structure
+	kindLower := strings.ToLower(gk.Kind)
+	subDir := filepath.Join(gk.Group, gv.Version, kindLower)
+
+	outputDir := filepath.Join(cfg.OutputDir, subDir)
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return "", false, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+	}
+
+	templateDir := filepath.Join(cfg.TemplateDir, subDir)
+
+	referenceTemplate := filepath.Join(templateDir, "reference.md")
+	referenceOutput := filepath.Join(outputDir, "reference.md")
+	referenceRenderer := referenceRenderer{example: rawExample}
+	err = Write(referenceRenderer.render, referenceTemplate, referenceOutput, schemata.Properties["spec"])
+	if err != nil {
+		return "", false, fmt.Errorf("failed to write reference doc for %s: %w", gk.Kind, err)
+	}
+
+	exampleTemplate := filepath.Join(templateDir, "example.md")
+	exampleOutput := filepath.Join(outputDir, "example.md")
+	exampleRenderer := exampleRenderer{manifest: manifestExample}
+	if err := Write(exampleRenderer.render, exampleTemplate, exampleOutput, schemata); err != nil {
+		return "", false, fmt.Errorf("failed to write example doc for %s: %w", gk.Kind, err)
+	}
+
+	if cfg.JSONSchema != "" {
+		filename, err = writeJSONSchema(cfg.JSONSchema, gvk, schemata)
+		if err != nil {
+			return "", false, err
+		}
+	}
+
+	log.Info("Generated documentation", "output", outputDir)
+
+	return filename, true, nil
+}
+
+// writeJSONSchema renders the published JSON Schema for the given kind into a
+// flat file named "<group>_<version>_<Kind>.json" in outputDir, and returns
+// the file's basename (for use in the aggregate all.json). The schema used
+// for markdown rendering (schemata) is deep-copied first so that publishing
+// never mutates it.
+func writeJSONSchema(outputDir string, gvk schema.GroupVersionKind, schemata apiext.JSONSchemaProps) (string, error) {
+	group, version, kind := gvk.Group, gvk.Version, gvk.Kind
+
+	published, err := deepCopySchema(schemata)
+	if err != nil {
+		return "", err
+	}
+
+	// The doc generator hijacks "example" to carry doc metadata (see Doc.ApplyToSchema).
+	// Strip it so the published schema is clean, standard JSON Schema.
+	clearExamples(&published)
+
+	published.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
+		Allows: false,
+	}
+
+	// Make some changes to the schema to make it even more useful for validation etc.
+	published = setJSONSchemaEnum(published, "kind", strconv.Quote(kind))
+	published = setJSONSchemaEnum(published, "apiVersion", strconv.Quote(group+"/"+version))
+
+	published = setJSONSchemaRequired(published, ".", "kind", "metadata", "apiVersion")
+	published = setJSONSchemaRequired(published, "metadata", "name")
+
+	additionalPropertiesFalse(published.Properties)
+
+	crdSchema, err := schemaToMap(published)
+	if err != nil {
+		return "", err
+	}
+
+	var doc map[string]any
+	if nativeVersion, ok := NativeKinds[gvk]; ok {
+		properties, _ := crdSchema["properties"].(map[string]any)
+		specSchema := properties["spec"]
+		doc = map[string]any{
+			"oneOf": []any{crdSchema, nativeEnvelope(kind, nativeVersion, specSchema)},
+		}
+	} else {
+		doc = crdSchema
+	}
+
+	doc["$schema"] = "http://json-schema.org/schema#"
+	doc["x-kubernetes-group-version-kind"] = []map[string]string{
+		{
+			"group":   group,
+			"kind":    kind,
+			"version": version,
+		},
+	}
+
+	filename := fmt.Sprintf("%s_%s_%s.json", group, version, kind)
+	if err := writeIndentedJSON(filepath.Join(outputDir, filename), doc); err != nil {
+		return "", err
+	}
+
+	return filename, nil
+}
+
+// nativeEnvelope builds the flat, stripped native manifest envelope
+// (version/type/name/labels/spec) accepted by nais apply/validate for kinds
+// in NativeKinds. This mirrors nais/cli's ParseManifest, which requires
+// version/type/name, allows an optional labels map, and rejects any other
+// top-level field (including "kind"/"metadata", which are CRD-envelope-only).
+// specSchema is the already-published spec schema (with additionalProperties:false
+// applied recursively), shared as-is.
+func nativeEnvelope(kind, version string, specSchema any) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"version", "type", "name", "spec"},
+		"properties": map[string]any{
+			"version": map[string]any{"type": "string", "enum": []string{version}},
+			"type":    map[string]any{"type": "string", "enum": []string{kind}},
+			"name":    map[string]any{"type": "string"},
+			"labels":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+			"spec":    specSchema,
+		},
+	}
+}
+
+// writeAllSchema writes the aggregate all.json, which oneOf-references every
+// generated schema file by its relative filename. filenames need not be
+// pre-sorted.
+func writeAllSchema(outputDir string, filenames []string) error {
+	sorted := slices.Clone(filenames)
+	slices.Sort(sorted)
+
+	refs := make([]map[string]string, 0, len(sorted))
+	for _, name := range sorted {
+		refs = append(refs, map[string]string{"$ref": name})
+	}
+
+	doc := map[string]any{"oneOf": refs}
+	return writeIndentedJSON(filepath.Join(outputDir, "all.json"), doc)
+}
+
+func writeIndentedJSON(path string, doc any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("failed to create schema directory: %w", err)
 	}
@@ -355,53 +528,92 @@ func writeJSONSchema(path, kind, group, version string, schemata apiext.JSONSche
 		_ = f.Close()
 	}()
 
-	schemata.Schema = apiext.JSONSchemaURL("http://json-schema.org/schema#")
-	schemata.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
-		Allows: false,
-	}
-
-	// Make some changes to the schema to make it even more useful for validation etc.
-	schemata = setJSONSchemaEnum(schemata, "kind", strconv.Quote(kind))
-	schemata = setJSONSchemaEnum(schemata, "apiVersion", strconv.Quote(group+"/"+version))
-
-	schemata = setJSONSchemaRequired(schemata, ".", "kind", "metadata", "apiVersion")
-	schemata = setJSONSchemaRequired(schemata, "metadata", "name", "namespace", "labels")
-	schemata = setJSONSchemaRequired(schemata, "metadata.labels", "team")
-
-	var additionalPropertiesFalse func(props map[string]apiext.JSONSchemaProps)
-	additionalPropertiesFalse = func(props map[string]apiext.JSONSchemaProps) {
-		for v, prop := range props {
-			if prop.AdditionalProperties == nil && prop.Type == "object" {
-				prop.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
-					Allows: false,
-				}
-			}
-			additionalPropertiesFalse(prop.Properties)
-			props[v] = prop
-		}
-	}
-
-	additionalPropertiesFalse(schemata.Properties)
-
-	inter := make(map[string]any)
-	b, err := json.Marshal(schemata)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(b, &inter); err != nil {
-		return err
-	}
-
-	inter["x-kubernetes-group-version-kind"] = []map[string]string{
-		{
-			"group":   group,
-			"kind":    kind,
-			"version": version,
-		},
-	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	return enc.Encode(inter)
+	return enc.Encode(doc)
+}
+
+// schemaToMap marshals a JSONSchemaProps to a generic map, ready for
+// arbitrary composition (e.g. embedding in a oneOf).
+func schemaToMap(schemata apiext.JSONSchemaProps) (map[string]any, error) {
+	b, err := json.Marshal(schemata)
+	if err != nil {
+		return nil, err
+	}
+	inter := make(map[string]any)
+	if err := json.Unmarshal(b, &inter); err != nil {
+		return nil, err
+	}
+	return inter, nil
+}
+
+// deepCopySchema returns an independent copy of the given schema via a JSON
+// round-trip, so callers can mutate the copy without affecting the original
+// (e.g. the schema used for markdown rendering).
+func deepCopySchema(in apiext.JSONSchemaProps) (apiext.JSONSchemaProps, error) {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return apiext.JSONSchemaProps{}, err
+	}
+	var out apiext.JSONSchemaProps
+	if err := json.Unmarshal(b, &out); err != nil {
+		return apiext.JSONSchemaProps{}, err
+	}
+	return out, nil
+}
+
+// clearExamples recursively clears the Example field, which the doc
+// generator hijacks to carry documentation metadata (see Doc.ApplyToSchema).
+// It must not leak into the published JSON Schema.
+func clearExamples(props *apiext.JSONSchemaProps) {
+	if props == nil {
+		return
+	}
+	props.Example = nil
+
+	for k, prop := range props.Properties {
+		clearExamples(&prop)
+		props.Properties[k] = prop
+	}
+	for k, prop := range props.PatternProperties {
+		clearExamples(&prop)
+		props.PatternProperties[k] = prop
+	}
+	if props.Items != nil {
+		clearExamples(props.Items.Schema)
+		for i := range props.Items.JSONSchemas {
+			clearExamples(&props.Items.JSONSchemas[i])
+		}
+	}
+	if props.AdditionalProperties != nil {
+		clearExamples(props.AdditionalProperties.Schema)
+	}
+	for i := range props.AllOf {
+		clearExamples(&props.AllOf[i])
+	}
+	for i := range props.OneOf {
+		clearExamples(&props.OneOf[i])
+	}
+	for i := range props.AnyOf {
+		clearExamples(&props.AnyOf[i])
+	}
+	clearExamples(props.Not)
+	for k, prop := range props.Definitions {
+		clearExamples(&prop)
+		props.Definitions[k] = prop
+	}
+}
+
+func additionalPropertiesFalse(props map[string]apiext.JSONSchemaProps) {
+	for v, prop := range props {
+		if prop.AdditionalProperties == nil && prop.Type == "object" {
+			prop.AdditionalProperties = &apiext.JSONSchemaPropsOrBool{
+				Allows: false,
+			}
+		}
+		additionalPropertiesFalse(prop.Properties)
+		props[v] = prop
+	}
 }
 
 func marshalToInterface(dst, src any) error {
