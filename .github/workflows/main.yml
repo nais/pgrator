@@ -109,6 +109,37 @@ jobs:
             echo "No changes; skip commit"
           fi
 
+  schemas:
+    name: Publish JSON Schemas
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # ratchet:jdx/mise-action@v4.3.0
+      - name: Generate JSON Schemas
+        run: |
+          mise run generate:doc
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # ratchet:google-github-actions/auth@v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: "gh-pgrator@nais-io.iam.gserviceaccount.com"
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # ratchet:google-github-actions/setup-gcloud@v3.0.1
+      - name: Upload JSON Schemas
+        run: |
+          gsutil -qm -h 'Cache-Control:public, max-age=300, no-transform' cp doc/output/openapi/*.json gs://schemas.nais.io/
+
   build:
     name: Build and push image
     runs-on: ubuntu-latest
