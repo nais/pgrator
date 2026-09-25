@@ -121,9 +121,6 @@ const (
 
 	// pgIdentMap names the pg_ident map referenced from the pooler pg_hba rule.
 	pgIdentMap = "pooler"
-	// tunnelGatewaySelectorName identifies tunnel-operator gateway Pods, which
-	// are the only clients permitted to authenticate personal users with SCRAM.
-	tunnelGatewaySelectorName = "tunnel-gateway"
 )
 
 func objectMeta(postgres *v1.Postgres, name string) metav1.ObjectMeta {
@@ -256,11 +253,6 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 					// certificate alone is not enough to impersonate a role.
 					fmt.Sprintf("hostssl all all ${podselector:%s} cert map=%s", poolerSelectorName, pgIdentMap),
 
-					// Personal access is transported by a dedicated tunnel gateway and
-					// authenticates with a short-lived SCRAM password, not a client
-					// certificate. This must precede the general cert rule below.
-					fmt.Sprintf("hostssl all all ${podselector:%s} scram-sha-256", tunnelGatewaySelectorName),
-
 					// Certificate authentication for all other clients. Without a
 					// map, PostgreSQL requires the certificate CN to equal the role,
 					// so clients connecting directly prove their own identity.
@@ -293,13 +285,6 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 							PoolerNameLabel: PoolerName(postgres),
 						},
 					},
-				},
-				{
-					Name: tunnelGatewaySelectorName,
-					Selector: metav1.LabelSelector{MatchLabels: map[string]string{
-						"app.kubernetes.io/managed-by": "tunnel-operator",
-						"app.kubernetes.io/component":  "tunnel-gateway",
-					}},
 				},
 			},
 

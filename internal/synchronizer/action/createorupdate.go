@@ -31,6 +31,7 @@ func (a *createOrUpdate) Do(ctx context.Context, c client.Client, scheme *runtim
 	if err != nil {
 		return fmt.Errorf("internal error: %w", err)
 	}
+	existing.GetObjectKind().SetGroupVersionKind(gvk)
 
 	existingObj := existing.(client.Object)
 	key := client.ObjectKeyFromObject(a.obj)

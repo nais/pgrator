@@ -1,26 +1,27 @@
 ---
-action: createOrUpdate
+action: exclusiveCreateOrUpdate
 matcher: Subset
 object:
   apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: frode-orders-access-tunnel
+    name: frode-orders-access-relay
     namespace: myteam
   spec:
     podSelector:
       matchLabels:
         cnpg.io/cluster: pg-orders-restore
         cnpg.io/instanceRole: primary
-    policyTypes:
-      - Ingress
+    policyTypes: [Ingress]
     ingress:
       - from:
-          - podSelector:
+          - namespaceSelector:
               matchLabels:
-                tunnels.nais.io/tunnel: frode-orders-access
-                app.kubernetes.io/managed-by: tunnel-operator
-                app.kubernetes.io/component: tunnel-gateway
+                kubernetes.io/metadata.name: nais-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: relay
+                app.kubernetes.io/instance: relay
         ports:
           - protocol: TCP
             port: 5432

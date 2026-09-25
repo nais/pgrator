@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/nais/pgrator/internal/metrics"
@@ -18,6 +19,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -272,16 +274,18 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	result, err = s.PerformActions(ctx, actions)
+	actionResult, err := s.PerformActions(ctx, actions)
 	if err != nil {
 		logger.Error(err, "failed to perform reconciliation")
 		s.recorder.RecordErrorEvent(obj, "PerformActions", err)
 		metrics.IncReconcileError(resourceType, obj.GetNamespace(), "PerformActions")
 		metrics.ObserveReconcileDuration(resourceType, "error", time.Since(startTime))
-		return result, err
+		return actionResult, err
 	}
 
-	// Preserve the result from Delete() if it requested a requeue
+	// Preserve the Update() result (including its scheduled requeue) after
+	// successful actions. PerformActions returns no independent schedule.
+	// Delete() can override it during multi-phase deletion.
 	if !deleteResult.IsZero() {
 		result = deleteResult
 	}
@@ -517,8 +521,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	// List all resources of owned or additional types
 	// Filter unrelated resources (owner annotation / owner reference)
 	allResources := make([]client.Object, 0)
-	for _, t := range s.relevantListTypes {
+	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
+		list.GetObjectKind().SetGroupVersionKind(gvk)
 		err := s.client.List(ctx, list)
 		if err != nil {
 			if meta.IsNoMatchError(err) {
@@ -528,6 +533,9 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
+				if source, ok := cObj.(*unstructured.Unstructured); ok {
+					source.SetGroupVersionKind(gvk.GroupVersion().WithKind(strings.TrimSuffix(gvk.Kind, "List")))
+				}
 				if s.ownerManager.HasOwnerAnnotation(cObj, owner) {
 					allResources = append(allResources, cObj)
 				}
@@ -574,8 +582,9 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler
 	// Possible future improvement: Add app.kubernetes.io/managed-by label to all managed resources and filter to only care about those
 	// Possible future improvement: Extend Reconciler interface to return relevant namespaces for given object and filter to only those namespaces
 	related := relatedobjectsmap.NewRelatedObjectsMap(s.scheme)
-	for _, t := range s.relevantListTypes {
+	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
+		list.GetObjectKind().SetGroupVersionKind(gvk)
 		err := s.client.List(ctx, list)
 		if err != nil {
 			if meta.IsNoMatchError(err) {
@@ -585,6 +594,9 @@ func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler
 		}
 		err = meta.EachListItem(list, func(obj runtime.Object) error {
 			if cObj, ok := obj.(client.Object); ok {
+				if source, ok := cObj.(*unstructured.Unstructured); ok {
+					source.SetGroupVersionKind(gvk.GroupVersion().WithKind(strings.TrimSuffix(gvk.Kind, "List")))
+				}
 				related.Insert(cObj)
 			}
 			return nil
