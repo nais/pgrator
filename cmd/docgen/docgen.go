@@ -291,6 +291,9 @@ func runWithConfig(cfg *Config) error {
 		if err := writeAllSchema(cfg.JSONSchema, schemaFiles); err != nil {
 			return err
 		}
+		if err := writeEditorSchema(cfg.JSONSchema); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -497,6 +500,29 @@ func writeAllSchema(outputDir string, filenames []string) error {
 
 	doc := map[string]any{"oneOf": refs}
 	return writeIndentedJSON(filepath.Join(outputDir, "all.json"), doc)
+}
+
+// writeEditorSchema validates native manifests without rejecting other YAML
+// documents in files matched by editor schema catalogs.
+func writeEditorSchema(outputDir string) error {
+	kinds := make([]string, 0, len(NativeKinds))
+	for gvk := range NativeKinds {
+		kinds = append(kinds, gvk.Kind)
+	}
+	slices.Sort(kinds)
+
+	doc := map[string]any{
+		"$schema": "http://json-schema.org/draft-07/schema#",
+		"if": map[string]any{
+			"type":     "object",
+			"required": []string{"type"},
+			"properties": map[string]any{
+				"type": map[string]any{"enum": kinds},
+			},
+		},
+		"then": map[string]any{"$ref": "all.json"},
+	}
+	return writeIndentedJSON(filepath.Join(outputDir, "editor.json"), doc)
 }
 
 func writeIndentedJSON(path string, doc any) error {

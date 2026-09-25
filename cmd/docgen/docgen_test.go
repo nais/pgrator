@@ -120,6 +120,44 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 	}
 }
 
+func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
+	schemaDir := generateSchemas(t)
+	editor := loadSchema(t, schemaDir, "editor.json")
+
+	for gvk, version := range NativeKinds {
+		t.Run(gvk.Kind, func(t *testing.T) {
+			var crd map[string]any
+			if err := marshalToInterface(&crd, ExampleRegistry[gvk]()); err != nil {
+				t.Fatalf("marshalToInterface: %v", err)
+			}
+			spec := crd["spec"].(map[string]any)
+			if gvk.Kind == valkeyKind {
+				delete(spec, "version")
+				delete(spec, "persistence")
+			}
+			manifest := map[string]any{
+				"version": version,
+				"type":    gvk.Kind,
+				"name":    crd["metadata"].(map[string]any)["name"],
+				"spec":    spec,
+			}
+			mustValidate(t, editor, manifest, true, "native manifest")
+			delete(manifest, "version")
+			mustValidate(t, editor, manifest, false, "native manifest without version")
+		})
+	}
+
+	for name, doc := range map[string]any{
+		"legacy application":  map[string]any{"version": "v1", "type": "Application", "name": "app"},
+		"Kubernetes resource": map[string]any{"apiVersion": "v1", "kind": "ConfigMap"},
+		"no discriminator":    map[string]any{"version": "v1", "name": "unrecognized"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mustValidate(t, editor, doc, true, name)
+		})
+	}
+}
+
 func TestNativeValkeyDocumentationOmitsCRDOnlyVersion(t *testing.T) {
 	outputDir := t.TempDir()
 	cfg := &Config{

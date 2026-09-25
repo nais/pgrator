@@ -64,3 +64,15 @@ An `all.json` file is also written to `<dir>`, referencing every generated schem
 
 The refs are plain relative filenames, which resolve correctly once the files are served from the same
 bucket/path — this is how the `nais` CLI is expected to consume the full set of schemas.
+
+### Editor schema
+
+`editor.json` is published alongside `all.json` for SchemaStore's automatic filename matching.
+It delegates to `all.json` only for documents whose top-level `type` is a native kind
+listed in `NativeKinds`; other documents are accepted without validation. This lets
+`nais.yaml` and `.nais/*.yaml` contain legacy manifests without false errors. A native
+manifest missing `type` cannot be identified by this schema and will not be validated;
+use `all.json` when explicitly validating files that contain only native manifests.
+
+Publish `editor.json` before registering its URL in SchemaStore. Once matched files
+contain only native manifests, SchemaStore can point directly to `all.json` instead.
