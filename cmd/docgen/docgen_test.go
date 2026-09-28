@@ -90,7 +90,7 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 				"spec":    spec,
 			}
 			mustValidate(t, sch, manifest, true, "native manifest")
-			mustValidate(t, aggregate, manifest, true, "native manifest via all.json")
+			mustValidate(t, aggregate, manifest, gvk.Kind != unpublishedKind, "native manifest via all.json")
 
 			manifest["unknownField"] = unknownValue
 			mustValidate(t, sch, manifest, false, "unknown envelope field")
@@ -143,7 +143,7 @@ func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 			}
 			mustValidate(t, editor, manifest, true, "native manifest")
 			delete(manifest, "version")
-			mustValidate(t, editor, manifest, false, "native manifest without version")
+			mustValidate(t, editor, manifest, gvk.Kind == unpublishedKind, "native manifest without version")
 		})
 	}
 
@@ -210,7 +210,7 @@ func TestPostgresDocumentationUsesNativeManifest(t *testing.T) {
 }
 
 // TestAllSchemaAggregatesEveryFile checks that all.json exists, parses, and
-// every $ref points to a file that was actually generated.
+// every $ref points to an advertised schema file that was actually generated.
 func TestAllSchemaAggregatesEveryFile(t *testing.T) {
 	schemaDir := generateSchemas(t)
 
@@ -228,8 +228,8 @@ func TestAllSchemaAggregatesEveryFile(t *testing.T) {
 		t.Fatalf("parsing all.json: %v", err)
 	}
 
-	if len(doc.OneOf) != len(NativeKinds) {
-		t.Fatalf("all.json has %d entries, want %d native kinds", len(doc.OneOf), len(NativeKinds))
+	if len(doc.OneOf) != len(NativeKinds)-1 {
+		t.Fatalf("all.json has %d entries, want %d advertised kinds", len(doc.OneOf), len(NativeKinds)-1)
 	}
 
 	refs := make([]string, 0, len(doc.OneOf))
@@ -238,6 +238,9 @@ func TestAllSchemaAggregatesEveryFile(t *testing.T) {
 			t.Fatalf("empty $ref in all.json")
 		}
 		refs = append(refs, entry.Ref)
+		if entry.Ref == "nais.io_v1_Postgres.json" {
+			t.Error("all.json advertises Postgres before announcement")
+		}
 
 		if _, err := os.Stat(filepath.Join(schemaDir, entry.Ref)); err != nil {
 			t.Errorf("all.json references %s, but it does not exist: %v", entry.Ref, err)

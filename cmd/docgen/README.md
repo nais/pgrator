@@ -56,10 +56,11 @@ Documentation examples and schemas are generated independently.
 
 ### Aggregate schema
 
-An `all.json` file is also written to `<dir>`, referencing every generated schema file via `$ref`:
+An `all.json` file is also written to `<dir>`, referencing advertised schema files via `$ref`.
+Postgres is temporarily omitted pending its announcement, though its standalone schema is still generated:
 
 ```json
-{"oneOf": [{"$ref": "nais.io_v1_OpenSearch.json"}, {"$ref": "nais.io_v1_Postgres.json"}, {"$ref": "nais.io_v1_Valkey.json"}]}
+{"oneOf": [{"$ref": "nais.io_v1_OpenSearch.json"}, {"$ref": "nais.io_v1_Valkey.json"}]}
 ```
 
 The refs are plain relative filenames, which resolve correctly once the files are served from the same
@@ -68,8 +69,8 @@ bucket/path — this is how the `nais` CLI is expected to consume the full set o
 ### Editor schema
 
 `editor.json` is published alongside `all.json` for SchemaStore's automatic filename matching.
-It delegates to `all.json` only for documents whose top-level `type` is a native kind
-listed in `NativeKinds`; other documents are accepted without validation. This lets
+It delegates to `all.json` only for advertised native kinds (currently Valkey and
+OpenSearch); Postgres and other documents are accepted without validation. This lets
 `nais.yaml` and `.nais/*.yaml` contain legacy manifests without false errors. A native
 manifest missing `type` cannot be identified by this schema and will not be validated;
 use `all.json` when explicitly validating files that contain only native manifests.

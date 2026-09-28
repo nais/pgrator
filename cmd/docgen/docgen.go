@@ -35,6 +35,9 @@ import (
 
 const valkeyKind = "Valkey"
 
+// Postgres is generated as a standalone schema, but is not yet advertised in aggregate schemas.
+const unpublishedKind = "Postgres"
+
 // ExampleRegistry maps CRD GroupVersionKind to functions that return example resources.
 // Add new CRD examples here when adding new CRDs to the project.
 var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
@@ -281,7 +284,7 @@ func runWithConfig(cfg *Config) error {
 			if !generated {
 				continue
 			}
-			if filename != "" {
+			if filename != "" && gk.Kind != unpublishedKind {
 				schemaFiles = append(schemaFiles, filename)
 			}
 		}
@@ -487,7 +490,7 @@ func nativeEnvelope(kind, version string, specSchema any) map[string]any {
 }
 
 // writeAllSchema writes the aggregate all.json, which oneOf-references every
-// generated schema file by its relative filename. filenames need not be
+// advertised schema file by its relative filename. filenames need not be
 // pre-sorted.
 func writeAllSchema(outputDir string, filenames []string) error {
 	sorted := slices.Clone(filenames)
@@ -507,7 +510,9 @@ func writeAllSchema(outputDir string, filenames []string) error {
 func writeEditorSchema(outputDir string) error {
 	kinds := make([]string, 0, len(NativeKinds))
 	for gvk := range NativeKinds {
-		kinds = append(kinds, gvk.Kind)
+		if gvk.Kind != unpublishedKind {
+			kinds = append(kinds, gvk.Kind)
+		}
 	}
 	slices.Sort(kinds)
 
