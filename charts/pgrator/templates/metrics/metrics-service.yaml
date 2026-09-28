@@ -15,5 +15,5 @@ spec:
       name: https
   selector:
     control-plane: controller-manager
-    app.kubernetes.io/name: pgrator
+    {{- include "chart.selectorLabels" . | nindent 4 }}
 {{- end }}
