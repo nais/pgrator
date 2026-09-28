@@ -335,8 +335,14 @@ func (r *PostgresInstanceReconciler) Update(obj *v1.PostgresInstance, prepared P
 		Spec: prepared.PostgresSpec,
 	}
 
-	actions := make([]action.Action, 0, 5)
+	actions := make([]action.Action, 0, 6)
 	wal := r.walArchive(obj, prepared)
+
+	personalGroup, err := createPersonalAccessGroupRole(r.Scheme, obj)
+	if err != nil {
+		return nil, ctrl.Result{}, fmt.Errorf("creating personal access group DatabaseRole: %w", err)
+	}
+	actions = append(actions, action.CreateOrUpdate(personalGroup, obj, existsConditionGetter, r.Recorder))
 
 	ownerRole, err := createDurableOwnerRole(r.Scheme, obj)
 	if err != nil {
@@ -397,6 +403,30 @@ func (r *PostgresInstanceReconciler) Update(obj *v1.PostgresInstance, prepared P
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresInstance) (*cnpgv1.DatabaseRole, error) {
+	role := &cnpgv1.DatabaseRole{
+		TypeMeta: metav1.TypeMeta{Kind: "DatabaseRole", APIVersion: cnpgv1.SchemeGroupVersion.String()},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rccnpg.ClusterNameFor(instance.GetName()) + "-personal-access",
+			Namespace: instance.GetNamespace(),
+		},
+		Spec: cnpgv1.DatabaseRoleSpec{
+			ClusterRef:    corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(instance.GetName())},
+			ReclaimPolicy: cnpgv1.DatabaseRoleReclaimDelete,
+			RoleConfiguration: cnpgv1.RoleConfiguration{
+				Name:            rccnpg.PersonalAccessRole(instance.Name),
+				Login:           false,
+				DisablePassword: true,
+				Comment:         "Authentication group for personal Postgres access",
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(instance, role, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on personal access group DatabaseRole: %w", err)
+	}
+	return role, nil
 }
 
 func createDurableOwnerRole(scheme *runtime.Scheme, instance *v1.PostgresInstance) (*cnpgv1.DatabaseRole, error) {

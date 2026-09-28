@@ -8,8 +8,8 @@ ADR 0005 described the former WireGuard/tunnel-operator design. Pgrator now
 implements this relay-backed transport contract directly; its PostgresAccess
 API no longer accepts a WireGuard key and its status contains no Tunnel data.
 The NAIS API and CLI have not yet migrated. ADR 0005's logical database and
-pgrator-orchestration boundaries remain; its password-only choice for personal
-SQL authentication is superseded by the client-certificate direction below.
+pgrator-orchestration boundaries remain, including the short-lived SCRAM
+password and durable personal database role. Only the transport changes.
 
 An isolated proof of concept in `dev-nais-dev` carried PostgreSQL traffic from
 a localhost listener over ordinary HTTP/3 `CONNECT`, through a Google UDP
@@ -83,31 +83,30 @@ holds a valid credential. PostgreSQL TLS is not terminated by the relay.
   the relay's per-connection target check becomes a security boundary. Review
   the blast radius of relay compromise and whether this shared-Pod model is
   acceptable before production rollout.
-- **SQL authentication blocker:** CNPG's `PodSelectorRef` only resolves Pods in
-  the database Cluster's namespace; relay runs in `nais-system`. The attempted
-  relay-specific SCRAM rule could not authenticate relay connections, so it has
-  been removed rather than replaced with a broad password-authentication rule.
-  The per-access database ingress NetworkPolicy and RelayAccess mapping remain
-  declarative, but **SQL access through relay is not functional**. The user
-  chose client certificates for personal SQL authentication, not a
-  broader SCRAM HBA rule: CNPG `DatabaseRole.spec.clientCertificate.enabled`
-  can issue a certificate and key signed by CNPG's client CA without pgrator
-  reading or possessing the CA private key. Issuance and delivery are **not**
-  implemented by this change.
-
-  CNPG's DatabaseRole client-certificate configuration has no per-role TTL.
-  A certificate for a durable, retained login role can therefore outlive one
-  PostgresAccess. Deleting the generated Secret does not revoke certificate
-  copies already delivered to clients, and PostgreSQL `validUntil` limits
-  passwords rather than providing certificate revocation. Before enabling
-  personal client-cert access, specify and verify per-access certificate
-  validity/revocation and role-login semantics that prevent a past access's
-  certificate from authenticating after that access ends. Neither pgrator
-  status nor an API/CLI consumer may claim end-to-end connectivity until
-  that design and its tests exist.
+- **SQL authentication:** CNPG's `PodSelectorRef` only resolves Pods in the
+  database Cluster's namespace, while relay runs in `nais-system`. Preserve
+  ADR 0005's SCRAM password and `validUntil` rather than issuing personal
+  certificates. Pgrator owns a separate `NOLOGIN` group role
+  `nais_pa_<instance-hash>` for each physical instance, including existing and
+  recovered clusters. Pgrator adds active personal roles to it; the `pg_hba`
+  rule `hostssl all +nais_pa_<instance-hash> all scram-sha-256` comes after the
+  pooler-specific rule and before the existing certificate rule. PostgreSQL
+  requires group membership and a valid password; roles outside the group
+  still require a client certificate. The group grants no database privileges.
+  A retained role can keep its group membership after access deletion, but
+  `validUntil` rejects its old password; the next access rotates that password.
+  Recovery copies the source's roles, memberships and unexpired passwords:
+  the destination uses a different instance group so the copied credential
+  cannot authenticate there before access is granted for the destination.
+  The rule is not restricted to relay's IP: the database ingress NetworkPolicy
+  remains the source restriction, and SQL requires the personal credential.
+  Local PostgreSQL verified successful personal SCRAM login over TLS, rejected
+  password login for an unrelated role, and rejected the expired password.
+  Verify CNPG applies the group and membership and test relay-to-Postgres SQL
+  login in dev-nais before calling the integration ready.
 - **Readiness and lifetime:** Pgrator marks Ready only after the CNPG role
-  reports Applied for its current generation and the relay mapping and token
-  Secret have been persisted. This does **not** prove that the relay service or
+  (including its authentication-group membership) reports Applied for its
+  current generation and the relay mapping and token Secret have been persisted. This does **not** prove that the relay service or
   SQL data path is available. An on-demand GET needs no per-replica mapping
   acknowledgment. Reject new connections after expiry/deletion and close
   connections at expiry; define

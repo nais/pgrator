@@ -26,6 +26,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
+func TestPersonalAccessGroupHasNoLoginOrPrivileges(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}}
+	group, err := createPersonalAccessGroupRole(scheme, instance)
+	requireNoError(t, err)
+	role := group.Spec.RoleConfiguration
+	if group.Spec.ClusterRef.Name != rccnpg.ClusterNameFor(instance.Name) || role.Name != rccnpg.PersonalAccessRole(instance.Name) {
+		t.Errorf("personal group not scoped to its physical instance: %#v", group.Spec)
+	}
+	if role.Login || !role.DisablePassword || role.Superuser || role.CreateDB || role.CreateRole || role.Replication || role.BypassRLS || len(role.InRoles) != 0 || group.Spec.ClientCertificate != nil {
+		t.Errorf("personal authentication group can log in or grant privileges: %#v", group.Spec)
+	}
+	if group.Spec.ReclaimPolicy != cnpgv1.DatabaseRoleReclaimDelete {
+		t.Errorf("personal authentication group reclaim policy = %q", group.Spec.ReclaimPolicy)
+	}
+}
+
 func TestPostgresInstanceDeleteRespectsActiveInstance(t *testing.T) {
 	reconciler := &PostgresInstanceReconciler{Recorder: recorder}
 	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}}

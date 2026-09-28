@@ -5,6 +5,7 @@
 package cnpg
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"strings"
@@ -182,6 +183,13 @@ func (w WALArchive) Enabled() bool {
 // is certificate-based (hostssl ... cert); the durable app owner is created by
 // InitDB with superuser access disabled, and bootstrap SQL pre-creates the
 // app_read/app_readwrite group roles and their default privileges.
+// PersonalAccessRole returns the authentication group unique to a physical
+// instance. A restored instance must not inherit the source's SCRAM access.
+func PersonalAccessRole(instance string) string {
+	hash := sha256.Sum256([]byte(instance))
+	return fmt.Sprintf("nais_pa_%x", hash[:8])
+}
+
 func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource) (*cnpgv1.Cluster, error) {
 	instances := defaultInstances
 	minSync, maxSync := 0, 0
@@ -252,6 +260,11 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 					// Restricted to the pooler pod IPs, so possession of the pooler
 					// certificate alone is not enough to impersonate a role.
 					fmt.Sprintf("hostssl all all ${podselector:%s} cert map=%s", poolerSelectorName, pgIdentMap),
+
+					// Only personal roles may use their short-lived SCRAM password.
+					// The role group is managed on both existing and new clusters;
+					// unlike PodSelectorRef it works when relay is in another namespace.
+					"hostssl all +" + PersonalAccessRole(postgres.Name) + " all scram-sha-256",
 
 					// Certificate authentication for all other clients. Without a
 					// map, PostgreSQL requires the certificate CN to equal the role,

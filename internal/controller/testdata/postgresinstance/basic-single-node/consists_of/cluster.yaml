@@ -40,6 +40,7 @@ object:
     postgresql:
       pg_hba:
         - hostssl all all ${podselector:pooler} cert map=pooler
+        - hostssl all +nais_pa_b50d3038fdd554ed all scram-sha-256
         - hostssl all all all cert
         - hostnossl all all all reject
       pg_ident:
