@@ -1,15 +1,15 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Broker personal Postgres access through a relay-owned RelayAccess
 
-ADR 0005 describes the current WireGuard/tunnel-operator design. This ADR
-records the chosen direction for a relay-backed data path; it does not claim
-that the API, CLI, pgrator or relay have been migrated. ADR 0005 remains the
-current transport contract until that migration is implemented and verified.
-The database-identity and pgrator-orchestration decisions in ADR 0005 still
-apply.
+ADR 0005 described the former WireGuard/tunnel-operator design. Pgrator now
+implements this relay-backed transport contract directly; its PostgresAccess
+API no longer accepts a WireGuard key and its status contains no Tunnel data.
+The NAIS API and CLI have not yet migrated. ADR 0005's logical database and
+pgrator-orchestration boundaries remain, including the short-lived SCRAM
+password and durable personal database role. Only the transport changes.
 
 An isolated proof of concept in `dev-nais-dev` carried PostgreSQL traffic from
 a localhost listener over ordinary HTTP/3 `CONNECT`, through a Google UDP
@@ -45,12 +45,16 @@ role follows ADR 0005's identity lifecycle.
 The `nais/relay` repository owns the `RelayAccess` CRD and the relay's
 implementation of its contract. **Owning the CRD does not mean the relay
 creates RelayAccess instances.** Relay replicas only consume the desired
-state and enforce it for connections; pgrator is its producer. The CR needs
-to identify an individual access, an exact permitted target derived from the
-PostgresInstance, its expiry, and the material needed to verify that the
-connecting client holds authorization for that access. The precise
-credential/proof format remains to be designed. Database passwords and
-plaintext relay bearer tokens must not be placed in the CR.
+state and enforce it for connections; pgrator is its producer. The CR identifies one access by namespace/name and has an immutable spec:
+`target.serviceName` is the selected instance's CNPG `<cluster>-rw` Service,
+`target.port` is 5432, `expiresAt` is the PostgresAccess expiry, and
+`tokenSHA256` is the lowercase hexadecimal SHA-256 of the decoded raw 32-byte
+bearer token. Pgrator generates that token once as canonical unpadded base64url
+and stores it in a separate controller-owned Opaque Secret; the CNPG password
+Secret remains separate. Neither database passwords nor plaintext relay bearer
+tokens are placed in the CR or PostgresAccess status. Status exposes only the
+RelayAccess and token Secret names. The relay GETs the mapping and validates
+the raw token digest on each new connection.
 
 For each new HTTP/3 `CONNECT`, the client supplies an access identifier and
 proof of authorization. The relay performs a Kubernetes **GET** of that
@@ -65,13 +69,12 @@ holds a valid credential. PostgreSQL TLS is not terminated by the relay.
 
 ## Boundaries to resolve before implementation
 
-- **Client proof and delivery:** The POC's single shared bearer token is not
-  suitable for production. Choose a per-access, high-entropy credential or
-  another verifiable, access-bound proof; define how pgrator creates it,
-  stores it without reconcile-time rotation, and exposes it through the
-  existing owner-only API connection query. The relay must not read database
-  password Secrets. Limit who may create or mutate RelayAccess CRs; otherwise
-  an untrusted workload could grant itself a target.
+- **Client proof and delivery:** Pgrator's per-access bearer token is never
+  logged or placed in status. The existing owner-only NAIS API connection
+  query still needs to retrieve it by `status.tokenSecret` and deliver it only
+  to the authorized person. The relay must not read database password Secrets.
+  Limit who may create or mutate RelayAccess CRs; otherwise an untrusted
+  workload could grant itself a target.
 - **Network isolation:** A shared relay Pod can reach the union of database
   targets allowed by the ingress policies. Unlike a per-access tunnel gateway,
   a Kubernetes NetworkPolicy cannot distinguish one user's connection from
@@ -80,20 +83,44 @@ holds a valid credential. PostgreSQL TLS is not terminated by the relay.
   the relay's per-connection target check becomes a security boundary. Review
   the blast radius of relay compromise and whether this shared-Pod model is
   acceptable before production rollout.
-- **Readiness and lifetime:** Decide how pgrator proves the declared mapping
-  and relay service are usable before marking PostgresAccess Ready. An
-  on-demand GET needs no per-replica mapping acknowledgment. Reject new
-  connections after expiry/deletion and close connections at expiry; define
+- **SQL authentication:** CNPG's `PodSelectorRef` only resolves Pods in the
+  database Cluster's namespace, while relay runs in `nais-system`. Preserve
+  ADR 0005's SCRAM password and `validUntil` rather than issuing personal
+  certificates. Pgrator owns a separate `NOLOGIN` group role
+  `nais_pa_<instance-hash>` for each physical instance, including existing and
+  recovered clusters. Pgrator adds active personal roles to it; the `pg_hba`
+  rule `hostssl all +nais_pa_<instance-hash> all scram-sha-256` comes after the
+  pooler-specific rule and before the existing certificate rule. PostgreSQL
+  requires group membership and a valid password; roles outside the group
+  still require a client certificate. The group grants no database privileges.
+  A retained role can keep its group membership after access deletion, but
+  `validUntil` rejects its old password; the next access rotates that password.
+  Recovery copies the source's roles, memberships and unexpired passwords:
+  the destination uses a different instance group so the copied credential
+  cannot authenticate there before access is granted for the destination.
+  The rule is not restricted to relay's IP: the database ingress NetworkPolicy
+  remains the source restriction, and SQL requires the personal credential.
+  Local PostgreSQL verified successful personal SCRAM login over TLS, rejected
+  password login for an unrelated role, and rejected the expired password.
+  Verify CNPG applies the group and membership and test relay-to-Postgres SQL
+  login in dev-nais before calling the integration ready.
+- **Readiness and lifetime:** Pgrator marks Ready only after the CNPG role
+  (including its authentication-group membership) reports Applied for its
+  current generation and the relay mapping and token Secret have been persisted. This does **not** prove that the relay service or
+  SQL data path is available. An on-demand GET needs no per-replica mapping
+  acknowledgment. Reject new connections after expiry/deletion and close
+  connections at expiry; define
   whether manual revocation must also terminate already-open connections and,
   if so, how replicas observe it. Bound Kubernetes GET latency and rate, and
   fail closed during API-server outages.
-- **Contract migration:** The present PostgresAccess spec requires a CLI
-  WireGuard public key, and its status/readiness and the API connection query
-  expose Tunnel fields. Define a relay-backed variant or migration before
-  removing those fields. Resolve the current TTL mismatch: the API accepts
-  up to 8 hours while pgrator currently rejects access beyond one hour.
-  Deliver CRD/RBAC and relay before pgrator creates RelayAccess, then switch
-  API/CLI after the new status and credential path is available.
+- **Contract migration:** Pgrator's v1 PostgresAccess spec no longer requires
+  `clientWireGuardPublicKey`; `status.relayAccess` and `status.tokenSecret`
+  replace Tunnel status. NAIS API and CLI still need to adopt these fields and
+  remove Tunnel/WireGuard assumptions. Resolve the TTL mismatch: API accepts
+  up to 8 hours while pgrator rejects access beyond one hour. Roll out the
+  relay CRD and its GET RBAC before pgrator creates mappings; switch API/CLI
+  only after their relay connection path is ready. Relay egress remains owned
+  by the relay deployment, not by pgrator.
 
 ## Considered options
 

@@ -52,8 +52,9 @@ rules:
 - apiGroups: [networking.k8s.io]
   resources: [networkpolicies]
   verbs: [create, delete, get, list, patch, update, watch]
+# RelayAccess is owned by pgrator; relay itself only GETs these mappings.
 - apiGroups: [nais.io]
-  resources: [tunnels]
+  resources: [relayaccesses]
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [networking.gke.io]
   resources: [fqdnnetworkpolicies]

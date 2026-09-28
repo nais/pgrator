@@ -2,6 +2,7 @@ package cnpg
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,16 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 
 	if cluster.Spec.Bootstrap.Recovery == nil || cluster.Spec.Bootstrap.InitDB != nil {
 		t.Fatal("Cluster bootstrap did not use recovery")
+	}
+	if PersonalAccessRole("orders-restore") == PersonalAccessRole("orders-primary") {
+		t.Fatal("recovery instance reused source authentication group")
+	}
+	wantHBA := "hostssl all +" + PersonalAccessRole("orders-restore") + " all scram-sha-256"
+	if !slices.Contains(cluster.Spec.PostgresConfiguration.PgHBA, wantHBA) {
+		t.Errorf("recovered cluster pg_hba = %v, want %q", cluster.Spec.PostgresConfiguration.PgHBA, wantHBA)
+	}
+	if slices.Contains(cluster.Spec.PostgresConfiguration.PgHBA, "hostssl all +"+PersonalAccessRole("orders-primary")+" all scram-sha-256") {
+		t.Fatal("recovered cluster accepts source authentication group")
 	}
 	if got, want := cluster.Spec.Bootstrap.Recovery.RecoveryTarget.TargetTime, "2026-09-09T13:10:00Z"; got != want {
 		t.Errorf("recovery target time = %q, want %q", got, want)

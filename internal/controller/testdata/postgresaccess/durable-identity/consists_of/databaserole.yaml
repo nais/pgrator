@@ -18,6 +18,7 @@ object:
     validUntil: "2026-09-16T12:00:00Z"
     inRoles:
       - app_readwrite
+      - nais_pa_937870b3fe76dfe4
     superuser: false
     createdb: false
     createrole: false

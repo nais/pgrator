@@ -2,140 +2,411 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	rcaccess "github.com/nais/pgrator/internal/resourcecreator/access"
+	"github.com/nais/pgrator/internal/synchronizer"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
-	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func makePostgresAccessReconciler() *PostgresAccessReconciler {
 	return &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 }
 
-func TestPostgresAccessReconcilesDatabaseRoleAndTunnel(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore", AccessLevel: v1.PostgresAccessLevelReadWrite, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
-	}}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
-	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders-restore", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
+func accessFixture() (*v1.PostgresAccess, *v1.PostgresInstance, *v1.Postgres, *cnpgv1.Cluster) {
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresInstance: "orders", AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
+	i := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "db"}}
+	p := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "team"}}
+	c := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
+	return a, i, p, c
+}
+
+func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
+	a, i, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
-	prepared, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(instance, postgres, cluster).Build(), access)
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c).Build()
+	prepared, _, err := r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
-	if prepared.Instance == nil || prepared.Instance.Name != instance.Name {
-		t.Fatal("Prepare() did not return referenced instance")
-	}
-
-	actions, _, err := r.Update(access, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	actions, _, err := r.Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
-	if len(actions) != 4 {
-		t.Fatalf("Update() actions = %d, want 4", len(actions))
+	if len(actions) != 5 {
+		t.Fatalf("actions = %d, want 5", len(actions))
 	}
-	role, ok := actions[1].GetObject().(*cnpgv1.DatabaseRole)
+	token, ok := actions[2].GetObject().(*corev1.Secret)
 	if !ok {
-		t.Fatalf("action object = %T, want DatabaseRole", actions[1].GetObject())
+		t.Fatalf("token action = %T", actions[2].GetObject())
 	}
-	if role.Spec.ReclaimPolicy != cnpgv1.DatabaseRoleReclaimRetain {
-		t.Errorf("reclaim policy = %q, want retain", role.Spec.ReclaimPolicy)
+	digest, err := rcaccess.TokenDigest(string(token.Data[rcaccess.TokenKey]))
+	requireNoError(t, err)
+	if token.Name == rcaccess.CredentialSecretName(a) {
+		t.Error("relay token must not be the CNPG credential")
 	}
-	owner := metav1.GetControllerOf(role)
-	if owner == nil || owner.Kind != "PostgresAccess" || owner.Name != access.Name {
-		t.Error("DatabaseRole must be controlled by PostgresAccess")
+	relay := actions[3].GetObject()
+	spec := relay.(*unstructured.Unstructured).Object["spec"].(map[string]any)
+	if spec["tokenSHA256"] != digest || spec["target"].(map[string]any)["serviceName"] != "pg-orders-rw" {
+		t.Errorf("mapping = %v", spec)
 	}
-	if !role.Spec.Login || role.Spec.PasswordSecret == nil || len(role.Spec.InRoles) != 1 || role.Spec.InRoles[0] != "app_readwrite" {
-		t.Error("active DatabaseRole is missing its credential or readwrite membership")
+	if a.Status.TokenSecret != "" || a.Status.RelayAccess != relay.GetName() {
+		t.Errorf("unpersisted token must not be advertised as provisioned: %+v", a.Status)
 	}
-	if access.Status.DatabaseRole != role.Spec.Name {
-		t.Errorf("status database role = %q, want %q", access.Status.DatabaseRole, role.Spec.Name)
-	}
-	tunnel, ok := actions[2].GetObject().(*tunnelv1alpha1.Tunnel)
-	if !ok {
-		t.Fatalf("action object = %T, want Tunnel", actions[2].GetObject())
-	}
-	if tunnel.Spec.Target.Host != "pg-orders-restore-rw.team.svc.cluster.local" {
-		t.Errorf("tunnel target host = %q, want %q", tunnel.Spec.Target.Host, "pg-orders-restore-rw.team.svc.cluster.local")
-	}
-	if tunnel.Spec.Target.Port != 5432 {
-		t.Errorf("tunnel target port = %d, want 5432", tunnel.Spec.Target.Port)
-	}
-	if tunnel.Spec.Target.PodSelector == nil || tunnel.Spec.Target.PodSelector.MatchLabels["cnpg.io/cluster"] != "pg-orders-restore" || tunnel.Spec.Target.PodSelector.MatchLabels["cnpg.io/instanceRole"] != "primary" {
-		t.Error("tunnel target podSelector must select the CNPG primary")
-	}
-	netpol, ok := actions[3].GetObject().(*networkingv1.NetworkPolicy)
-	if !ok {
-		t.Fatalf("action object = %T, want NetworkPolicy", actions[3].GetObject())
-	}
-	if netpol.Spec.PodSelector.MatchLabels["cnpg.io/cluster"] != "pg-orders-restore" {
-		t.Error("network policy must select the CNPG primary")
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
+		t.Error("new access must not be Ready")
 	}
 }
 
-func TestPostgresAccessPrepareRejectsMissingInstance(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresInstance: "missing", ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour))}}
-	_, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), access)
-	if err == nil {
-		t.Fatal("Prepare() error = nil, want missing PostgresInstance error")
+func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
+	a, i, p, c := accessFixture()
+	password, err := rcaccess.CreateCredentialSecret(scheme.Scheme, a, "password")
+	requireNoError(t, err)
+	password.Data = map[string][]byte{corev1.BasicAuthPasswordKey: []byte("password")}
+	password.StringData = nil // fake client does not convert StringData to Data
+	failed := false
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, i, p, c, password).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if obj.GetName() == rcaccess.TokenSecretName(a) && !failed {
+					failed = true
+					return errors.New("injected first token write failure")
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Name == rcaccess.CredentialSecretName(a) {
+					// Fake client does not perform the API server's StringData conversion.
+					secret.Data = map[string][]byte{corev1.BasicAuthPasswordKey: []byte(secret.StringData[corev1.BasicAuthPasswordKey])}
+					secret.StringData = nil
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+	reconcileOnce := func() error {
+		sync := synchronizer.NewSynchronizer(reader, scheme.Scheme, makePostgresAccessReconciler(), recorder)
+		_, err := sync.Reconcile(context.Background(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
+		return err
+	}
+	if err := reconcileOnce(); err == nil || !failed {
+		t.Fatalf("first reconcile: err = %v, injected failure = %v", err, failed)
+	}
+	stored := &v1.PostgresAccess{}
+	requireNoError(t, reader.Get(context.Background(), client.ObjectKeyFromObject(a), stored))
+	if stored.Status != nil && stored.Status.TokenSecret != "" {
+		t.Fatal("unpersisted token must not be marked as provisioned")
+	}
+	requireNoError(t, reconcileOnce()) // new synchronizer: recover from persisted state
+	storedToken := &corev1.Secret{}
+	requireNoError(t, reader.Get(context.Background(), client.ObjectKey{Namespace: a.Namespace, Name: rcaccess.TokenSecretName(a)}, storedToken))
+	first := string(storedToken.Data[rcaccess.TokenKey])
+	requireNoError(t, reconcileOnce())
+	requireNoError(t, reader.Get(context.Background(), client.ObjectKeyFromObject(storedToken), storedToken))
+	if first == "" || string(storedToken.Data[rcaccess.TokenKey]) != first {
+		t.Fatal("persisted token rotated after restart")
 	}
 }
 
-func TestPostgresAccessPrepareRejectsInvalidExpiry(t *testing.T) {
-	for _, expiry := range []time.Time{time.Now().Add(-time.Second), time.Now().Add(2 * time.Hour)} {
-		access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{ExpiresAt: metav1.NewTime(expiry)}}
-		_, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), access)
-		if err == nil {
-			t.Error("Prepare() error = nil, want expiry validation error")
+func TestPostgresAccessPreservesTokenAcrossReconcile(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	tokenText, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	token, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, tokenText)
+	requireNoError(t, err)
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token).Build()
+	for range 2 {
+		prep, _, err := r.Prepare(context.Background(), reader, a)
+		requireNoError(t, err)
+		if prep.Token != tokenText || !prep.TokenPersisted {
+			t.Fatal("stored token changed")
+		}
+		actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+		requireNoError(t, err)
+		if !reflect.DeepEqual(actions[2].GetObject().(*corev1.Secret).Data, token.Data) {
+			t.Fatal("token rotated")
 		}
 	}
 }
 
-func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}}
-	actions, result, err := (&PostgresAccessReconciler{Recorder: recorder}).Delete(access, PostgresAccessPreparedData{}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	tokenText, err := rcaccess.NewToken()
 	requireNoError(t, err)
-	if len(actions) != 0 || !result.IsZero() {
-		t.Error("Delete() must let garbage collection remove access-owned resources")
+	digest, err := rcaccess.TokenDigest(tokenText)
+	requireNoError(t, err)
+	token, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, tokenText)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, a, true)
+	requireNoError(t, err)
+	applied := true
+	role.Generation = 2
+	role.Status.Applied = &applied
+	role.Status.ObservedGeneration = 1
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, role).Build()
+	prep, _, err := r.Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
+		t.Error("stale role marked Ready")
+	}
+	readyRole := role.DeepCopy()
+	readyRole.Status.ObservedGeneration = 2
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, readyRole).Build()
+	prep, _, err = r.Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionTrue {
+		t.Error("persisted mapping/token and applied role should be Ready")
 	}
 }
 
-func TestPostgresAccessReadyOnlyWhenRoleAndTunnelReady(t *testing.T) {
+func TestPostgresAccessRefusesMissingTokenForExistingMapping(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	token, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(token)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, relay).Build()
+	_, _, err = r.Prepare(context.Background(), reader, a)
+	if err == nil {
+		t.Fatal("missing token must not be replaced")
+	}
+}
+
+func TestPostgresAccessRevokesReadinessOnTokenMutationOrDeletion(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	original, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(original)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	stored, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, original)
+	requireNoError(t, err)
+	replacement, err := rcaccess.NewToken()
+	requireNoError(t, err)
+
+	if !r.OwnedTypes()[0].AdditionalPredicate.Update(event.UpdateEvent{
+		ObjectOld: stored,
+		ObjectNew: func() *corev1.Secret {
+			modified := stored.DeepCopy()
+			modified.Data[rcaccess.TokenKey] = []byte(replacement)
+			return modified
+		}(),
+	}) {
+		t.Fatal("data-only token update must enqueue PostgresAccess")
+	}
+	for _, tc := range []struct {
+		name   string
+		secret *corev1.Secret
+	}{
+		{name: "changed valid token", secret: func() *corev1.Secret {
+			modified := stored.DeepCopy()
+			modified.Data[rcaccess.TokenKey] = []byte(replacement)
+			return modified
+		}()},
+		{name: "deleted token"},
+		{name: "terminating token", secret: func() *corev1.Secret {
+			modified := stored.DeepCopy()
+			now := metav1.Now()
+			modified.DeletionTimestamp = &now
+			modified.Finalizers = []string{"test.nais.io/cleanup"}
+			return modified
+		}()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			access := a.DeepCopy()
+			access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
+			objects := []client.Object{i, p, c, relay}
+			if tc.secret != nil {
+				objects = append(objects, tc.secret)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objects...).Build()
+			prep, _, err := r.Prepare(context.Background(), reader, access)
+			if err == nil {
+				_, _, err = r.Update(access, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+			}
+			if err == nil || findReadyCondition(access.Status.Conditions).Status != metav1.ConditionFalse {
+				t.Fatalf("invalid token state must reject access and clear Ready, error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPostgresAccessRejectsTerminatingRelay(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	token, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(token)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	terminating := relay.DeepCopy()
+	now := metav1.Now()
+	terminating.SetDeletionTimestamp(&now)
+	terminating.SetFinalizers([]string{"test.nais.io/cleanup"})
+	if !r.OwnedTypes()[2].AdditionalPredicate.Update(event.UpdateEvent{ObjectOld: relay, ObjectNew: terminating}) {
+		t.Fatal("relay deletion transition must enqueue PostgresAccess")
+	}
+	access := a.DeepCopy()
+	access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, terminating).Build()
+	_, _, err = r.Prepare(context.Background(), reader, access)
+	if err == nil || findReadyCondition(access.Status.Conditions).Status != metav1.ConditionFalse {
+		t.Fatalf("terminating relay cannot be Ready, error = %v", err)
+	}
+}
+
+func TestPostgresAccessRefusesImmutableMappingMismatch(t *testing.T) {
+	a, i, p, c := accessFixture()
+	r := makePostgresAccessReconciler()
+	tokenText, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(tokenText)
+	requireNoError(t, err)
+	token, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, tokenText)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	mapping := relay.Object["spec"].(map[string]any)
+	mapping["target"].(map[string]any)["serviceName"] = "pg-other-rw"
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay).Build()
+	prep, _, err := r.Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	if err == nil || len(actions) != 0 {
+		t.Fatal("immutable mapping mismatch must fail without writes")
+	}
+}
+
+func TestPostgresAccessMappingSurvivesAPIServerRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	a, i, _, _ := accessFixture()
+	a.Namespace = "default"
+	i.Namespace = "default"
+	requireNoError(t, k8sClient.Create(ctx, a))
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, a) })
+	token, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(token)
+	requireNoError(t, err)
+	mapping, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	requireNoError(t, k8sClient.Create(ctx, mapping))
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, mapping) })
+	read := relayAccessObject()
+	requireNoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(mapping), read))
+	secret, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, token)
+	requireNoError(t, err)
+	prepared := PostgresAccessPreparedData{Token: token, TokenPersisted: true, RelayAccess: read, Cluster: &cnpgv1.Cluster{}}
+	// A persisted immutable mapping must be claimed, not updated or recreated.
+	actions, _, err := makePostgresAccessReconciler().Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if len(actions) != 5 || actions[3].GetObject().GetName() != mapping.GetName() || secret.Name != rcaccess.TokenSecretName(a) {
+		t.Fatalf("reconcile changed persisted mapping or token references: %d actions", len(actions))
+	}
+	// The existing mapping's immutable spec survives the actual action against
+	// the API server; only pgrator's ownership annotation may be claimed.
+	requireNoError(t, actions[3].Do(ctx, k8sClient, scheme.Scheme, ownership.NewOwnerManager("postgresaccess.nais.io/owner")))
+	read = relayAccessObject()
+	requireNoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(mapping), read))
+	if !reflect.DeepEqual(read.Object["spec"], mapping.Object["spec"]) {
+		t.Errorf("immutable mapping changed after claim: %v", read.Object["spec"])
+	}
+}
+
+func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
+	a, i, p, c := accessFixture()
+	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(3 * time.Second))
+	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, a, true)
+	requireNoError(t, err)
+	role.Generation = 1
 	applied := true
-	role := &cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Generation: 1}, Status: cnpgv1.DatabaseRoleStatus{Applied: &applied, ObservedGeneration: 1}}
-	tunnel := &tunnelv1alpha1.Tunnel{Status: tunnelv1alpha1.TunnelStatus{Phase: tunnelv1alpha1.TunnelPhaseReady}}
-
-	status := &v1.PostgresAccessStatus{}
-	setPostgresAccessReadyCondition(status, role, tunnel)
-	cond := findReadyCondition(status.Conditions)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		t.Errorf("Ready condition = %v, want True", cond)
+	role.Status.Applied = &applied
+	role.Status.ObservedGeneration = 1
+	tokenText, err := rcaccess.NewToken()
+	requireNoError(t, err)
+	token, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, tokenText)
+	requireNoError(t, err)
+	digest, err := rcaccess.TokenDigest(tokenText)
+	requireNoError(t, err)
+	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
+	requireNoError(t, err)
+	password, err := rcaccess.CreateCredentialSecret(scheme.Scheme, a, "test-password")
+	requireNoError(t, err)
+	password.Data = map[string][]byte{corev1.BasicAuthPasswordKey: []byte("test-password")}
+	password.StringData = nil // fake client does not perform Secret StringData conversion
+	// The generic synchronizer must list an UnstructuredList and resolve its
+	// items' GVK for ownership and cleanup on a real reconcile.
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, i, p, c, role, relay, token, password).Build()
+	sync := synchronizer.NewSynchronizer(reader, scheme.Scheme, makePostgresAccessReconciler(), recorder)
+	result, err := sync.Reconcile(context.Background(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
+	requireNoError(t, err)
+	if result.RequeueAfter <= 0 || result.RequeueAfter > 3*time.Second {
+		t.Fatalf("expiry requeue = %s, want remaining access lifetime", result.RequeueAfter)
 	}
 
-	status.Conditions = nil
-	setPostgresAccessReadyCondition(status, role, &tunnelv1alpha1.Tunnel{Status: tunnelv1alpha1.TunnelStatus{Phase: tunnelv1alpha1.TunnelPhasePending}})
-	cond = findReadyCondition(status.Conditions)
-	if cond == nil || cond.Status != metav1.ConditionFalse {
-		t.Errorf("Ready condition = %v, want False while tunnel pending", cond)
+	// Simulate the scheduled requeue without changing the immutable spec.
+	// Expiry prunes the unstructured mapping alongside the other owned artifacts.
+	time.Sleep(result.RequeueAfter + 100*time.Millisecond)
+	_, err = sync.Reconcile(context.Background(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
+	requireNoError(t, err)
+	err = reader.Get(context.Background(), client.ObjectKeyFromObject(relay), relayAccessObject())
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expired mapping still exists: %v", err)
 	}
-
-	status.Conditions = nil
-	setPostgresAccessReadyCondition(status, nil, tunnel)
-	cond = findReadyCondition(status.Conditions)
-	if cond == nil || cond.Status != metav1.ConditionFalse {
-		t.Errorf("Ready condition = %v, want False while role missing", cond)
+	err = reader.Get(context.Background(), client.ObjectKeyFromObject(token), &corev1.Secret{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expired token still exists: %v", err)
 	}
+	err = reader.Get(context.Background(), client.ObjectKey{Namespace: a.Namespace, Name: rcaccess.RelayNetworkPolicyName(a)}, &networkingv1.NetworkPolicy{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expired ingress policy still exists: %v", err)
+	}
+}
 
-	status.Conditions = nil
-	setPostgresAccessReadyCondition(status, role, &tunnelv1alpha1.Tunnel{Status: tunnelv1alpha1.TunnelStatus{Phase: tunnelv1alpha1.TunnelPhaseConnected}})
-	cond = findReadyCondition(status.Conditions)
-	if cond == nil || cond.Status != metav1.ConditionFalse {
-		t.Errorf("Ready condition = %v, want False when tunnel is Connected", cond)
+func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
+	a, _, _, _ := accessFixture()
+	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
+	r := makePostgresAccessReconciler()
+	prep, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), a)
+	requireNoError(t, err)
+	actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if len(actions) != 0 || findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
+		t.Fatal("expired access must be disabled")
+	}
+}
+
+func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *testing.T) {
+	actions, result, err := makePostgresAccessReconciler().Delete(&v1.PostgresAccess{}, PostgresAccessPreparedData{}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if len(actions) != 0 || !result.IsZero() {
+		t.Error("deletion must leave owned resources to garbage collection")
 	}
 }
 
@@ -146,82 +417,4 @@ func findReadyCondition(conditions []metav1.Condition) *metav1.Condition {
 		}
 	}
 	return nil
-}
-
-// readwritecreate needs the app_readwritecreate group role, which only exists
-// on clusters initialized by a pgrator version that creates it. Accesses asking
-// for it on an uncapable instance must fail with an honest condition instead of
-// reconciling a DatabaseRole CNPG can never apply.
-func TestPostgresAccessReadWriteCreateRequiresCapableCluster(t *testing.T) {
-	newAccess := func(level v1.PostgresAccessLevel) *v1.PostgresAccess {
-		return &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", Generation: 1}, Spec: v1.PostgresAccessSpec{
-			Username: "frode.sundby@nav.no", PostgresInstance: "orders", AccessLevel: level, ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
-		}}
-	}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
-	capableCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
-		Name: "pg-orders", Namespace: "team",
-		Annotations: map[string]string{rccnpg.ReadWriteCreateCapableAnnotation: "true"},
-	}}
-	uncapableCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders", Namespace: "team"}}
-
-	t.Run("rejected on uncapable cluster", func(t *testing.T) {
-		access := newAccess(v1.PostgresAccessLevelReadWriteCreate)
-		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
-		requireNoError(t, err)
-		if len(actions) != 0 {
-			t.Fatalf("Update() actions = %d, want 0 for an unsupported access level", len(actions))
-		}
-		cond := findReadyCondition(access.Status.Conditions)
-		if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "UnsupportedAccessLevel" {
-			t.Errorf("Ready condition = %v, want False/UnsupportedAccessLevel", cond)
-		}
-	})
-
-	t.Run("reconciled on capable cluster", func(t *testing.T) {
-		access := newAccess(v1.PostgresAccessLevelReadWriteCreate)
-		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: capableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
-		requireNoError(t, err)
-		if len(actions) != 4 {
-			t.Fatalf("Update() actions = %d, want 4", len(actions))
-		}
-		role, ok := actions[1].GetObject().(*cnpgv1.DatabaseRole)
-		if !ok {
-			t.Fatalf("action object = %T, want DatabaseRole", actions[1].GetObject())
-		}
-		if len(role.Spec.InRoles) != 1 || role.Spec.InRoles[0] != rccnpg.ReadWriteCreateRole {
-			t.Errorf("inRoles = %v, want [%s]", role.Spec.InRoles, rccnpg.ReadWriteCreateRole)
-		}
-	})
-
-	t.Run("other levels unaffected by capability", func(t *testing.T) {
-		access := newAccess(v1.PostgresAccessLevelReadWrite)
-		actions, _, err := makePostgresAccessReconciler().Update(access, PostgresAccessPreparedData{Instance: instance, Cluster: uncapableCluster, Password: "secret"}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
-		requireNoError(t, err)
-		if len(actions) != 4 {
-			t.Fatalf("Update() actions = %d, want 4", len(actions))
-		}
-	})
-}
-
-// DatabaseRoleReady must not report ready from a stale CNPG status: Applied=true
-// for an older generation says nothing about the current intended privileges.
-func TestDatabaseRoleConditionGetterRequiresCurrentGeneration(t *testing.T) {
-	applied := true
-	newRole := func(generation, observed int64) *cnpgv1.DatabaseRole {
-		return &cnpgv1.DatabaseRole{
-			ObjectMeta: metav1.ObjectMeta{Generation: generation},
-			Status:     cnpgv1.DatabaseRoleStatus{Applied: &applied, ObservedGeneration: observed},
-		}
-	}
-
-	conditions := databaseRoleConditionGetter(newRole(2, 1), scheme.Scheme)
-	if conditions[0].Status != metav1.ConditionFalse {
-		t.Errorf("DatabaseRoleReady = %v, want False while CNPG has not applied the current generation", conditions[0].Status)
-	}
-
-	conditions = databaseRoleConditionGetter(newRole(2, 2), scheme.Scheme)
-	if conditions[0].Status != metav1.ConditionTrue {
-		t.Errorf("DatabaseRoleReady = %v, want True once the current generation is applied", conditions[0].Status)
-	}
 }

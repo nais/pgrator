@@ -8,9 +8,10 @@ import (
 	networking_gke_io_v1alpha3 "github.com/nais/pgrator/internal/thirdparty/google/networking/v1alpha3"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
-	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
 	monitoring_v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	k8s_scheme "k8s.io/client-go/kubernetes/scheme"
 )
@@ -24,6 +25,8 @@ func InitScheme(scheme *runtime.Scheme) {
 	utilruntime.Must(monitoring_v1.AddToScheme(scheme))
 	utilruntime.Must(aiven_v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(cnpgv1.AddToScheme(scheme))
-	utilruntime.Must(tunnelv1alpha1.AddToScheme(scheme))
+	relayGV := schema.GroupVersion{Group: "nais.io", Version: "v1alpha1"}
+	scheme.AddKnownTypeWithName(relayGV.WithKind("RelayAccess"), &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(relayGV.WithKind("RelayAccessList"), &unstructured.UnstructuredList{})
 	barmanv1.AddKnownTypes(scheme)
 }

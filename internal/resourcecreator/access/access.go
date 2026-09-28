@@ -122,7 +122,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 	if active {
 		configuration.PasswordSecret = &cnpgv1.LocalObjectReference{Name: CredentialSecretName(access)}
 		configuration.ValidUntil = &access.Spec.ExpiresAt
-		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel)}
+		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel), rccnpg.PersonalAccessRole(access.Spec.PostgresInstance)}
 	} else {
 		configuration.DisablePassword = true
 	}

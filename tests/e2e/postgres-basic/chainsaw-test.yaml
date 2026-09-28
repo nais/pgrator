@@ -4,8 +4,8 @@ metadata:
   name: postgres-basic
 spec:
   description: >-
-    A Postgres resource produces the CNPG Cluster, the durable owner DatabaseRole,
-    the pooler and the NetworkPolicy, and the API server fills in the spec defaults.
+    A Postgres resource produces the CNPG Cluster, durable owner and personal-access
+    DatabaseRoles, the pooler and the NetworkPolicy, and the API server fills in the spec defaults.
   steps:
     - name: Create Postgres with only the required field
       try:
@@ -32,7 +32,7 @@ spec:
                   cpu: 100m
                   memory: 512Mi
 
-    - name: Cluster is created with certificate authentication
+    - name: Cluster restricts personal passwords and requires certificates otherwise
       try:
         - assert:
             resource:
@@ -50,9 +50,11 @@ spec:
                 postgresql:
                   pg_hba:
                     # The pooler authenticates as itself and is mapped to the
-                    # requested role via pg_ident; everyone else must present their
-                    # own client certificate, and plaintext is rejected outright.
+                    # requested role via pg_ident. Only the physical instance's
+                    # personal-access group may use SCRAM; other clients must
+                    # present their own certificate, and plaintext is rejected.
                     - hostssl all all ${podselector:pooler} cert map=pooler
+                    - hostssl all +nais_pa_b50d3038fdd554ed all scram-sha-256
                     - hostssl all all all cert
                     - hostnossl all all all reject
                   pg_ident:

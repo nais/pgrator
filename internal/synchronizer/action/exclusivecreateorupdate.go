@@ -31,6 +31,7 @@ func (a *exclusiveCreateOrUpdate) Do(ctx context.Context, c client.Client, schem
 	if err != nil {
 		return fmt.Errorf("creating object for lookup: %w", err)
 	}
+	existing.GetObjectKind().SetGroupVersionKind(gvk)
 
 	existingObj := existing.(client.Object)
 	key := client.ObjectKeyFromObject(a.obj)

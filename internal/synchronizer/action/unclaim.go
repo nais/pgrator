@@ -30,6 +30,7 @@ func (a *unclaim) Do(ctx context.Context, c client.Client, scheme *runtime.Schem
 	if err != nil {
 		return fmt.Errorf("internal error: %w", err)
 	}
+	existing.GetObjectKind().SetGroupVersionKind(gvk)
 
 	key := client.ObjectKeyFromObject(a.obj)
 	if err = c.Get(ctx, key, existing.(client.Object)); err != nil {

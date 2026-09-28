@@ -13,11 +13,11 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
-	tunnelv1alpha1 "github.com/nais/tunnel-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,11 +37,14 @@ type PostgresAccessReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &PostgresAccessReconciler{}
 
 type PostgresAccessPreparedData struct {
-	Instance *v1.PostgresInstance   `yaml:"instance"`
-	Cluster  *cnpgv1.Cluster        `yaml:"-"`
-	Password string                 `yaml:"-"`
-	Role     *cnpgv1.DatabaseRole   `yaml:"-"`
-	Tunnel   *tunnelv1alpha1.Tunnel `yaml:"-"`
+	Instance       *v1.PostgresInstance       `yaml:"instance"`
+	Cluster        *cnpgv1.Cluster            `yaml:"-"`
+	Password       string                     `yaml:"-"`
+	Role           *cnpgv1.DatabaseRole       `yaml:"-"`
+	Token          string                     `yaml:"-"`
+	TokenPersisted bool                       `yaml:"-"`
+	RelayAccess    *unstructured.Unstructured `yaml:"-"`
+	Expired        bool                       `yaml:"-"`
 }
 
 const postgresAccessInstanceIndex = "spec.postgresInstance"
@@ -57,7 +60,12 @@ func (r *PostgresAccessReconciler) New() *v1.PostgresAccess { return &v1.Postgre
 // access and DatabaseRole CR are deleted.
 func (r *PostgresAccessReconciler) OwnedTypes() []reconciler.OwnedType {
 	return []reconciler.OwnedType{
-		{Type: &corev1.Secret{}},
+		{Type: &corev1.Secret{}, AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSecret, oldOK := e.ObjectOld.(*corev1.Secret)
+			newSecret, newOK := e.ObjectNew.(*corev1.Secret)
+			return oldOK && newOK && (!reflect.DeepEqual(oldSecret.Data, newSecret.Data) ||
+				(oldSecret.DeletionTimestamp == nil) != (newSecret.DeletionTimestamp == nil))
+		}}},
 		{
 			Type: &cnpgv1.DatabaseRole{},
 			AdditionalPredicate: predicate.Funcs{
@@ -70,23 +78,22 @@ func (r *PostgresAccessReconciler) OwnedTypes() []reconciler.OwnedType {
 				},
 			},
 		},
-		{
-			Type: &tunnelv1alpha1.Tunnel{},
-			AdditionalPredicate: predicate.Funcs{
-				CreateFunc: func(event.CreateEvent) bool { return true },
-				DeleteFunc: func(event.DeleteEvent) bool { return true },
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					oldTunnel, oldOK := e.ObjectOld.(*tunnelv1alpha1.Tunnel)
-					newTunnel, newOK := e.ObjectNew.(*tunnelv1alpha1.Tunnel)
-					return oldOK && newOK && !reflect.DeepEqual(oldTunnel.Status, newTunnel.Status)
-				},
-			},
-		},
+		{Type: relayAccessObject(), AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+			oldRelay, oldOK := e.ObjectOld.(*unstructured.Unstructured)
+			newRelay, newOK := e.ObjectNew.(*unstructured.Unstructured)
+			return oldOK && newOK && (oldRelay.GetDeletionTimestamp() == nil) != (newRelay.GetDeletionTimestamp() == nil)
+		}}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
 }
 
 func (r *PostgresAccessReconciler) AdditionalTypes() []client.Object { return nil }
+
+func relayAccessObject() *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(rcaccess.RelayAccessGVK)
+	return obj
+}
 
 func (r *PostgresAccessReconciler) Indexes() []reconciler.Index {
 	return []reconciler.Index{{
@@ -172,12 +179,17 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if !access.GetDeletionTimestamp().IsZero() {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, nil
 	}
+	access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "access is reconciling"})
 	now := time.Now()
-	if access.Spec.ExpiresAt.Time.Before(now) {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be in the future")
+	if !now.Before(access.Spec.ExpiresAt.Time) {
+		return PostgresAccessPreparedData{Expired: true}, ctrl.Result{}, nil
 	}
-	if access.Spec.ExpiresAt.After(now.Add(maximumPostgresAccessLifetime)) {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be at most %s from now", maximumPostgresAccessLifetime)
+	start := access.GetCreationTimestamp().Time
+	if start.IsZero() {
+		start = now
+	}
+	if access.Spec.ExpiresAt.After(start.Add(maximumPostgresAccessLifetime)) {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be at most %s from creation", maximumPostgresAccessLifetime)
 	}
 	instance := &v1.PostgresInstance{}
 	key := client.ObjectKey{Namespace: access.Namespace, Name: access.Spec.PostgresInstance}
@@ -193,12 +205,12 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	clusterKey := client.ObjectKey{Namespace: access.Namespace, Name: rccnpg.ClusterNameFor(instance.Name)}
 	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresInstance %q is not yet available", instance.Name)
 		}
 		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresInstance %q: %w", instance.Name, err)
 	}
 	if !recoveryComplete(cluster) {
-		return PostgresAccessPreparedData{}, ctrl.Result{Requeue: true}, nil
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresInstance %q is not ready", instance.Name)
 	}
 
 	prep := PostgresAccessPreparedData{Instance: instance, Cluster: cluster}
@@ -222,30 +234,60 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 		prep.Password = string(password)
 	}
 
-	prep.Role = r.personalDatabaseRole(ctx, reader, access)
-	prep.Tunnel = r.ownedTunnel(ctx, reader, access)
+	role := &cnpgv1.DatabaseRole{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}, role); err == nil {
+		if !metav1.IsControlledBy(role, access) {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("personal DatabaseRole is not controlled by PostgresAccess")
+		}
+		prep.Role = role
+	} else if !apierrors.IsNotFound(err) {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting personal DatabaseRole: %w", err)
+	}
+
+	relay := relayAccessObject()
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.RelayAccessName(access)}, relay); err == nil {
+		if !relay.GetDeletionTimestamp().IsZero() {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("RelayAccess %q is terminating", relay.GetName())
+		}
+		prep.RelayAccess = relay
+	} else if !apierrors.IsNotFound(err) {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting RelayAccess: %w", err)
+	}
+	tokenSecret := &corev1.Secret{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.TokenSecretName(access)}, tokenSecret); err == nil {
+		if !tokenSecret.GetDeletionTimestamp().IsZero() {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("relay token Secret %q is terminating", tokenSecret.GetName())
+		}
+		if !metav1.IsControlledBy(tokenSecret, access) {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("relay token Secret is not controlled by PostgresAccess")
+		}
+		prep.Token = string(tokenSecret.Data[rcaccess.TokenKey])
+		if _, err := rcaccess.TokenDigest(prep.Token); err != nil {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, err
+		}
+		prep.TokenPersisted = true
+	} else if apierrors.IsNotFound(err) {
+		if prep.RelayAccess != nil || access.GetStatus().(*v1.PostgresAccessStatus).TokenSecret != "" {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("relay token Secret is missing after access provisioning; refusing token rotation")
+		}
+		prep.Token, err = rcaccess.NewToken()
+		if err != nil {
+			return PostgresAccessPreparedData{}, ctrl.Result{}, err
+		}
+	} else {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting relay token Secret: %w", err)
+	}
 	return prep, ctrl.Result{}, nil
 }
 
-func (r *PostgresAccessReconciler) personalDatabaseRole(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) *cnpgv1.DatabaseRole {
-	role := &cnpgv1.DatabaseRole{}
-	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}
-	if err := reader.Get(ctx, key, role); err != nil {
-		return nil
-	}
-	return role
-}
-
-func (r *PostgresAccessReconciler) ownedTunnel(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) *tunnelv1alpha1.Tunnel {
-	tunnel := &tunnelv1alpha1.Tunnel{}
-	key := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.TunnelName(access)}
-	if err := reader.Get(ctx, key, tunnel); err != nil {
-		return nil
-	}
-	return tunnel
-}
-
 func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if prepared.Expired {
+		status := access.GetStatus().(*v1.PostgresAccessStatus)
+		status.RelayAccess = ""
+		status.TokenSecret = ""
+		status.SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Expired", Message: "access has expired"})
+		return nil, ctrl.Result{}, nil
+	}
 	if access.Spec.AccessLevel == v1.PostgresAccessLevelReadWriteCreate && !rccnpg.ReadWriteCreateCapable(prepared.Cluster) {
 		// The instance's cluster was initialized without the app_readwritecreate
 		// group role, so CNPG could never apply the DatabaseRole. The access spec
@@ -273,26 +315,53 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	}
 	access.GetStatus().(*v1.PostgresAccessStatus).DatabaseRole = role.Spec.Name
 
-	tunnel, err := rcaccess.CreateTunnel(r.Scheme, access)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating Tunnel spec: %w", err)
-	}
-	netpol, err := rcaccess.CreateTunnelNetworkPolicy(r.Scheme, access)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating Tunnel NetworkPolicy spec: %w", err)
-	}
-
 	status := access.GetStatus().(*v1.PostgresAccessStatus)
-	status.Tunnel = tunnelStatusFromTunnel(access, prepared.Tunnel)
+	status.RelayAccess = rcaccess.RelayAccessName(access)
+	if prepared.TokenPersisted {
+		status.TokenSecret = rcaccess.TokenSecretName(access)
+	}
+	digest, err := rcaccess.TokenDigest(prepared.Token)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	desired, err := rcaccess.CreateRelayAccess(r.Scheme, access, digest)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	netpol, err := rcaccess.CreateRelayNetworkPolicy(r.Scheme, access)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	tokenSecret, err := rcaccess.CreateTokenSecret(r.Scheme, access, prepared.Token)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
 
-	setPostgresAccessReadyCondition(status, prepared.Role, prepared.Tunnel)
-
+	// An immutable mapping cannot be repaired by updating its spec. Refuse
+	// mismatches (including a recreated access with the same name) instead.
+	var relayAction action.Action
+	if prepared.RelayAccess != nil {
+		if !metav1.IsControlledBy(prepared.RelayAccess, access) ||
+			!reflect.DeepEqual(prepared.RelayAccess.Object["spec"], desired.Object["spec"]) {
+			return nil, ctrl.Result{}, fmt.Errorf("RelayAccess %q has a different owner or immutable spec", desired.GetName())
+		}
+		relayAction = action.Claim(desired, access, existsConditionGetter, r.Recorder)
+	} else {
+		relayAction = action.Create(desired, access, existsConditionGetter, r.Recorder)
+	}
+	roleReady := databaseRoleIsReady(prepared.Role) && prepared.Role.Spec.PasswordSecret != nil &&
+		prepared.Role.Spec.PasswordSecret.Name == rcaccess.CredentialSecretName(access) &&
+		prepared.Role.Spec.Login && prepared.Role.Spec.ValidUntil != nil &&
+		prepared.Role.Spec.ValidUntil.Time.Truncate(time.Second).Equal(access.Spec.ExpiresAt.Truncate(time.Second)) &&
+		reflect.DeepEqual(prepared.Role.Spec.InRoles, role.Spec.InRoles)
+	setPostgresAccessReadyCondition(status, roleReady && prepared.TokenPersisted && prepared.RelayAccess != nil)
 	return []action.Action{
 		action.ExclusiveCreateOrUpdate(secret, access, existsConditionGetter, r.Recorder),
 		action.CreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
-		action.CreateOrUpdate(tunnel, access, tunnelConditionGetter, r.Recorder),
-		action.CreateOrUpdate(netpol, access, existsConditionGetter, r.Recorder),
-	}, ctrl.Result{}, nil
+		action.ExclusiveCreateOrUpdate(tokenSecret, access, existsConditionGetter, r.Recorder),
+		relayAction,
+		action.ExclusiveCreateOrUpdate(netpol, access, existsConditionGetter, r.Recorder),
+	}, ctrl.Result{RequeueAfter: time.Until(access.Spec.ExpiresAt.Time)}, nil
 }
 
 func (r *PostgresAccessReconciler) Delete(*v1.PostgresAccess, PostgresAccessPreparedData, reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
@@ -312,79 +381,17 @@ func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []meta
 	return []metav1.Condition{{Type: "DatabaseRoleReady", Status: metav1.ConditionFalse, Reason: "Pending", Message: role.Status.Message, ObservedGeneration: role.Status.ObservedGeneration}}
 }
 
-func tunnelConditionGetter(object client.Object, _ *runtime.Scheme) []metav1.Condition {
-	tunnel, ok := object.(*tunnelv1alpha1.Tunnel)
-	if !ok {
-		return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionFalse, Reason: "Pending"}}
-	}
-	if tunnelIsReady(tunnel) {
-		return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionTrue, Reason: "Ready", ObservedGeneration: tunnel.GetGeneration()}}
-	}
-	msg := "Tunnel is not ready"
-	if tunnel.Status.Message != "" {
-		msg = tunnel.Status.Message
-	}
-	return []metav1.Condition{{Type: "TunnelReady", Status: metav1.ConditionFalse, Reason: "Pending", Message: msg, ObservedGeneration: tunnel.GetGeneration()}}
-}
-
-func setPostgresAccessReadyCondition(status *v1.PostgresAccessStatus, role *cnpgv1.DatabaseRole, tunnel *tunnelv1alpha1.Tunnel) {
-	ready := databaseRoleIsReady(role) && tunnelIsReady(tunnel)
-	condition := metav1.Condition{
-		Type:   postgresAccessReadyCondition,
-		Reason: "Pending",
-	}
+func setPostgresAccessReadyCondition(status *v1.PostgresAccessStatus, ready bool) {
+	condition := metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "waiting for applied database role and persisted relay mapping and token"}
 	if ready {
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = "Ready"
-		condition.Message = "Database role and tunnel are ready"
-	} else {
-		condition.Status = metav1.ConditionFalse
-		condition.Message = readyPendingMessage(role, tunnel)
+		condition.Message = "Database role applied; relay mapping and token persisted (relay data path not verified)"
 	}
 	status.SetCondition(condition)
-}
-
-func tunnelStatusFromTunnel(access *v1.PostgresAccess, tunnel *tunnelv1alpha1.Tunnel) v1.PostgresAccessTunnelStatus {
-	s := v1.PostgresAccessTunnelStatus{Name: rcaccess.TunnelName(access)}
-	if tunnel == nil {
-		return s
-	}
-	s.Endpoint = tunnel.Status.ForwarderEndpoint
-	s.GatewayPublicKey = tunnel.Status.GatewayPublicKey
-	s.Phase = string(tunnel.Status.Phase)
-	s.Ready = tunnelIsReady(tunnel)
-	return s
 }
 
 func databaseRoleIsReady(role *cnpgv1.DatabaseRole) bool {
 	return role != nil && role.Status.Applied != nil && *role.Status.Applied &&
 		role.Status.ObservedGeneration == role.GetGeneration()
-}
-
-func tunnelIsReady(tunnel *tunnelv1alpha1.Tunnel) bool {
-	if tunnel == nil {
-		return false
-	}
-	return tunnel.Status.Phase == tunnelv1alpha1.TunnelPhaseReady
-}
-
-func readyPendingMessage(role *cnpgv1.DatabaseRole, tunnel *tunnelv1alpha1.Tunnel) string {
-	var reasons []string
-	if !databaseRoleIsReady(role) {
-		reasons = append(reasons, "database role is not applied")
-	}
-	if !tunnelIsReady(tunnel) {
-		reasons = append(reasons, "tunnel is not ready")
-	}
-	if len(reasons) == 0 {
-		return "resource is ready"
-	}
-	return "waiting for " + joinReasons(reasons)
-}
-
-func joinReasons(reasons []string) string {
-	if len(reasons) == 1 {
-		return reasons[0]
-	}
-	return reasons[0] + " and " + reasons[1]
 }

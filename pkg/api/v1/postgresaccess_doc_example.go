@@ -18,11 +18,10 @@ func ExamplePostgresAccessForDocumentation() api.NaisObject {
 			Namespace: "myteam",
 		},
 		Spec: PostgresAccessSpec{
-			PostgresInstance:         "orders",
-			Username:                 "frode.sundby@nav.no",
-			AccessLevel:              PostgresAccessLevelRead,
-			ExpiresAt:                metav1.NewTime(time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)),
-			ClientWireGuardPublicKey: "xTIBA5rboUvnH4htodjb6e6QjEK+tWY1W5pKyCSCIRE=",
+			PostgresInstance: "orders",
+			Username:         "frode.sundby@nav.no",
+			AccessLevel:      PostgresAccessLevelRead,
+			ExpiresAt:        metav1.NewTime(time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)),
 		},
 	}
 }

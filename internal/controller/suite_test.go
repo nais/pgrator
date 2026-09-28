@@ -290,6 +290,12 @@ func runGoldenTestsForResource[T interface {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			applyCfg(tc.cfg)
+			// The golden fixture asserts the public shape; its test-only proof is
+			// synthesized in memory, never serialized into prepared_data.yaml or
+			// expected Secret data.
+			if accessData, ok := any(&tc.preparedData).(*PostgresAccessPreparedData); ok {
+				accessData.Token = strings.Repeat("A", 43) // canonical base64url of 32 zero bytes
+			}
 
 			actions, _, err := r.Update(tc.object, tc.preparedData, tc.relatedObjects)
 			if err != nil {
