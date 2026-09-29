@@ -30,9 +30,9 @@ func makePostgresAccessReconciler() *PostgresAccessReconciler {
 	return &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 }
 
-func accessFixture() (*v1.PostgresAccess, *v1.PostgresInstance, *v1.Postgres, *cnpgv1.Cluster) {
-	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresInstance: "orders", AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
-	i := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "db"}}
+func accessFixture() (*v1.PostgresAccess, *v1.PostgresBranch, *v1.Postgres, *cnpgv1.Cluster) {
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresBranch: "orders", AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
+	i := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "db"}}
 	p := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "team"}}
 	c := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
 	return a, i, p, c

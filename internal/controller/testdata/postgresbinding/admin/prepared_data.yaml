@@ -1,4 +1,4 @@
-instance: mydb
+branch: mydb
 snapshot:
   caCertificate: Y2E=
   credentials:

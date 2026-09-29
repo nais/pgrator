@@ -62,7 +62,7 @@ type PostgresBindingConsumer struct {
 
 // PostgresBindingSpec defines the desired state of PostgresBinding.
 type PostgresBindingSpec struct {
-	// Postgres is the name of the Postgres instance to bind to. The instance must
+	// Postgres is the name of the logical Postgres to bind to. The Postgres must
 	// live in the same namespace: bindings never cross team boundaries.
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
@@ -153,7 +153,7 @@ func ConnectionEnvPrefix(credential PostgresBindingCredential) string {
 // +kubebuilder:printcolumn:name="Credentials",type="string",JSONPath=".spec.credentials"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 
-// PostgresBinding grants a consumer access to a Postgres instance in the same
+// PostgresBinding grants a consumer access to a logical Postgres in the same
 // namespace. It results in a database role authenticated by a client certificate,
 // plus the Secrets the consumer needs to connect.
 type PostgresBinding struct {

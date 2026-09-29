@@ -41,7 +41,7 @@ func TestDatabaseRoleName(t *testing.T) {
 
 func TestCreateDatabaseRole(t *testing.T) {
 	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode.sundby@nav.no", PostgresInstance: "orders-restore",
+		Username: "frode.sundby@nav.no", PostgresBranch: "orders-restore",
 	}}
 
 	role, err := CreateDatabaseRole(testScheme(t), access, false)

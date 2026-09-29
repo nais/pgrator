@@ -4,6 +4,8 @@ status: accepted
 
 # Recover PostgresInstances from the active instance
 
+Naming update: ADR 0007 renames this resource to `PostgresBranch` and the active/recovery reference fields to `activeBranch` and `sourceBranch`.
+
 A point-in-time recovery creates a new, independent `PostgresInstance`; it never
 modifies an existing instance or automatically changes `Postgres.spec.activeInstance`.
 Naiserator creates the new instance, owned by its logical `Postgres`, with an

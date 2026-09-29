@@ -40,10 +40,10 @@ type PostgresBindingReconciler struct {
 
 var _ reconciler.Reconciler[*v1.PostgresBinding, PostgresBindingPreparedData] = &PostgresBindingReconciler{}
 
-// PostgresBindingPreparedData contains the selected instance and, when all CNPG
+// PostgresBindingPreparedData contains the selected branch and, when all CNPG
 // source material is present, an internally consistent credential snapshot.
 type PostgresBindingPreparedData struct {
-	Instance string
+	Branch   string `yaml:"branch"`
 	Snapshot *bindingSnapshot
 }
 
@@ -114,10 +114,10 @@ func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.Relations
 					}
 					var oldActive, newActive string
 					if oldPostgres.Status != nil {
-						oldActive = oldPostgres.Status.ActiveInstance
+						oldActive = oldPostgres.Status.ActiveBranch
 					}
 					if newPostgres.Status != nil {
-						newActive = newPostgres.Status.ActiveInstance
+						newActive = newPostgres.Status.ActiveBranch
 					}
 					return oldActive != newActive
 				},
@@ -190,13 +190,13 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		}
 		return nil, fmt.Errorf("getting Postgres %q: %w", binding.Spec.Postgres, err)
 	}
-	activeInstance := effectiveActiveInstance(postgres)
-	instance := &v1.PostgresInstance{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: activeInstance}, instance); err != nil {
+	activeBranch := effectiveActiveBranch(postgres)
+	instance := &v1.PostgresBranch{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: activeBranch}, instance); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting active PostgresInstance %q: %w", activeInstance, err)
+		return nil, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
 	}
 	if instance.Spec.Postgres != postgres.GetName() {
 		return nil, nil
@@ -206,7 +206,7 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting CNPG Cluster for PostgresInstance %q: %w", instance.GetName(), err)
+		return nil, fmt.Errorf("getting CNPG Cluster for PostgresBranch %q: %w", instance.GetName(), err)
 	}
 
 	names := []string{cluster.GetClientCASecretName()}
@@ -249,18 +249,18 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	activeInstance := effectiveActiveInstance(postgres)
+	activeBranch := effectiveActiveBranch(postgres)
 
-	instance := &v1.PostgresInstance{}
-	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: activeInstance}
+	instance := &v1.PostgresBranch{}
+	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: activeBranch}
 	if err := reader.Get(ctx, instanceKey, instance); err != nil {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresInstance %q: %w", activeInstance, err)
+		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
 	}
 	if instance.Spec.Postgres != postgres.GetName() {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresInstance %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
+		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
 	}
 
-	prepared := PostgresBindingPreparedData{Instance: instance.GetName()}
+	prepared := PostgresBindingPreparedData{Branch: instance.GetName()}
 	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance.GetName())
 	if err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
@@ -486,12 +486,12 @@ func readSecretData(ctx context.Context, reader client.Reader, key client.Object
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
 	for _, credential := range obj.Spec.Credentials {
-		// app is the durable owner identity. The Postgres instance owns its
+		// app is the durable owner identity. The Postgres branch owns its
 		// DatabaseRole and certificate; bindings only consume it.
 		if credential == v1.PostgresBindingCredentialAdmin {
 			continue
 		}
-		role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj, prepared.Instance, credential)
+		role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj, prepared.Branch, credential)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 		}
@@ -510,7 +510,7 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 	}
 
 	if prepared.Snapshot != nil {
-		configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj, prepared.Instance, prepared.Snapshot.CACertificate, prepared.Snapshot.Credentials)
+		configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj, prepared.Branch, prepared.Snapshot.CACertificate, prepared.Snapshot.Credentials)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating config Secret spec: %w", err)
 		}
@@ -525,13 +525,13 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 		}
 	}
 
-	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj, prepared.Instance)
+	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj, prepared.Branch)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
 	actions = append(actions, action.ExclusiveCreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj, prepared.Instance)
+	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj, prepared.Branch)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating egress NetworkPolicy spec: %w", err)
 	}

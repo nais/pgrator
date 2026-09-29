@@ -17,8 +17,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.postgresInstance
-      name: PostgresInstance
+    - jsonPath: .spec.postgresBranch
+      name: PostgresBranch
       type: string
     - jsonPath: .spec.username
       name: Username
@@ -68,13 +68,13 @@ spec:
                 x-kubernetes-validations:
                 - message: expiresAt is immutable
                   rule: self == oldSelf
-              postgresInstance:
-                description: PostgresInstance is the explicitly selected physical
-                  database instance.
+              postgresBranch:
+                description: PostgresBranch is the explicitly selected physical branch
+                  of the database.
                 minLength: 1
                 type: string
                 x-kubernetes-validations:
-                - message: postgresInstance is immutable
+                - message: postgresBranch is immutable
                   rule: self == oldSelf
               username:
                 description: Username is the authenticated NAIS user's email address.
@@ -86,7 +86,7 @@ spec:
             required:
             - accessLevel
             - expiresAt
-            - postgresInstance
+            - postgresBranch
             - username
             type: object
           status:

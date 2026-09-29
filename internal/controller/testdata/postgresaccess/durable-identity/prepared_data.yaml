@@ -1,4 +1,4 @@
-instance:
+branch:
   metadata:
     name: orders-restore
     namespace: myteam

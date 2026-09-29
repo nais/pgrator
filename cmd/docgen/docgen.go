@@ -86,7 +86,7 @@ var ExcludedKinds = map[schema.GroupVersionKind]struct{}{
 	{
 		Group:   v1.GroupVersion.Group,
 		Version: v1.GroupVersion.Version,
-		Kind:    "PostgresInstance",
+		Kind:    "PostgresBranch",
 	}: {},
 }
 

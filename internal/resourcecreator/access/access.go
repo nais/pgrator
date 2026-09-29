@@ -65,7 +65,7 @@ func CreateCredentialSecret(scheme *runtime.Scheme, access *v1.PostgresAccess, p
 		},
 		Type: corev1.SecretTypeBasicAuth,
 		StringData: map[string]string{
-			corev1.BasicAuthUsernameKey: DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance),
+			corev1.BasicAuthUsernameKey: DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch),
 			corev1.BasicAuthPasswordKey: password,
 		},
 	}
@@ -108,7 +108,7 @@ func normalizeName(value string) string {
 // identity. The DatabaseRole CR is owned by the access, while Retain keeps the
 // PostgreSQL role and objects it owns after the access is deleted.
 func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, active bool) (*cnpgv1.DatabaseRole, error) {
-	roleName := DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)
+	roleName := DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch)
 	configuration := cnpgv1.RoleConfiguration{
 		Name:        roleName,
 		Comment:     "Personal database identity",
@@ -122,7 +122,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 	if active {
 		configuration.PasswordSecret = &cnpgv1.LocalObjectReference{Name: CredentialSecretName(access)}
 		configuration.ValidUntil = &access.Spec.ExpiresAt
-		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel), rccnpg.PersonalAccessRole(access.Spec.PostgresInstance)}
+		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel), rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
 	} else {
 		configuration.DisablePassword = true
 	}
@@ -133,7 +133,7 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 			Namespace: access.Namespace,
 		},
 		Spec: cnpgv1.DatabaseRoleSpec{
-			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresInstance)},
+			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresBranch)},
 			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
 			RoleConfiguration: configuration,
 		},

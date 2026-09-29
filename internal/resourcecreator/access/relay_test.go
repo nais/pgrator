@@ -43,7 +43,7 @@ func TestRelayProofMatchesRawTokenDigest(t *testing.T) {
 }
 
 func TestRelayAccessContainsOnlyHashedProof(t *testing.T) {
-	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresInstance: "orders"}}
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresBranch: "orders"}}
 	token, err := NewToken()
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestRelayAccessContainsOnlyHashedProof(t *testing.T) {
 }
 
 func TestRelayIngressIsNarrow(t *testing.T) {
-	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresInstance: "orders"}}
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "my-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresBranch: "orders"}}
 	policy, err := CreateRelayNetworkPolicy(testScheme(t), a)
 	if err != nil {
 		t.Fatal(err)

@@ -38,7 +38,7 @@ type conditionConfig struct {
 }
 
 // PostgresReconciler reconciles a nais.io/v1 Postgres object into logical
-// resources. Physical CNPG resources are owned by PostgresInstance.
+// resources. Physical CNPG resources are owned by PostgresBranch.
 type PostgresReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder
@@ -49,8 +49,8 @@ var _ reconciler.Reconciler[*v1.Postgres, PostgresPreparedData] = &PostgresRecon
 
 // PostgresPreparedData contains data prepared during the Prepare phase.
 type PostgresPreparedData struct {
-	RequestedInstance string `yaml:"requestedInstance,omitempty"`
-	RequestedReady    bool   `yaml:"requestedReady,omitempty"`
+	RequestedBranch string `yaml:"requestedBranch,omitempty"`
+	RequestedReady  bool   `yaml:"requestedReady,omitempty"`
 }
 
 func (r *PostgresReconciler) Name() string {
@@ -62,41 +62,41 @@ func (r *PostgresReconciler) New() *v1.Postgres {
 }
 
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
-	if obj.Spec.ActiveInstance == "" {
+	if obj.Spec.ActiveBranch == "" {
 		return PostgresPreparedData{}, ctrl.Result{}, nil
 	}
 
-	requested := &v1.PostgresInstance{}
-	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.ActiveInstance}
+	requested := &v1.PostgresBranch{}
+	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.ActiveBranch}
 	if err := reader.Get(ctx, key, requested); err != nil {
 		if apierrors.IsNotFound(err) {
-			return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+			return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 		}
-		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresInstance %q: %w", obj.Spec.ActiveInstance, err)
+		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresBranch %q: %w", obj.Spec.ActiveBranch, err)
 	}
 
 	if requested.Spec.Postgres != obj.GetName() {
-		return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+		return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 	}
 
 	cluster := &cnpgv1.Cluster{}
 	clusterKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(requested.GetName())}
 	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return PostgresPreparedData{RequestedInstance: obj.Spec.ActiveInstance}, ctrl.Result{}, nil
+			return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 		}
-		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresInstance %q: %w", requested.GetName(), err)
+		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresBranch %q: %w", requested.GetName(), err)
 	}
 
 	return PostgresPreparedData{
-		RequestedInstance: obj.Spec.ActiveInstance,
-		RequestedReady:    recoveryComplete(cluster),
+		RequestedBranch: obj.Spec.ActiveBranch,
+		RequestedReady:  recoveryComplete(cluster),
 	}, ctrl.Result{}, nil
 }
 
 func (r *PostgresReconciler) OwnedTypes() []reconciler.OwnedType {
 	return []reconciler.OwnedType{
-		{Type: &v1.PostgresInstance{}},
+		{Type: &v1.PostgresBranch{}},
 	}
 }
 
@@ -116,30 +116,30 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 }
 
 func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	instance := &v1.PostgresInstance{
-		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresInstance"},
+	instance := &v1.PostgresBranch{
+		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch"},
 		ObjectMeta: meta_v1.ObjectMeta{Name: obj.GetName(), Namespace: obj.GetNamespace()},
-		Spec:       v1.PostgresInstanceSpec{Postgres: obj.GetName()},
+		Spec:       v1.PostgresBranchSpec{Postgres: obj.GetName()},
 	}
 	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
+		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
 	}
 
-	if obj.Spec.ActiveInstance != "" {
+	if obj.Spec.ActiveBranch != "" {
 		if !prepared.RequestedReady {
-			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresInstance %q is not ready", obj.Spec.ActiveInstance)
-			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresInstance %q is not ready", obj.Spec.ActiveInstance)
+			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
+			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 		}
-		obj.GetStatus().(*v1.PostgresStatus).ActiveInstance = obj.Spec.ActiveInstance
+		obj.GetStatus().(*v1.PostgresStatus).ActiveBranch = obj.Spec.ActiveBranch
 
 		actions := make([]action.Action, 0)
-		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresInstance{}) {
-			instance, ok := candidate.(*v1.PostgresInstance)
+		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresBranch{}) {
+			instance, ok := candidate.(*v1.PostgresBranch)
 			if !ok || instance.GetNamespace() != obj.GetNamespace() || instance.Spec.Postgres != obj.GetName() {
 				continue
 			}
 			if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
-				return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresInstance: %w", err)
+				return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
 			}
 			actions = append(actions, action.Claim(instance, obj, existsConditionGetter, r.Recorder))
 		}
@@ -153,18 +153,18 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 	}
 
 	status := obj.GetStatus().(*v1.PostgresStatus)
-	if status.ActiveInstance == "" {
-		status.ActiveInstance = obj.GetName()
+	if status.ActiveBranch == "" {
+		status.ActiveBranch = obj.GetName()
 	}
 	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 }
 
-func effectiveActiveInstance(postgres *v1.Postgres) string {
-	if postgres.Spec.ActiveInstance != "" {
-		return postgres.Spec.ActiveInstance
+func effectiveActiveBranch(postgres *v1.Postgres) string {
+	if postgres.Spec.ActiveBranch != "" {
+		return postgres.Spec.ActiveBranch
 	}
-	if postgres.Status != nil && postgres.Status.ActiveInstance != "" {
-		return postgres.Status.ActiveInstance
+	if postgres.Status != nil && postgres.Status.ActiveBranch != "" {
+		return postgres.Status.ActiveBranch
 	}
 	return postgres.GetName()
 }

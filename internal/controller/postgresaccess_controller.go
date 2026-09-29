@@ -37,7 +37,7 @@ type PostgresAccessReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &PostgresAccessReconciler{}
 
 type PostgresAccessPreparedData struct {
-	Instance       *v1.PostgresInstance       `yaml:"instance"`
+	Branch         *v1.PostgresBranch         `yaml:"branch"`
 	Cluster        *cnpgv1.Cluster            `yaml:"-"`
 	Password       string                     `yaml:"-"`
 	Role           *cnpgv1.DatabaseRole       `yaml:"-"`
@@ -47,7 +47,7 @@ type PostgresAccessPreparedData struct {
 	Expired        bool                       `yaml:"-"`
 }
 
-const postgresAccessInstanceIndex = "spec.postgresInstance"
+const postgresAccessBranchIndex = "spec.postgresBranch"
 const postgresAccessReadyCondition = "Ready"
 const maximumPostgresAccessLifetime = time.Hour
 
@@ -98,27 +98,27 @@ func relayAccessObject() *unstructured.Unstructured {
 func (r *PostgresAccessReconciler) Indexes() []reconciler.Index {
 	return []reconciler.Index{{
 		Object: &v1.PostgresAccess{},
-		Field:  postgresAccessInstanceIndex,
+		Field:  postgresAccessBranchIndex,
 		ExtractValue: func(object client.Object) []string {
 			access, ok := object.(*v1.PostgresAccess)
-			if !ok || access.Spec.PostgresInstance == "" {
+			if !ok || access.Spec.PostgresBranch == "" {
 				return nil
 			}
-			return []string{access.Spec.PostgresInstance}
+			return []string{access.Spec.PostgresBranch}
 		},
 	}}
 }
 
 func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
 	return []reconciler.RelationshipWatch{{
-		Type: &v1.PostgresInstance{},
-		Map:  r.accessesForInstance,
+		Type: &v1.PostgresBranch{},
+		Map:  r.accessesForBranch,
 		Predicate: predicate.Funcs{
 			CreateFunc: func(event.CreateEvent) bool { return true },
 			DeleteFunc: func(event.DeleteEvent) bool { return true },
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldInstance, oldOK := e.ObjectOld.(*v1.PostgresInstance)
-				newInstance, newOK := e.ObjectNew.(*v1.PostgresInstance)
+				oldInstance, oldOK := e.ObjectOld.(*v1.PostgresBranch)
+				newInstance, newOK := e.ObjectNew.(*v1.PostgresBranch)
 				return oldOK && newOK && oldInstance.GetGeneration() != newInstance.GetGeneration()
 			},
 		},
@@ -137,12 +137,12 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 	}}
 }
 
-func (r *PostgresAccessReconciler) accessesForInstance(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
-	instance, ok := object.(*v1.PostgresInstance)
+func (r *PostgresAccessReconciler) accessesForBranch(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	instance, ok := object.(*v1.PostgresBranch)
 	if !ok {
 		return nil, nil
 	}
-	return r.accessesForInstanceName(ctx, reader, instance.Namespace, instance.Name)
+	return r.accessesForBranchName(ctx, reader, instance.Namespace, instance.Name)
 }
 
 func (r *PostgresAccessReconciler) accessesForCluster(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -156,17 +156,17 @@ func (r *PostgresAccessReconciler) accessesForCluster(ctx context.Context, reade
 	}
 	requests := make([]reconcile.Request, 0)
 	for _, access := range accesses.Items {
-		if rccnpg.ClusterNameFor(access.Spec.PostgresInstance) == cluster.Name {
+		if rccnpg.ClusterNameFor(access.Spec.PostgresBranch) == cluster.Name {
 			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&access)})
 		}
 	}
 	return requests, nil
 }
 
-func (r *PostgresAccessReconciler) accessesForInstanceName(ctx context.Context, reader client.Reader, namespace, instance string) ([]reconcile.Request, error) {
+func (r *PostgresAccessReconciler) accessesForBranchName(ctx context.Context, reader client.Reader, namespace, instance string) ([]reconcile.Request, error) {
 	accesses := &v1.PostgresAccessList{}
-	if err := reader.List(ctx, accesses, client.InNamespace(namespace), client.MatchingFields{postgresAccessInstanceIndex: instance}); err != nil {
-		return nil, fmt.Errorf("listing PostgresAccess resources for PostgresInstance %q: %w", instance, err)
+	if err := reader.List(ctx, accesses, client.InNamespace(namespace), client.MatchingFields{postgresAccessBranchIndex: instance}); err != nil {
+		return nil, fmt.Errorf("listing PostgresAccess resources for PostgresBranch %q: %w", instance, err)
 	}
 	requests := make([]reconcile.Request, 0, len(accesses.Items))
 	for _, access := range accesses.Items {
@@ -191,29 +191,29 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if access.Spec.ExpiresAt.After(start.Add(maximumPostgresAccessLifetime)) {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be at most %s from creation", maximumPostgresAccessLifetime)
 	}
-	instance := &v1.PostgresInstance{}
-	key := client.ObjectKey{Namespace: access.Namespace, Name: access.Spec.PostgresInstance}
+	instance := &v1.PostgresBranch{}
+	key := client.ObjectKey{Namespace: access.Namespace, Name: access.Spec.PostgresBranch}
 	if err := reader.Get(ctx, key, instance); err != nil {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting PostgresInstance %q: %w", access.Spec.PostgresInstance, err)
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting PostgresBranch %q: %w", access.Spec.PostgresBranch, err)
 	}
 	postgres := &v1.Postgres{}
 	postgresKey := client.ObjectKey{Namespace: access.Namespace, Name: instance.Spec.Postgres}
 	if err := reader.Get(ctx, postgresKey, postgres); err != nil {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres for PostgresInstance %q: %w", instance.Name, err)
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres for PostgresBranch %q: %w", instance.Name, err)
 	}
 	cluster := &cnpgv1.Cluster{}
 	clusterKey := client.ObjectKey{Namespace: access.Namespace, Name: rccnpg.ClusterNameFor(instance.Name)}
 	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresInstance %q is not yet available", instance.Name)
+			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresBranch %q is not yet available", instance.Name)
 		}
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresInstance %q: %w", instance.Name, err)
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresBranch %q: %w", instance.Name, err)
 	}
 	if !recoveryComplete(cluster) {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresInstance %q is not ready", instance.Name)
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresBranch %q is not ready", instance.Name)
 	}
 
-	prep := PostgresAccessPreparedData{Instance: instance, Cluster: cluster}
+	prep := PostgresAccessPreparedData{Branch: instance, Cluster: cluster}
 
 	secret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.CredentialSecretName(access)}
@@ -235,7 +235,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 
 	role := &cnpgv1.DatabaseRole{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresInstance)}, role); err == nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch)}, role); err == nil {
 		if !metav1.IsControlledBy(role, access) {
 			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("personal DatabaseRole is not controlled by PostgresAccess")
 		}
@@ -295,13 +295,13 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		// group role, so CNPG could never apply the DatabaseRole. The access spec
 		// is immutable; fail the access instead of reconciling it forever.
 		r.Recorder.RecordEvent(access, corev1.EventTypeWarning, "UnsupportedAccessLevel",
-			"accessLevel readwritecreate is not available on PostgresInstance %q: its cluster was initialized without the %s group role",
-			access.Spec.PostgresInstance, rccnpg.ReadWriteCreateRole)
+			"accessLevel readwritecreate is not available on PostgresBranch %q: its cluster was initialized without the %s group role",
+			access.Spec.PostgresBranch, rccnpg.ReadWriteCreateRole)
 		access.GetStatus().(*v1.PostgresAccessStatus).SetCondition(metav1.Condition{
 			Type:               postgresAccessReadyCondition,
 			Status:             metav1.ConditionFalse,
 			Reason:             "UnsupportedAccessLevel",
-			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PostgresInstance),
+			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PostgresBranch),
 			ObservedGeneration: access.GetGeneration(),
 		})
 		return nil, ctrl.Result{}, nil

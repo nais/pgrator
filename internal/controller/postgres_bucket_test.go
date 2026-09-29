@@ -47,10 +47,10 @@ func TestBucketName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &PostgresInstanceReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
-			instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: tt.instance, Namespace: tt.namespace}}
+			r := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
+			instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: tt.instance, Namespace: tt.namespace}}
 
-			got := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: tt.uid})
+			got := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: tt.uid})
 			if got != tt.want {
 				t.Errorf("bucketName() = %q, want %q", got, tt.want)
 			}
@@ -62,11 +62,11 @@ func TestBucketName(t *testing.T) {
 }
 
 func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
-	r := &PostgresInstanceReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
+	r := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
 
-	first := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
-	second := r.bucketName(instance, PostgresInstancePreparedData{PostgresUID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"})
+	first := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
+	second := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"})
 
 	if first == second {
 		t.Errorf("recreated Postgres reused bucket name %q", first)
@@ -74,10 +74,10 @@ func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
 }
 
 func TestBucketNameDisabled(t *testing.T) {
-	r := &PostgresInstanceReconciler{Config: &config.Config{}}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
+	r := &PostgresBranchReconciler{Config: &config.Config{}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
 
-	if got := r.bucketName(instance, PostgresInstancePreparedData{}); got != "" {
+	if got := r.bucketName(instance, PostgresBranchPreparedData{}); got != "" {
 		t.Errorf("bucketName() = %q, want empty name when WAL archiving is disabled", got)
 	}
 }

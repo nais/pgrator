@@ -36,8 +36,8 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: instance.Name}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Name}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "team"}, Spec: cnpgv1.ClusterSpec{Certificates: &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}}}
 	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
 	certSecret := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
@@ -151,11 +151,11 @@ func TestPostgresBindingPostgresWatchPredicate(t *testing.T) {
 			t.Error("generation change should fire")
 		}
 	})
-	t.Run("status activeInstance change fires", func(t *testing.T) {
-		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "old"}}
-		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "new"}}
+	t.Run("status activeBranch change fires", func(t *testing.T) {
+		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveBranch: "old"}}
+		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveBranch: "new"}}
 		if !pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
-			t.Error("status.activeInstance change should fire")
+			t.Error("status.activeBranch change should fire")
 		}
 	})
 	t.Run("irrelevant update is filtered", func(t *testing.T) {
@@ -166,8 +166,8 @@ func TestPostgresBindingPostgresWatchPredicate(t *testing.T) {
 		}
 	})
 	t.Run("no status change is filtered", func(t *testing.T) {
-		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "same"}}
-		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveInstance: "same"}}
+		oldObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveBranch: "same"}}
+		newObj := &v1.Postgres{Status: &v1.PostgresStatus{ActiveBranch: "same"}}
 		if pred.Update(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}) {
 			t.Error("unchanged status should be filtered")
 		}
@@ -256,7 +256,7 @@ func TestUpdateRetainsConfigSecretWhenSnapshotNil(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	initscheme.InitScheme(testScheme)
 	r := &PostgresBindingReconciler{Recorder: recorder, Scheme: testScheme}
-	prepared := PostgresBindingPreparedData{Instance: "orders-restore"}
+	prepared := PostgresBindingPreparedData{Branch: "orders-restore"}
 
 	t.Run("claims existing config Secret", func(t *testing.T) {
 		related := relatedobjectsmap.NewRelatedObjectsMap(testScheme)
@@ -296,7 +296,7 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	related.Insert(previous)
 	related.Insert(removedCredential)
 
-	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{Instance: "orders-restored"}, related)
+	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{Branch: "orders-restored"}, related)
 	requireNoError(t, err)
 	foundPrevious := false
 	for _, a := range actions {
@@ -312,19 +312,19 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	}
 }
 
-func TestPrepareBindingRetainsStatusActiveInstanceWhenSpecIsRemoved(t *testing.T) {
+func TestPrepareBindingRetainsStatusActiveBranchWhenSpecIsRemoved(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
 		Postgres: "orders", SecretName: "reporter-orders-connection",
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveInstance: instance.Name}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveBranch: instance.Name}}
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance).Build()
 
 	prepared, _, err := (&PostgresBindingReconciler{}).Prepare(context.Background(), reader, binding)
 	requireNoError(t, err)
-	requireEqual(t, prepared.Instance, instance.Name, "active instance")
+	requireEqual(t, prepared.Branch, instance.Name, "active branch")
 }
 
 func TestPostgresBindingRelationshipMappers(t *testing.T) {
@@ -336,8 +336,8 @@ func TestPostgresBindingRelationshipMappers(t *testing.T) {
 	otherBinding := binding.DeepCopy()
 	otherBinding.Name = "unrelated"
 	otherBinding.Spec.Postgres = "other"
-	instance := &v1.PostgresInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}, Spec: v1.PostgresInstanceSpec{Postgres: "orders"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveInstance: instance.Name}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Name}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "team"}, Spec: cnpgv1.ClusterSpec{Certificates: &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}}}
 	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
 	certificateName := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()

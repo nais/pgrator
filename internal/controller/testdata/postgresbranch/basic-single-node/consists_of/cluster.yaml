@@ -1,0 +1,52 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: pg-mydb
+    namespace: myteam
+    annotations:
+      postgres.nais.io/readwritecreate-capable: "true"
+    labels:
+      postgres.nais.io/name: mydb
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: PostgresBranch
+        name: mydb
+        uid: ""
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    inheritedMetadata:
+      labels:
+        logs.nais.io/flow-default: "false"
+        logs.nais.io/flow-team_logs: "true"
+    instances: 2
+    imageCatalogRef:
+      apiGroup: postgresql.cnpg.io
+      kind: ClusterImageCatalog
+      name: postgresql
+      major: 18
+    enableSuperuserAccess: false
+    storage:
+      storageClass: hyperdisk-balanced
+      size: 10Gi
+    bootstrap:
+      initdb:
+        database: app
+        owner: app
+    postgresql:
+      pg_hba:
+        - hostssl all all ${podselector:pooler} cert map=pooler
+        - hostssl all +nais_pa_b50d3038fdd554ed all scram-sha-256
+        - hostssl all all all cert
+        - hostnossl all all all reject
+      pg_ident:
+        - pooler cnpg_pooler_pgbouncer all
+    podSelectorRefs:
+      - name: pooler
+        selector:
+          matchLabels:
+            cnpg.io/poolerName: pg-mydb-pooler

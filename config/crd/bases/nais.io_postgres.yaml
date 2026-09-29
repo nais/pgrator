@@ -29,8 +29,8 @@ spec:
     - jsonPath: .spec.resources.memory
       name: Memory
       type: string
-    - jsonPath: .status.activeInstance
-      name: Active instance
+    - jsonPath: .status.activeBranch
+      name: Active branch
       type: string
     - jsonPath: .status.reconcileTime
       name: Last reconcile
@@ -60,10 +60,10 @@ spec:
           spec:
             description: spec defines the desired state of Postgres
             properties:
-              activeInstance:
+              activeBranch:
                 description: |-
-                  ActiveInstance selects the physical PostgresInstance normal workloads use.
-                  When omitted, pgrator retains the current active instance.
+                  ActiveBranch selects the physical PostgresBranch normal workloads use.
+                  When omitted, pgrator retains the current active branch.
                 type: string
               extensions:
                 description: Extensions to enable in the Postgres database.
@@ -127,8 +127,8 @@ spec:
           status:
             description: status defines the observed state of Postgres
             properties:
-              activeInstance:
-                description: ActiveInstance is the physical PostgresInstance currently
+              activeBranch:
+                description: ActiveBranch is the physical PostgresBranch currently
                   selected by pgrator.
                 type: string
               conditions:

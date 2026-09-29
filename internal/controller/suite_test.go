@@ -133,7 +133,7 @@ func TestGoldenPostgres(t *testing.T) {
 	)
 }
 
-func TestGoldenPostgresInstance(t *testing.T) {
+func TestGoldenPostgresBranch(t *testing.T) {
 	instanceConfig := config.Config{
 		APIServerIP:     "172.16.0.2/32",
 		GoogleProjectID: "cluster-gcp-project",
@@ -143,18 +143,18 @@ func TestGoldenPostgresInstance(t *testing.T) {
 			StorageClass:     "hyperdisk-balanced",
 		},
 	}
-	postgresInstanceReconciler := &PostgresInstanceReconciler{
+	postgresBranchReconciler := &PostgresBranchReconciler{
 		Config:   &instanceConfig,
 		Recorder: recorder,
 		Scheme:   scheme.Scheme,
 	}
 
-	runGoldenTestsForResource[*v1.PostgresInstance, PostgresInstancePreparedData, v1.PostgresInstance](
+	runGoldenTestsForResource[*v1.PostgresBranch, PostgresBranchPreparedData, v1.PostgresBranch](
 		t,
-		postgresInstanceReconciler,
-		"postgresinstance",
+		postgresBranchReconciler,
+		"postgresbranch",
 		instanceConfig,
-		func(cfg config.Config) { *postgresInstanceReconciler.Config = cfg },
+		func(cfg config.Config) { *postgresBranchReconciler.Config = cfg },
 	)
 }
 

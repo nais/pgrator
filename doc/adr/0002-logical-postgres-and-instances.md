@@ -4,6 +4,8 @@ status: accepted
 
 # Model Postgres as a logical database with active instances
 
+Naming update: ADR 0007 renames the `PostgresInstance` resource and reference fields to `PostgresBranch` without changing the independent-data-history model below.
+
 A `Postgres` is the logical database that an Application requests through `uses.postgres`. It is not itself one CloudNativePG cluster. Pgrator creates and manages one or more equal `PostgresInstance` resources below it. An instance is a concrete, independently running and writable CNPG cluster with its own data history, Pooler, PVCs, network policies, Workload Identity, bucket permissions, database roles, PKI, and client credentials. Instance names are generated and neutral; neither `main` nor a restore timestamp is part of an instance's identity. PITR is an operation that creates a new instance from a selected point in time, without changing the source instance.
 
 The user never creates a `PostgresInstance` manifest directly. GUI, TUI, and API offer operations in terms of the logical database, for example, "create an instance of `nais-postgres` from 12:00 today". Pgrator owns the resulting instance resource and reports its recovery and readiness status. A user with personal access may select any instance, including an inactive one; all instances are writable subject to that user's role.

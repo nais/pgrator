@@ -16,10 +16,10 @@ const (
 
 // PostgresAccessSpec defines one immutable, time-limited personal access request.
 type PostgresAccessSpec struct {
-	// PostgresInstance is the explicitly selected physical database instance.
+	// PostgresBranch is the explicitly selected physical branch of the database.
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresInstance is immutable"
-	PostgresInstance string `json:"postgresInstance"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresBranch is immutable"
+	PostgresBranch string `json:"postgresBranch"`
 
 	// Username is the authenticated NAIS user's email address.
 	// +kubebuilder:validation:MinLength=3
@@ -66,7 +66,7 @@ type PostgresAccessStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories={nais}
-// +kubebuilder:printcolumn:name="PostgresInstance",type="string",JSONPath=".spec.postgresInstance"
+// +kubebuilder:printcolumn:name="PostgresBranch",type="string",JSONPath=".spec.postgresBranch"
 // +kubebuilder:printcolumn:name="Username",type="string",JSONPath=".spec.username"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 type PostgresAccess struct {

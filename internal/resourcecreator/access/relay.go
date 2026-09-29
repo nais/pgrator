@@ -68,7 +68,7 @@ func CreateRelayAccess(scheme *runtime.Scheme, access *v1.PostgresAccess, digest
 		"kind":       RelayAccessGVK.Kind,
 		"metadata":   map[string]any{"name": RelayAccessName(access), "namespace": access.Namespace},
 		"spec": map[string]any{
-			"target":      map[string]any{"serviceName": cnpg.ClusterNameFor(access.Spec.PostgresInstance) + "-rw", "port": int64(5432)},
+			"target":      map[string]any{"serviceName": cnpg.ClusterNameFor(access.Spec.PostgresBranch) + "-rw", "port": int64(5432)},
 			"expiresAt":   access.Spec.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
 			"tokenSHA256": digest,
 		},

@@ -37,7 +37,7 @@ spec:
       schema:
         openAPIV3Schema:
           description: |-
-            PostgresBinding grants a consumer access to a Postgres instance in the same
+            PostgresBinding grants a consumer access to a logical Postgres in the same
             namespace. It results in a database role authenticated by a client certificate,
             plus the Secrets the consumer needs to connect.
           properties:
@@ -108,7 +108,7 @@ spec:
                   x-kubernetes-list-type: set
                 postgres:
                   description: |-
-                    Postgres is the name of the Postgres instance to bind to. The instance must
+                    Postgres is the name of the logical Postgres to bind to. The Postgres must
                     live in the same namespace: bindings never cross team boundaries.
                   type: string
                 secretName:

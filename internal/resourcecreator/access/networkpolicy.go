@@ -26,7 +26,7 @@ func CreateRelayNetworkPolicy(scheme *runtime.Scheme, access *v1.PostgresAccess)
 		ObjectMeta: metav1.ObjectMeta{Name: RelayNetworkPolicyName(access), Namespace: access.Namespace},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
-				"cnpg.io/cluster": cnpg.ClusterNameFor(access.Spec.PostgresInstance), "cnpg.io/instanceRole": "primary",
+				"cnpg.io/cluster": cnpg.ClusterNameFor(access.Spec.PostgresBranch), "cnpg.io/instanceRole": "primary",
 			}},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{{
