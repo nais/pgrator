@@ -4,3 +4,7 @@ instance:
     namespace: myteam
   spec:
     postgres: orders
+cluster:
+  metadata:
+    name: pg-orders-restore
+    namespace: myteam

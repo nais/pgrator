@@ -40,6 +40,7 @@ func accessFixture() (*v1.PostgresAccess, *v1.PostgresInstance, *v1.Postgres, *c
 
 func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
 	a, i, p, c := accessFixture()
+	c.Spec.Certificates = &cnpgv1.CertificatesConfiguration{ServerCASecret: "custom-server-ca"}
 	r := makePostgresAccessReconciler()
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c).Build()
 	prepared, _, err := r.Prepare(context.Background(), reader, a)
@@ -66,8 +67,23 @@ func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
 	if a.Status.TokenSecret != "" || a.Status.RelayAccess != relay.GetName() {
 		t.Errorf("unpersisted token must not be advertised as provisioned: %+v", a.Status)
 	}
+	if a.Status.ServerName != "pg-orders-rw.team.svc.cluster.local" || a.Status.ServerCASecret != "custom-server-ca" {
+		t.Errorf("TLS connection metadata = %q, %q", a.Status.ServerName, a.Status.ServerCASecret)
+	}
 	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
 		t.Error("new access must not be Ready")
+	}
+}
+
+func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
+	a, i, p, c := accessFixture()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c).Build()
+	prepared, _, err := makePostgresAccessReconciler().Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	_, _, err = makePostgresAccessReconciler().Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if a.Status.ServerCASecret != "pg-orders-ca" {
+		t.Errorf("server CA Secret = %q, want CNPG default", a.Status.ServerCASecret)
 	}
 }
 
@@ -392,13 +408,14 @@ func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
 	a, _, _, _ := accessFixture()
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
+	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-orders-rw.team.svc.cluster.local", ServerCASecret: "pg-orders-ca"}
 	r := makePostgresAccessReconciler()
 	prep, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), a)
 	requireNoError(t, err)
 	actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
-	if len(actions) != 0 || findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
-		t.Fatal("expired access must be disabled")
+	if len(actions) != 0 || findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse || a.Status.ServerName != "" || a.Status.ServerCASecret != "" {
+		t.Fatal("expired access must be disabled and its TLS metadata cleared")
 	}
 }
 

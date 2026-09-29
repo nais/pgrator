@@ -285,6 +285,8 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		status := access.GetStatus().(*v1.PostgresAccessStatus)
 		status.RelayAccess = ""
 		status.TokenSecret = ""
+		status.ServerName = ""
+		status.ServerCASecret = ""
 		status.SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Expired", Message: "access has expired"})
 		return nil, ctrl.Result{}, nil
 	}
@@ -317,6 +319,8 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 
 	status := access.GetStatus().(*v1.PostgresAccessStatus)
 	status.RelayAccess = rcaccess.RelayAccessName(access)
+	status.ServerName = prepared.Cluster.Name + "-rw." + access.Namespace + ".svc.cluster.local"
+	status.ServerCASecret = prepared.Cluster.GetServerCASecretName()
 	if prepared.TokenPersisted {
 		status.TokenSecret = rcaccess.TokenSecretName(access)
 	}

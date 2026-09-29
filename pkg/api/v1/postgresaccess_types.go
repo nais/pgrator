@@ -52,6 +52,15 @@ type PostgresAccessStatus struct {
 	// Only the authorized broker may retrieve its contents.
 	// +optional
 	TokenSecret string `json:"tokenSecret,omitempty"`
+
+	// ServerName is the PostgreSQL TLS name for the selected instance's RW service.
+	// +optional
+	ServerName string `json:"serverName,omitempty"`
+
+	// ServerCASecret is the name of the CNPG server CA Secret. The certificate
+	// itself is retrieved from the Secret, not copied into status.
+	// +optional
+	ServerCASecret string `json:"serverCASecret,omitempty"`
 }
 
 // +kubebuilder:object:root=true
