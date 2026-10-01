@@ -10,7 +10,7 @@ object:
   spec:
     podSelector:
       matchLabels:
-        cnpg.io/cluster: pg-orders-restore
+        cnpg.io/cluster: pg-orders-restore-15aaddee
         cnpg.io/instanceRole: primary
     policyTypes: [Ingress]
     ingress:

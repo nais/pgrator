@@ -5,14 +5,14 @@ object:
   apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: pg-mydb-feedab1ebeef
+    name: pg-mydb-main-6bc4781b-feedab1ebeef
     namespace: myteam
     labels:
-      postgres.nais.io/name: mydb
+      postgres.nais.io/name: mydb-main-6bc4781b
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true
@@ -22,12 +22,12 @@ object:
       - Ingress
     podSelector:
       matchLabels:
-        cnpg.io/cluster: pg-mydb
+        cnpg.io/cluster: pg-mydb-main-6bc4781b
     egress:
       - to:
           - podSelector:
               matchLabels:
-                cnpg.io/cluster: pg-mydb
+                cnpg.io/cluster: pg-mydb-main-6bc4781b
       - to:
           - namespaceSelector: {}
             podSelector:

@@ -22,7 +22,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: pg-mydb
+                name: pg-mydb-main-6bc4781b
 
     - name: Create an admin binding
       try:
@@ -48,7 +48,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: pg-mydb-app
+                name: pg-mydb-main-6bc4781b-app
               spec:
                 name: app
                 login: true
@@ -87,10 +87,10 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: pg-mydb-app
+                name: pg-mydb-main-6bc4781b-app
         - assert:
             resource:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: pg-mydb-app-client-cert
+                name: pg-mydb-main-6bc4781b-app-client-cert

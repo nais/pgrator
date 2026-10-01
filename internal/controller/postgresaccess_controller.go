@@ -48,7 +48,7 @@ type PostgresAccessPreparedData struct {
 }
 
 const postgresAccessBranchIndex = "spec.postgresBranch"
-const postgresAccessReadyCondition = "Ready"
+const readyCondition = "Ready"
 const maximumPostgresAccessLifetime = time.Hour
 
 func (r *PostgresAccessReconciler) Name() string { return "postgresaccess.nais.io" }
@@ -179,7 +179,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if !access.GetDeletionTimestamp().IsZero() {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, nil
 	}
-	access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "access is reconciling"})
+	access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "access is reconciling"})
 	now := time.Now()
 	if !now.Before(access.Spec.ExpiresAt.Time) {
 		return PostgresAccessPreparedData{Expired: true}, ctrl.Result{}, nil
@@ -195,6 +195,9 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	key := client.ObjectKey{Namespace: access.Namespace, Name: access.Spec.PostgresBranch}
 	if err := reader.Get(ctx, key, instance); err != nil {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting PostgresBranch %q: %w", access.Spec.PostgresBranch, err)
+	}
+	if !validBranchIdentity(instance) || instance.Name != access.Spec.PostgresBranch {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q has invalid identity", instance.Name)
 	}
 	postgres := &v1.Postgres{}
 	postgresKey := client.ObjectKey{Namespace: access.Namespace, Name: instance.Spec.Postgres}
@@ -287,7 +290,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		status.TokenSecret = ""
 		status.ServerName = ""
 		status.ServerCASecret = ""
-		status.SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Expired", Message: "access has expired"})
+		status.SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Expired", Message: "access has expired"})
 		return nil, ctrl.Result{}, nil
 	}
 	if access.Spec.AccessLevel == v1.PostgresAccessLevelReadWriteCreate && !rccnpg.ReadWriteCreateCapable(prepared.Cluster) {
@@ -298,7 +301,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 			"accessLevel readwritecreate is not available on PostgresBranch %q: its cluster was initialized without the %s group role",
 			access.Spec.PostgresBranch, rccnpg.ReadWriteCreateRole)
 		access.GetStatus().(*v1.PostgresAccessStatus).SetCondition(metav1.Condition{
-			Type:               postgresAccessReadyCondition,
+			Type:               readyCondition,
 			Status:             metav1.ConditionFalse,
 			Reason:             "UnsupportedAccessLevel",
 			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PostgresBranch),
@@ -386,7 +389,7 @@ func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []meta
 }
 
 func setPostgresAccessReadyCondition(status *v1.PostgresAccessStatus, ready bool) {
-	condition := metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "waiting for applied database role and persisted relay mapping and token"}
+	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "waiting for applied database role and persisted relay mapping and token"}
 	if ready {
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = "Ready"

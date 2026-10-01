@@ -1,10 +1,11 @@
 branch:
   metadata:
-    name: orders-restore
+    name: orders-restore-15aaddee
     namespace: myteam
   spec:
     postgres: orders
+    branchName: restore
 cluster:
   metadata:
-    name: pg-orders-restore
+    name: pg-orders-restore-15aaddee
     namespace: myteam

@@ -5,16 +5,16 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: Cluster
   metadata:
-    name: pg-mydb
+    name: pg-mydb-main-6bc4781b
     namespace: myteam
   spec:
     serviceAccountTemplate:
       metadata:
         annotations:
-          iam.gke.io/gcp-service-account: cnpg-mydb-b60fcdec@team-gcp-project.iam.gserviceaccount.com
+          iam.gke.io/gcp-service-account: cnpg-mydb-main-6bc478-db110b6e@team-gcp-project.iam.gserviceaccount.com
     plugins:
       - name: barman-cloud.cloudnative-pg.io
         enabled: true
         isWALArchiver: true
         parameters:
-          barmanObjectName: wal-bucket-prefix-myteam-mydb-feedab1ebeef
+          barmanObjectName: wal-bucket-prefix-myteam-mydb-main-6bc4781b-feedab1ebeef

@@ -31,10 +31,10 @@ func makePostgresAccessReconciler() *PostgresAccessReconciler {
 }
 
 func accessFixture() (*v1.PostgresAccess, *v1.PostgresBranch, *v1.Postgres, *cnpgv1.Cluster) {
-	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresBranch: "orders", AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
-	i := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "db"}}
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresBranch: v1.PostgresBranchObjectName("db", "main"), AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
+	i := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("db", "main"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "db", BranchName: "main"}}
 	p := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "team"}}
-	c := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
+	c := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-db-main-78dbba05", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
 	return a, i, p, c
 }
 
@@ -61,13 +61,13 @@ func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
 	}
 	relay := actions[3].GetObject()
 	spec := relay.(*unstructured.Unstructured).Object["spec"].(map[string]any)
-	if spec["tokenSHA256"] != digest || spec["target"].(map[string]any)["serviceName"] != "pg-orders-rw" {
+	if spec["tokenSHA256"] != digest || spec["target"].(map[string]any)["serviceName"] != "pg-db-main-78dbba05-rw" {
 		t.Errorf("mapping = %v", spec)
 	}
 	if a.Status.TokenSecret != "" || a.Status.RelayAccess != relay.GetName() {
 		t.Errorf("unpersisted token must not be advertised as provisioned: %+v", a.Status)
 	}
-	if a.Status.ServerName != "pg-orders-rw.team.svc.cluster.local" || a.Status.ServerCASecret != "custom-server-ca" {
+	if a.Status.ServerName != "pg-db-main-78dbba05-rw.team.svc.cluster.local" || a.Status.ServerCASecret != "custom-server-ca" {
 		t.Errorf("TLS connection metadata = %q, %q", a.Status.ServerName, a.Status.ServerCASecret)
 	}
 	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse {
@@ -82,7 +82,7 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 	requireNoError(t, err)
 	_, _, err = makePostgresAccessReconciler().Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
-	if a.Status.ServerCASecret != "pg-orders-ca" {
+	if a.Status.ServerCASecret != "pg-db-main-78dbba05-ca" {
 		t.Errorf("server CA Secret = %q, want CNPG default", a.Status.ServerCASecret)
 	}
 }
@@ -255,7 +255,7 @@ func TestPostgresAccessRevokesReadinessOnTokenMutationOrDeletion(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			access := a.DeepCopy()
-			access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
+			access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
 			objects := []client.Object{i, p, c, relay}
 			if tc.secret != nil {
 				objects = append(objects, tc.secret)
@@ -289,7 +289,7 @@ func TestPostgresAccessRejectsTerminatingRelay(t *testing.T) {
 		t.Fatal("relay deletion transition must enqueue PostgresAccess")
 	}
 	access := a.DeepCopy()
-	access.GetStatus().SetCondition(metav1.Condition{Type: postgresAccessReadyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
+	access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, terminating).Build()
 	_, _, err = r.Prepare(context.Background(), reader, access)
 	if err == nil || findReadyCondition(access.Status.Conditions).Status != metav1.ConditionFalse {
@@ -408,7 +408,7 @@ func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
 	a, _, _, _ := accessFixture()
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
-	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-orders-rw.team.svc.cluster.local", ServerCASecret: "pg-orders-ca"}
+	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-db-main-78dbba05-rw.team.svc.cluster.local", ServerCASecret: "pg-db-main-78dbba05-ca"}
 	r := makePostgresAccessReconciler()
 	prep, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), a)
 	requireNoError(t, err)
@@ -429,7 +429,7 @@ func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *test
 
 func findReadyCondition(conditions []metav1.Condition) *metav1.Condition {
 	for i := range conditions {
-		if conditions[i].Type == postgresAccessReadyCondition {
+		if conditions[i].Type == readyCondition {
 			return &conditions[i]
 		}
 	}

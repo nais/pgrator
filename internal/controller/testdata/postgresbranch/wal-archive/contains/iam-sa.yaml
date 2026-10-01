@@ -5,12 +5,12 @@ object:
   apiVersion: iam.cnrm.cloud.google.com/v1beta1
   kind: IAMServiceAccount
   metadata:
-    name: cnpg-mydb-b60fcdec
+    name: cnpg-mydb-main-6bc478-db110b6e
     namespace: myteam
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true

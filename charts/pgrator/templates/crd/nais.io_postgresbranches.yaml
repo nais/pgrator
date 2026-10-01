@@ -58,8 +58,10 @@ spec:
                       description: Recovery initializes the instance from another branch's archive.
                       properties:
                         sourceBranch:
-                          description: SourceBranch is the physical branch whose archive is recovered.
+                          description: SourceBranch is the local name of the branch whose archive is recovered.
+                          maxLength: 63
                           minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                         targetTime:
                           description: TargetTime is the UTC point in time to recover to.
@@ -73,6 +75,17 @@ spec:
                   x-kubernetes-validations:
                     - message: bootstrap is immutable
                       rule: self == oldSelf
+                branchName:
+                  description: |-
+                    BranchName is the local name within Postgres. The object name must be
+                    PostgresBranchObjectName(postgres, branchName).
+                  maxLength: 63
+                  minLength: 1
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  type: string
+                  x-kubernetes-validations:
+                    - message: branchName is immutable
+                      rule: self == oldSelf
                 postgres:
                   description: Postgres is the logical Postgres this physical branch belongs to.
                   type: string
@@ -80,6 +93,7 @@ spec:
                     - message: postgres is immutable
                       rule: self == oldSelf
               required:
+                - branchName
                 - postgres
               type: object
             status:

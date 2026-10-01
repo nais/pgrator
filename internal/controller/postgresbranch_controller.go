@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -176,7 +177,7 @@ func recoverySourceBranchIndex(object client.Object) []string {
 	if !ok || instance.Spec.Bootstrap == nil || instance.Spec.Bootstrap.Recovery == nil || instance.Spec.Bootstrap.Recovery.SourceBranch == "" {
 		return nil
 	}
-	return []string{instance.Spec.Bootstrap.Recovery.SourceBranch}
+	return []string{v1.PostgresBranchObjectName(instance.Spec.Postgres, instance.Spec.Bootstrap.Recovery.SourceBranch)}
 }
 
 func (r *PostgresBranchReconciler) branchesForPostgres(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -200,6 +201,9 @@ func (r *PostgresBranchReconciler) branchesForPostgres(ctx context.Context, read
 func (r *PostgresBranchReconciler) branchesForRecoverySource(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
 	instance, ok := object.(*v1.PostgresBranch)
 	if !ok {
+		return nil, nil
+	}
+	if !validBranchIdentity(instance) {
 		return nil, nil
 	}
 	return r.recoveryRequestsForSource(ctx, reader, instance.GetNamespace(), instance.GetName())
@@ -236,6 +240,11 @@ func (r *PostgresBranchReconciler) recoveryRequestsForSource(ctx context.Context
 }
 
 func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.PostgresBranch) (PostgresBranchPreparedData, ctrl.Result, error) {
+	if !validBranchIdentity(obj) {
+		message := fmt.Sprintf("PostgresBranch %q does not match spec.postgres %q and spec.branchName %q", obj.Name, obj.Spec.Postgres, obj.Spec.BranchName)
+		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "InvalidIdentity", Message: message, ObservedGeneration: obj.Generation})
+		return PostgresBranchPreparedData{}, ctrl.Result{}, errors.New(message)
+	}
 	postgres := &v1.Postgres{}
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
@@ -278,12 +287,13 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		return prepared, ctrl.Result{}, nil
 	}
 	recovery := obj.Spec.Bootstrap.Recovery
+	sourceName := v1.PostgresBranchObjectName(obj.Spec.Postgres, recovery.SourceBranch)
 	prepared.RecoverySource = &rccnpg.RecoverySource{
-		BucketName: r.bucketNameForInstanceName(obj.GetNamespace(), recovery.SourceBranch, prepared.PostgresUID),
-		ServerName: rccnpg.ClusterNameFor(recovery.SourceBranch),
+		BucketName: r.bucketNameForInstanceName(obj.GetNamespace(), sourceName, prepared.PostgresUID),
+		ServerName: rccnpg.ClusterNameFor(sourceName),
 		TargetTime: recovery.TargetTime,
 	}
-	if recovery.SourceBranch == obj.GetName() {
+	if recovery.SourceBranch == obj.Spec.BranchName {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source branch cannot be itself")
 	}
 	if recovery.TargetTime.IsZero() {
@@ -300,10 +310,10 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery cluster: %w", err)
 	}
 	source := &v1.PostgresBranch{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: recovery.SourceBranch}, source); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: sourceName}, source); err != nil {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery source branch %q: %w", recovery.SourceBranch, err)
 	}
-	if source.Spec.Postgres != obj.Spec.Postgres {
+	if !validBranchIdentity(source) || source.Spec.Postgres != obj.Spec.Postgres || source.Spec.BranchName != recovery.SourceBranch {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source branch %q belongs to Postgres %q, want %q", source.GetName(), source.Spec.Postgres, obj.Spec.Postgres)
 	}
 	sourceArchives := &barmanv1.ObjectStoreList{}
@@ -387,6 +397,8 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
 		}
+		cluster.Labels["postgres.nais.io/name"] = obj.Spec.Postgres
+		cluster.Labels["postgres.nais.io/branch"] = obj.Spec.BranchName
 		// postInitSQL, which creates the app_readwritecreate group role, runs only
 		// at initdb. Mark the cluster as readwritecreate-capable only when this
 		// reconcile creates a fresh initdb cluster; once set, the marker is
@@ -769,7 +781,7 @@ func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner *v1.
 }
 
 func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresBranchPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	if prep.ActiveBranch != "" && obj.GetName() == prep.ActiveBranch && !prep.PostgresDeleting {
+	if prep.ActiveBranch != "" && obj.Spec.BranchName == prep.ActiveBranch && !prep.PostgresDeleting {
 		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: branch is the active PostgresBranch")
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}

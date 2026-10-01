@@ -63,11 +63,22 @@ func (r *PostgresReconciler) New() *v1.Postgres {
 
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
 	if obj.Spec.ActiveBranch == "" {
+		branch := &v1.PostgresBranch{}
+		key := client.ObjectKey{Namespace: obj.Namespace, Name: v1.PostgresBranchObjectName(obj.Name, v1.DefaultBranchName)}
+		if err := reader.Get(ctx, key, branch); err != nil {
+			if apierrors.IsNotFound(err) {
+				return PostgresPreparedData{}, ctrl.Result{}, nil
+			}
+			return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting default PostgresBranch: %w", err)
+		}
+		if !validBranchIdentity(branch) || branch.Spec.Postgres != obj.Name || branch.Spec.BranchName != v1.DefaultBranchName {
+			return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("default PostgresBranch %q has invalid identity", branch.Name)
+		}
 		return PostgresPreparedData{}, ctrl.Result{}, nil
 	}
 
 	requested := &v1.PostgresBranch{}
-	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.ActiveBranch}
+	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: v1.PostgresBranchObjectName(obj.Name, obj.Spec.ActiveBranch)}
 	if err := reader.Get(ctx, key, requested); err != nil {
 		if apierrors.IsNotFound(err) {
 			return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
@@ -75,7 +86,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresBranch %q: %w", obj.Spec.ActiveBranch, err)
 	}
 
-	if requested.Spec.Postgres != obj.GetName() {
+	if !validBranchIdentity(requested) || requested.Spec.Postgres != obj.GetName() || requested.Spec.BranchName != obj.Spec.ActiveBranch {
 		return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 	}
 
@@ -118,8 +129,8 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	instance := &v1.PostgresBranch{
 		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch"},
-		ObjectMeta: meta_v1.ObjectMeta{Name: obj.GetName(), Namespace: obj.GetNamespace()},
-		Spec:       v1.PostgresBranchSpec{Postgres: obj.GetName()},
+		ObjectMeta: meta_v1.ObjectMeta{Name: v1.PostgresBranchObjectName(obj.Name, v1.DefaultBranchName), Namespace: obj.GetNamespace(), Labels: map[string]string{"postgres.nais.io/name": obj.Name, "postgres.nais.io/branch": v1.DefaultBranchName}},
+		Spec:       v1.PostgresBranchSpec{Postgres: obj.GetName(), BranchName: v1.DefaultBranchName},
 	}
 	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
@@ -135,7 +146,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 		actions := make([]action.Action, 0)
 		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresBranch{}) {
 			instance, ok := candidate.(*v1.PostgresBranch)
-			if !ok || instance.GetNamespace() != obj.GetNamespace() || instance.Spec.Postgres != obj.GetName() {
+			if !ok || instance.GetNamespace() != obj.GetNamespace() || !validBranchIdentity(instance) || instance.Spec.Postgres != obj.GetName() {
 				continue
 			}
 			if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
@@ -154,7 +165,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 
 	status := obj.GetStatus().(*v1.PostgresStatus)
 	if status.ActiveBranch == "" {
-		status.ActiveBranch = obj.GetName()
+		status.ActiveBranch = v1.DefaultBranchName
 	}
 	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
 }
@@ -166,7 +177,11 @@ func effectiveActiveBranch(postgres *v1.Postgres) string {
 	if postgres.Status != nil && postgres.Status.ActiveBranch != "" {
 		return postgres.Status.ActiveBranch
 	}
-	return postgres.GetName()
+	return v1.DefaultBranchName
+}
+
+func validBranchIdentity(branch *v1.PostgresBranch) bool {
+	return branch.Name == v1.PostgresBranchObjectName(branch.Spec.Postgres, branch.Spec.BranchName)
 }
 
 func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {

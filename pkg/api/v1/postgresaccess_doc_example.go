@@ -18,7 +18,7 @@ func ExamplePostgresAccessForDocumentation() api.NaisObject {
 			Namespace: "myteam",
 		},
 		Spec: PostgresAccessSpec{
-			PostgresBranch: "orders",
+			PostgresBranch: PostgresBranchObjectName("orders", DefaultBranchName),
 			Username:       "frode.sundby@nav.no",
 			AccessLevel:    PostgresAccessLevelRead,
 			ExpiresAt:      metav1.NewTime(time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)),

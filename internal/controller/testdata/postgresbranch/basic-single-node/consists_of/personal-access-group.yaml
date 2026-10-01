@@ -5,18 +5,18 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: pg-mydb-personal-access
+    name: pg-mydb-main-6bc4781b-personal-access
     namespace: myteam
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true
   spec:
     cluster:
-      name: pg-mydb
+      name: pg-mydb-main-6bc4781b
     databaseRoleReclaimPolicy: delete
-    name: nais_pa_b50d3038fdd554ed
+    name: nais_pa_91d946cd13884246
     disablePassword: true

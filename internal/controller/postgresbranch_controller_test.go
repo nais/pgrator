@@ -31,7 +31,7 @@ func TestPersonalAccessGroupHasNoLoginOrPrivileges(t *testing.T) {
 	if err := v1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}}
 	group, err := createPersonalAccessGroupRole(scheme, instance)
 	requireNoError(t, err)
 	role := group.Spec.RoleConfiguration
@@ -48,16 +48,16 @@ func TestPersonalAccessGroupHasNoLoginOrPrivileges(t *testing.T) {
 
 func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 	reconciler := &PostgresBranchReconciler{Recorder: recorder}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}}
+	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}}
 
 	tests := []struct {
 		name             string
 		prep             PostgresBranchPreparedData
 		wantRequeueAfter time.Duration
 	}{
-		{name: "blocked when active", prep: PostgresBranchPreparedData{ActiveBranch: "orders-primary", PostgresDeleting: false}, wantRequeueAfter: 30 * time.Second},
-		{name: "allowed when not active", prep: PostgresBranchPreparedData{ActiveBranch: "orders-restore"}},
-		{name: "allowed when Postgres is deleting", prep: PostgresBranchPreparedData{ActiveBranch: "orders-primary", PostgresDeleting: true}},
+		{name: "blocked when active", prep: PostgresBranchPreparedData{ActiveBranch: "primary", PostgresDeleting: false}, wantRequeueAfter: 30 * time.Second},
+		{name: "allowed when not active", prep: PostgresBranchPreparedData{ActiveBranch: "restore"}},
+		{name: "allowed when Postgres is deleting", prep: PostgresBranchPreparedData{ActiveBranch: "primary", PostgresDeleting: true}},
 		{name: "allowed when Postgres is gone", prep: PostgresBranchPreparedData{}},
 	}
 
@@ -122,11 +122,11 @@ func TestUpdateDoesNotCreateScheduledBackupBeforeContinuousArchiving(t *testing.
 	}
 	instance := &v1.PostgresBranch{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mydb",
+			Name:      v1.PostgresBranchObjectName("mydb", "main"),
 			Namespace: "myteam",
 			UID:       "d3adb33f-beef-cafe-babe-700d1e100d1e",
 		},
-		Spec: v1.PostgresBranchSpec{Postgres: "mydb"},
+		Spec: v1.PostgresBranchSpec{Postgres: "mydb", BranchName: "main"},
 	}
 
 	actions, _, err := reconciler.Update(instance, PostgresBranchPreparedData{
@@ -198,13 +198,13 @@ func TestUpdateCreatesOrKeepsScheduledBackupWhenEligible(t *testing.T) {
 				Scheme: scheme,
 			}
 			instance := &v1.PostgresBranch{
-				ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "myteam", UID: "d3adb33f-beef-cafe-babe-700d1e100d1e"},
-				Spec:       v1.PostgresBranchSpec{Postgres: "mydb"},
+				ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("mydb", "main"), Namespace: "myteam", UID: "d3adb33f-beef-cafe-babe-700d1e100d1e"},
+				Spec:       v1.PostgresBranchSpec{Postgres: "mydb", BranchName: "main"},
 			}
 			relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
 			if tt.continuousArchive {
 				relatedObjects.Insert(&cnpgv1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{Name: "pg-mydb", Namespace: "myteam"},
+					ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "myteam"},
 					Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{
 						Type:   string(cnpgv1.ConditionContinuousArchiving),
 						Status: metav1.ConditionTrue,
@@ -212,7 +212,7 @@ func TestUpdateCreatesOrKeepsScheduledBackupWhenEligible(t *testing.T) {
 				})
 			}
 			if tt.existingBackup {
-				relatedObjects.Insert(&cnpgv1.ScheduledBackup{ObjectMeta: metav1.ObjectMeta{Name: "pg-mydb", Namespace: "myteam"}})
+				relatedObjects.Insert(&cnpgv1.ScheduledBackup{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "myteam"}})
 			}
 
 			actions, _, err := reconciler.Update(instance, PostgresBranchPreparedData{
@@ -239,20 +239,20 @@ func TestPrepareRecoveryUsesSourceBranchArchive(t *testing.T) {
 	initscheme.InitScheme(scheme)
 	targetTime := metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.UTC))
 	restore := &v1.PostgresBranch{
-		ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"},
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"},
 		Spec: v1.PostgresBranchSpec{
-			Postgres: "orders",
+			Postgres: "orders", BranchName: "restore",
 			Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{
-				SourceBranch: "orders-primary",
+				SourceBranch: "primary",
 				TargetTime:   targetTime,
 			}},
 		},
 	}
 	source := &v1.PostgresBranch{
-		ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"},
-		Spec:       v1.PostgresBranchSpec{Postgres: "orders"},
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"},
+		Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"},
 	}
-	archiveName := "wal-bucket-prefix-team-orders-primary-feedab1ebeef"
+	archiveName := reconcilerBucketName(source, PostgresBranchPreparedData{PostgresUID: "feedab1e-beef-cafe-babe-700d1e100d1e"})
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team", UID: "feedab1e-beef-cafe-babe-700d1e100d1e"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
@@ -260,7 +260,7 @@ func TestPrepareRecoveryUsesSourceBranchArchive(t *testing.T) {
 		&barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{
 			Name:      archiveName,
 			Namespace: "team",
-			Labels:    map[string]string{rcstorage.OwnerNameLabel: "orders-primary"},
+			Labels:    map[string]string{rcstorage.OwnerNameLabel: v1.PostgresBranchObjectName("orders", "primary")},
 		}},
 		&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: archiveName, Namespace: "team"}},
 	).Build()
@@ -276,7 +276,7 @@ func TestPrepareRecoveryUsesSourceBranchArchive(t *testing.T) {
 	if got, want := prepared.RecoverySource.BucketName, archiveName; got != want {
 		t.Errorf("recovery bucket = %q, want %q", got, want)
 	}
-	if got, want := prepared.RecoverySource.ServerName, "pg-orders-primary"; got != want {
+	if got, want := prepared.RecoverySource.ServerName, rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "primary")); got != want {
 		t.Errorf("recovery server = %q, want %q", got, want)
 	}
 }
@@ -289,10 +289,10 @@ func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
 		want     string
 	}{
 		{name: "missing source", instance: recoveryInstance("missing"), want: "getting recovery source branch"},
-		{name: "self source", instance: recoveryInstance("orders-restore"), want: "cannot be itself"},
-		{name: "other Postgres", instance: recoveryInstance("other-primary"), source: &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "other-primary", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other"}}, want: "belongs to Postgres"},
+		{name: "self source", instance: recoveryInstance("restore"), want: "cannot be itself"},
+		{name: "other Postgres", instance: recoveryInstance("primary"), source: &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other", BranchName: "primary"}}, want: "belongs to Postgres"},
 		{name: "non UTC target", instance: func() *v1.PostgresBranch {
-			instance := recoveryInstance("orders-primary")
+			instance := recoveryInstance("primary")
 			instance.Spec.Bootstrap.Recovery.TargetTime = metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.FixedZone("CEST", 7200)))
 			return instance
 		}(), want: "must be UTC"},
@@ -322,7 +322,7 @@ func TestPrepareCompletedRecoveryDoesNotRequireSource(t *testing.T) {
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
-		&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders-restore", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}},
+		&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "restore")), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}},
 	).Build()
 	_, _, err := (&PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal"}}}).Prepare(context.Background(), reader, instance)
 	if err != nil {
@@ -333,13 +333,14 @@ func TestPrepareCompletedRecoveryDoesNotRequireSource(t *testing.T) {
 func TestRecoverySourceChangesEnqueueRecoveries(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	recovery := recoveryInstance("orders-primary")
+	recovery := recoveryInstance("primary")
+	other := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("other", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other", BranchName: "restore", Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{SourceBranch: "primary"}}}}
 	reader := fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&v1.PostgresBranch{}, postgresBranchRecoverySourceIndex, recoverySourceBranchIndex).
-		WithObjects(recovery).Build()
+		WithObjects(recovery, other).Build()
 	reconciler := &PostgresBranchReconciler{}
 
-	requests, err := reconciler.branchesForRecoverySource(context.Background(), reader, &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary", Namespace: "team"}})
+	requests, err := reconciler.branchesForRecoverySource(context.Background(), reader, &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}})
 	if err != nil {
 		t.Fatalf("mapping source branch: %v", err)
 	}
@@ -351,11 +352,11 @@ func TestRecoverySourceChangesEnqueueRecoveries(t *testing.T) {
 func TestRecoverySourceBucketChangesEnqueueRecoveries(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	recovery := recoveryInstance("orders-primary")
+	recovery := recoveryInstance("primary")
 	bucket := &storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: "orders-primary-archive", Namespace: "team"}}
 	reader := fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&v1.PostgresBranch{}, postgresBranchRecoverySourceIndex, recoverySourceBranchIndex).
-		WithObjects(recovery, bucket, &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: bucket.Name, Namespace: bucket.Namespace, Labels: map[string]string{rcstorage.OwnerNameLabel: "orders-primary"}}}).Build()
+		WithObjects(recovery, bucket, &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: bucket.Name, Namespace: bucket.Namespace, Labels: map[string]string{rcstorage.OwnerNameLabel: v1.PostgresBranchObjectName("orders", "primary")}}}).Build()
 	reconciler := &PostgresBranchReconciler{}
 
 	requests, err := reconciler.branchesForRecoverySourceBucket(context.Background(), reader, bucket)
@@ -375,12 +376,12 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 		Google:          config.Google{Location: "europe-north1"},
 		CNPG:            config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
 	}, Scheme: scheme}
-	instance := recoveryInstance("orders-primary")
+	instance := recoveryInstance("primary")
 	prepared := PostgresBranchPreparedData{
 		PostgresUID:         "feedab1e-beef-cafe-babe-700d1e100d1e",
 		TeamGoogleProjectID: "team-gcp-project",
 		PostgresSpec:        v1.PostgresSpec{MajorVersion: "18"},
-		RecoverySource:      &rccnpg.RecoverySource{BucketName: "orders-primary-archive", ServerName: "pg-orders-primary", TargetTime: instance.Spec.Bootstrap.Recovery.TargetTime},
+		RecoverySource:      &rccnpg.RecoverySource{BucketName: "orders-primary-archive", ServerName: rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "primary")), TargetTime: instance.Spec.Bootstrap.Recovery.TargetTime},
 	}
 
 	actions, _, err := reconciler.Update(instance, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme))
@@ -399,7 +400,7 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 	assertClusterAction(t, actions)
 	assertSourcePolicyAction(t, actions, true)
 
-	related.Insert(&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-orders-restore", Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}})
+	related.Insert(&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "restore")), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}})
 	actions, _, err = reconciler.Update(instance, prepared, related)
 	if err != nil {
 		t.Fatalf("updating completed recovery: %v", err)
@@ -408,7 +409,7 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 }
 
 func recoveryInstance(source string) *v1.PostgresBranch {
-	return &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{SourceBranch: source, TargetTime: metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.UTC))}}}}
+	return &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore", Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{SourceBranch: source, TargetTime: metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.UTC))}}}}
 }
 
 func readyRecoveryInfrastructure(t *testing.T, scheme *runtime.Scheme, reconciler *PostgresBranchReconciler, instance *v1.PostgresBranch, prepared PostgresBranchPreparedData) *relatedobjectsmap.RelatedObjectsMap {
@@ -472,7 +473,7 @@ func assertNoClusterAction(t *testing.T, actions []syncaction.Action) {
 func assertSourcePolicyAction(t *testing.T, actions []syncaction.Action, want bool) {
 	t.Helper()
 	for _, plannedAction := range actions {
-		if plannedAction.GetObject().GetName() == recoverySourcePolicyNameFor("orders-restore") {
+		if plannedAction.GetObject().GetName() == recoverySourcePolicyNameFor(v1.PostgresBranchObjectName("orders", "restore")) {
 			if !want {
 				t.Fatal("actions unexpectedly included recovery source policy")
 			}

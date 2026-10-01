@@ -5,11 +5,11 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: reporter-mydb-mydb-read
+    name: reporter-mydb-mydb-main-6bc4781b-read
     namespace: myteam
   spec:
     cluster:
-      name: pg-mydb
+      name: pg-mydb-main-6bc4781b
     name: reporter-read
     login: true
     inRoles:

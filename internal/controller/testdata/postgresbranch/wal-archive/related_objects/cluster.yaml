@@ -1,7 +1,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: pg-mydb
+  name: pg-mydb-main-6bc4781b
   namespace: myteam
 status:
   conditions:

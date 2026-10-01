@@ -69,7 +69,7 @@ spec:
                     - message: expiresAt is immutable
                       rule: self == oldSelf
                 postgresBranch:
-                  description: PostgresBranch is the explicitly selected physical branch of the database.
+                  description: PostgresBranch is the PostgresBranch object name (not its local branch name).
                   minLength: 1
                   type: string
                   x-kubernetes-validations:

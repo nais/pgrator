@@ -62,7 +62,7 @@ spec:
             properties:
               activeBranch:
                 description: |-
-                  ActiveBranch selects the physical PostgresBranch normal workloads use.
+                  ActiveBranch selects the local branch name within this Postgres for normal workloads.
                   When omitted, pgrator retains the current active branch.
                 type: string
               extensions:
@@ -128,8 +128,8 @@ spec:
             description: status defines the observed state of Postgres
             properties:
               activeBranch:
-                description: ActiveBranch is the physical PostgresBranch currently
-                  selected by pgrator.
+                description: ActiveBranch is the local branch name currently selected
+                  by pgrator.
                 type: string
               conditions:
                 description: |-

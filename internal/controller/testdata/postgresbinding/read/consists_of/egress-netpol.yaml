@@ -17,7 +17,7 @@ object:
       - to:
           - podSelector:
               matchLabels:
-                cnpg.io/poolerName: pg-mydb-pooler
+                cnpg.io/poolerName: pg-mydb-main-6bc4781b-pooler
         ports:
           - port: 5432
       - to:

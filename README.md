@@ -1,5 +1,8 @@
 # pgrator
 
+Postgres branches have local names within a Postgres (`main` by default). `Postgres.spec.activeBranch`, `status.activeBranch`, and recovery `sourceBranch` use local names; `PostgresAccess.spec.postgresBranch` uses the branch **object** name. Branch objects are named with `v1.PostgresBranchObjectName(postgres, branch)` and must have matching immutable `spec.postgres` and `spec.branchName`.
+
+
 Kubernetes operator for the [nais](https://nais.io) platform that manages **Postgres**, **Valkey**, and **OpenSearch** resources. It reconciles opinionated nais CRDs into the full set of cloud-provider resources needed to run these services on GCP.
 
 ## Managed resources

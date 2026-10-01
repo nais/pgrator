@@ -53,7 +53,7 @@ type PostgresSpec struct {
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
 
-	// ActiveBranch selects the physical PostgresBranch normal workloads use.
+	// ActiveBranch selects the local branch name within this Postgres for normal workloads.
 	// When omitted, pgrator retains the current active branch.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
@@ -63,7 +63,7 @@ type PostgresSpec struct {
 type PostgresStatus struct {
 	api.BaseStatus `json:",inline"`
 
-	// ActiveBranch is the physical PostgresBranch currently selected by pgrator.
+	// ActiveBranch is the local branch name currently selected by pgrator.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
 }

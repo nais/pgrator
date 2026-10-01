@@ -4,8 +4,11 @@ object:
   apiVersion: nais.io/v1
   kind: PostgresBranch
   metadata:
-    name: mydb
+    name: mydb-main-6bc4781b
     namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+      postgres.nais.io/branch: main
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: Postgres
@@ -15,3 +18,4 @@ object:
         blockOwnerDeletion: true
   spec:
     postgres: mydb
+  branchName: main

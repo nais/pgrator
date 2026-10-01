@@ -16,7 +16,7 @@ const (
 
 // PostgresAccessSpec defines one immutable, time-limited personal access request.
 type PostgresAccessSpec struct {
-	// PostgresBranch is the explicitly selected physical branch of the database.
+	// PostgresBranch is the PostgresBranch object name (not its local branch name).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresBranch is immutable"
 	PostgresBranch string `json:"postgresBranch"`

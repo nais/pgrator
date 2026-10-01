@@ -4,20 +4,20 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: Pooler
   metadata:
-    name: pg-mydb-pooler
+    name: pg-mydb-main-6bc4781b-pooler
     namespace: myteam
     labels:
-      postgres.nais.io/name: mydb
+      postgres.nais.io/name: mydb-main-6bc4781b
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: ""
         controller: true
         blockOwnerDeletion: true
   spec:
     cluster:
-      name: pg-mydb
+      name: pg-mydb-main-6bc4781b
     type: rw
     instances: 2
     template:

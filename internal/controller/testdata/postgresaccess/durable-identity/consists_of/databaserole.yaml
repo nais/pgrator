@@ -5,12 +5,12 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: frode-sundby-orders-restore-39901eb0e00a4f9c
+    name: frode-sundby-orders-restore-15aaddee-34af135648968333
     namespace: myteam
   spec:
     cluster:
-      name: pg-orders-restore
-    name: frode-sundby-orders-restore-39901eb0e00a4f9c
+      name: pg-orders-restore-15aaddee
+    name: frode-sundby-orders-restore-15aaddee-34af135648968333
     databaseRoleReclaimPolicy: retain
     login: true
     passwordSecret:
@@ -18,7 +18,7 @@ object:
     validUntil: "2026-09-16T12:00:00Z"
     inRoles:
       - app_readwrite
-      - nais_pa_937870b3fe76dfe4
+      - nais_pa_57e6a2d812b1e0a8
     superuser: false
     createdb: false
     createrole: false

@@ -2,8 +2,9 @@
 apiVersion: nais.io/v1
 kind: PostgresBranch
 metadata:
-  name: mydb
+  name: mydb-main-6bc4781b
   namespace: myteam
   uid: d3adb33f-beef-cafe-babe-700d1e100d1e
 spec:
   postgres: mydb
+  branchName: main

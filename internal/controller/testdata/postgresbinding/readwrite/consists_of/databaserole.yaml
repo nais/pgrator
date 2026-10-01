@@ -5,11 +5,11 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: myapp-mydb-mydb-readwrite
+    name: myapp-mydb-mydb-main-6bc4781b-readwrite
     namespace: myteam
   spec:
     cluster:
-      name: pg-mydb
+      name: pg-mydb-main-6bc4781b
     databaseRoleReclaimPolicy: delete
     name: myapp-readwrite
     login: true

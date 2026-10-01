@@ -27,7 +27,7 @@ func ExamplePostgresForDocumentation() api.NaisObject {
 			},
 			MajorVersion:     "18",
 			HighAvailability: true,
-			ActiveBranch:     "mypostgres-primary",
+			ActiveBranch:     "main",
 			Extensions: []PostgresExtension{
 				{
 					Name: "postgis",

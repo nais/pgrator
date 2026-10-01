@@ -5,17 +5,17 @@ object:
   apiVersion: storage.cnrm.cloud.google.com/v1beta1
   kind: StorageBucket
   metadata:
-    name: wal-bucket-prefix-myteam-mydb-feedab1ebeef
+    name: wal-bucket-prefix-myteam-mydb-main-6bc4781b-feedab1ebeef
     namespace: myteam
     annotations:
       cnrm.cloud.google.com/force-destroy: "true"
     labels:
-      postgres.nais.io/name: mydb
+      postgres.nais.io/name: mydb-main-6bc4781b
       postgres.nais.io/namespace: myteam
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true

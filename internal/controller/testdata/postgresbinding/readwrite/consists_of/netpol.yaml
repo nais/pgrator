@@ -10,7 +10,7 @@ object:
   spec:
     podSelector:
       matchLabels:
-        cnpg.io/poolerName: pg-mydb-pooler
+        cnpg.io/poolerName: pg-mydb-main-6bc4781b-pooler
     policyTypes:
       - Ingress
     ingress:

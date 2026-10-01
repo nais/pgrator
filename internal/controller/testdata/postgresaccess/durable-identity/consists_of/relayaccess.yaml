@@ -9,7 +9,7 @@ object:
     namespace: myteam
   spec:
     target:
-      serviceName: pg-orders-restore-rw
+      serviceName: pg-orders-restore-15aaddee-rw
       port: 5432
     expiresAt: "2026-09-16T12:00:00Z"
     tokenSHA256: 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925

@@ -22,7 +22,7 @@ func TestUpdateSetsActiveBranchStatus(t *testing.T) {
 	}{
 		{name: "uses explicitly selected instance", spec: "super-restore", requestedReady: true, want: "super-restore"},
 		{name: "retains previously selected instance when spec is removed", status: "super-restore", want: "super-restore"},
-		{name: "defaults to original instance", want: "super-postgres"},
+		{name: "defaults to main", want: v1.DefaultBranchName},
 		{name: "requested instance not ready leaves status unchanged", spec: "super-restore", status: "super-postgres", want: "super-postgres", wantErr: true},
 	}
 
@@ -67,7 +67,7 @@ func TestUpdateRetainsOriginalInstanceWhenActiveBranchChanges(t *testing.T) {
 	reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
 	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "super-postgres", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "super-restore"}}
 	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
-	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: postgres.Name, Namespace: postgres.Namespace}})
+	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName(postgres.Name, v1.DefaultBranchName), Namespace: postgres.Namespace}, Spec: v1.PostgresBranchSpec{Postgres: postgres.Name, BranchName: v1.DefaultBranchName}})
 
 	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{RequestedBranch: "super-restore", RequestedReady: true}, relatedObjects)
 	if err != nil {
@@ -80,8 +80,8 @@ func TestUpdateRetainsOriginalInstanceWhenActiveBranchChanges(t *testing.T) {
 	if !ok {
 		t.Fatalf("action object = %T, want PostgresBranch", actions[0].GetObject())
 	}
-	if instance.GetName() != postgres.GetName() {
-		t.Errorf("instance name = %q, want %q", instance.GetName(), postgres.GetName())
+	if instance.GetName() != v1.PostgresBranchObjectName(postgres.Name, v1.DefaultBranchName) {
+		t.Errorf("instance name = %q, want derived main branch name", instance.GetName())
 	}
 }
 
@@ -89,13 +89,13 @@ func TestUpdateKeepsAllInstancesWhenActiveBranchChanges(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
 	reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "orders-restored"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "restored"}}
 	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
-	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}})
-	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders-restored", Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}})
-	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "other-team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders"}})
+	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"}})
+	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restored"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restored"}})
+	relatedObjects.Insert(&v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "other-team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"}})
 
-	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{RequestedBranch: "orders-restored", RequestedReady: true}, relatedObjects)
+	actions, _, err := reconciler.Update(postgres, PostgresPreparedData{RequestedBranch: "restored", RequestedReady: true}, relatedObjects)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -111,12 +111,12 @@ func TestUpdateKeepsAllInstancesWhenActiveBranchChanges(t *testing.T) {
 		}
 		claimed[instance.Namespace+"/"+instance.Name] = true
 	}
-	for _, name := range []string{"orders", "orders-restored"} {
+	for _, name := range []string{v1.PostgresBranchObjectName("orders", "main"), v1.PostgresBranchObjectName("orders", "restored")} {
 		if !claimed["team/"+name] {
 			t.Errorf("PostgresBranch %q was not kept referenced", name)
 		}
 	}
-	if claimed["other-team/orders"] {
+	if claimed["other-team/"+v1.PostgresBranchObjectName("orders", "main")] {
 		t.Error("PostgresBranch in another namespace was kept referenced")
 	}
 }

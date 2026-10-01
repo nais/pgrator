@@ -5,18 +5,18 @@ object:
   apiVersion: iam.cnrm.cloud.google.com/v1beta1
   kind: IAMPolicyMember
   metadata:
-    name: cnpg-wal-viewer-mydb-77cb3300
+    name: cnpg-wal-viewer-mydb-main-6bc4781b-2db7bf74
     namespace: myteam
     ownerReferences:
       - apiVersion: nais.io/v1
         kind: PostgresBranch
-        name: mydb
+        name: mydb-main-6bc4781b
         uid: d3adb33f-beef-cafe-babe-700d1e100d1e
         controller: true
         blockOwnerDeletion: true
   spec:
     role: roles/storage.bucketViewer
-    member: serviceAccount:cnpg-mydb-b60fcdec@team-gcp-project.iam.gserviceaccount.com
+    member: serviceAccount:cnpg-mydb-main-6bc478-db110b6e@team-gcp-project.iam.gserviceaccount.com
     resourceRef:
       kind: StorageBucket
-      name: wal-bucket-prefix-myteam-mydb-feedab1ebeef
+      name: wal-bucket-prefix-myteam-mydb-main-6bc4781b-feedab1ebeef

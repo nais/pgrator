@@ -24,7 +24,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: pg-mydb
+                name: pg-mydb-main-6bc4781b
 
     - name: Create a read binding
       try:
@@ -50,7 +50,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: postgres-mydb-rapport-read-mydb-read
+                name: postgres-mydb-rapport-read-mydb-main-6bc4781b-read
               spec:
                 name: rapport-read
                 login: true
@@ -74,7 +74,7 @@ spec:
               set -eu
               get() { kubectl get secret postgres-mydb-rapport-read -n "$NAMESPACE" -o "jsonpath={.data.$1}" | base64 -d; }
               test "$(get READ_PGUSER)"     = "rapport-read"
-              test "$(get READ_PGHOST)"     = "pg-mydb-pooler.$NAMESPACE"
+              test "$(get READ_PGHOST)"     = "pg-mydb-main-6bc4781b-pooler.$NAMESPACE"
               test "$(get READ_PGDATABASE)" = "app"
               test "$(get READ_PGSSLMODE)"  = "verify-full"
 
@@ -83,7 +83,7 @@ spec:
         - script:
             content: |
               set -eu
-              test -n "$(kubectl get secret pg-mydb-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
+              test -n "$(kubectl get secret pg-mydb-main-6bc4781b-ca -n "$NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
 
     - name: CloudNativePG issues the client certificate for the role
       try:
@@ -92,7 +92,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-rapport-read-mydb-read-client-cert
+                name: postgres-mydb-rapport-read-mydb-main-6bc4781b-read-client-cert
               type: kubernetes.io/tls
 
     - name: Create a readwrite binding for the same workload
@@ -116,7 +116,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: postgres-mydb-rapport-readwrite-mydb-readwrite
+                name: postgres-mydb-rapport-readwrite-mydb-main-6bc4781b-readwrite
               spec:
                 name: rapport-readwrite
                 login: true
@@ -127,7 +127,7 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: postgres-mydb-rapport-readwrite-mydb-readwrite-client-cert
+                name: postgres-mydb-rapport-readwrite-mydb-main-6bc4781b-readwrite-client-cert
               type: kubernetes.io/tls
         - assert:
             resource:
@@ -152,7 +152,7 @@ spec:
               spec:
                 podSelector:
                   matchLabels:
-                    cnpg.io/poolerName: pg-mydb-pooler
+                    cnpg.io/poolerName: pg-mydb-main-6bc4781b-pooler
         - assert:
             resource:
               apiVersion: networking.k8s.io/v1
@@ -176,7 +176,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: postgres-mydb-rapport-read-mydb-read
+                name: postgres-mydb-rapport-read-mydb-main-6bc4781b-read
         - error:
             resource:
               apiVersion: v1
@@ -200,7 +200,7 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: DatabaseRole
               metadata:
-                name: postgres-mydb-rapport-readwrite-mydb-readwrite
+                name: postgres-mydb-rapport-readwrite-mydb-main-6bc4781b-readwrite
               spec:
                 name: rapport-readwrite
 
@@ -211,4 +211,4 @@ spec:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: pg-mydb
+                name: pg-mydb-main-6bc4781b

@@ -14,8 +14,10 @@ type PostgresBranchBootstrap struct {
 
 // PostgresBranchRecovery identifies an immutable point-in-time recovery source.
 type PostgresBranchRecovery struct {
-	// SourceBranch is the physical branch whose archive is recovered.
+	// SourceBranch is the local name of the branch whose archive is recovered.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	SourceBranch string `json:"sourceBranch"`
 
 	// TargetTime is the UTC point in time to recover to.
@@ -28,6 +30,15 @@ type PostgresBranchSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgres is immutable"
 	Postgres string `json:"postgres"`
+
+	// BranchName is the local name within Postgres. The object name must be
+	// PostgresBranchObjectName(postgres, branchName).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="branchName is immutable"
+	BranchName string `json:"branchName"`
 
 	// Bootstrap describes how this physical branch is initialized. It is immutable
 	// because it is the branch's durable bootstrap provenance.

@@ -192,13 +192,13 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 	}
 	activeBranch := effectiveActiveBranch(postgres)
 	instance := &v1.PostgresBranch{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: activeBranch}, instance); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}, instance); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
 	}
-	if instance.Spec.Postgres != postgres.GetName() {
+	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
 		return nil, nil
 	}
 	cluster := &cnpgv1.Cluster{}
@@ -252,11 +252,11 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 	activeBranch := effectiveActiveBranch(postgres)
 
 	instance := &v1.PostgresBranch{}
-	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: activeBranch}
+	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}
 	if err := reader.Get(ctx, instanceKey, instance); err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
 	}
-	if instance.Spec.Postgres != postgres.GetName() {
+	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
 	}
 
