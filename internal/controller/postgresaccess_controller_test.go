@@ -190,8 +190,32 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 	requireNoError(t, err)
 	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
-	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionTrue {
-		t.Error("persisted mapping/token and applied role should be Ready")
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse || a.Status.RelayEndpoint != "" {
+		t.Error("access without operator-published endpoint must remain Pending")
+	}
+	relayWithEndpoint := relay.DeepCopy()
+	requireNoError(t, unstructured.SetNestedField(relayWithEndpoint.Object, "https://relay.external.dev.nav.cloud.nais.io:8443", "status", "endpoint"))
+	if !r.OwnedTypes()[2].AdditionalPredicate.Update(event.UpdateEvent{ObjectOld: relay, ObjectNew: relayWithEndpoint}) {
+		t.Fatal("relay endpoint update must enqueue PostgresAccess")
+	}
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relayWithEndpoint, readyRole).Build()
+	prep, _, err = r.Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionTrue || a.Status.RelayEndpoint != "https://relay.external.dev.nav.cloud.nais.io:8443" {
+		t.Error("owned relay endpoint, persisted token and applied role should be Ready")
+	}
+	if !r.OwnedTypes()[2].AdditionalPredicate.Update(event.UpdateEvent{ObjectOld: relayWithEndpoint, ObjectNew: relay}) {
+		t.Fatal("relay endpoint removal must enqueue PostgresAccess")
+	}
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, readyRole).Build()
+	prep, _, err = r.Prepare(context.Background(), reader, a)
+	requireNoError(t, err)
+	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	if findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse || a.Status.RelayEndpoint != "" {
+		t.Error("removed relay endpoint must clear readiness and published URL")
 	}
 }
 
@@ -353,6 +377,17 @@ func TestPostgresAccessMappingSurvivesAPIServerRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(read.Object["spec"], mapping.Object["spec"]) {
 		t.Errorf("immutable mapping changed after claim: %v", read.Object["spec"])
 	}
+	// The relay operator publishes status through the CRD subresource. Verify
+	// the schema admits it and pgrator can read it after the API-server round trip.
+	requireNoError(t, unstructured.SetNestedField(read.Object, "https://relay.example.org:8443", "status", "endpoint"))
+	requireNoError(t, k8sClient.Status().Update(ctx, read))
+	published := relayAccessObject()
+	requireNoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(mapping), published))
+	endpoint, found, err := unstructured.NestedString(published.Object, "status", "endpoint")
+	requireNoError(t, err)
+	if !found || endpoint != "https://relay.example.org:8443" || !reflect.DeepEqual(published.Object["spec"], mapping.Object["spec"]) {
+		t.Fatalf("relay status round trip lost endpoint or spec: endpoint=%q spec=%v", endpoint, published.Object["spec"])
+	}
 }
 
 func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
@@ -408,13 +443,13 @@ func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
 	a, _, _, _ := accessFixture()
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
-	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-db-main-78dbba05-rw.team.svc.cluster.local", ServerCASecret: "pg-db-main-78dbba05-ca"}
+	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-db-main-78dbba05-rw.team.svc.cluster.local", ServerCASecret: "pg-db-main-78dbba05-ca", RelayEndpoint: "https://relay.example.org:8443"}
 	r := makePostgresAccessReconciler()
 	prep, _, err := r.Prepare(context.Background(), fake.NewClientBuilder().WithScheme(scheme.Scheme).Build(), a)
 	requireNoError(t, err)
 	actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
-	if len(actions) != 0 || findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse || a.Status.ServerName != "" || a.Status.ServerCASecret != "" {
+	if len(actions) != 0 || findReadyCondition(a.Status.Conditions).Status != metav1.ConditionFalse || a.Status.ServerName != "" || a.Status.ServerCASecret != "" || a.Status.RelayEndpoint != "" {
 		t.Fatal("expired access must be disabled and its TLS metadata cleared")
 	}
 }

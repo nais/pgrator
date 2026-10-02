@@ -179,6 +179,11 @@ spec:
                 description: RelayAccess is the API-safe name of the relay mapping
                   for this access.
                 type: string
+              relayEndpoint:
+                description: |-
+                  RelayEndpoint is the public URL published by the relay operator for
+                  the owned RelayAccess after its egress policy is persisted.
+                type: string
               serverCASecret:
                 description: |-
                   ServerCASecret is the name of the CNPG server CA Secret. The certificate

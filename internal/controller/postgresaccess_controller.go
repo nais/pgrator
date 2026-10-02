@@ -81,7 +81,8 @@ func (r *PostgresAccessReconciler) OwnedTypes() []reconciler.OwnedType {
 		{Type: relayAccessObject(), AdditionalPredicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
 			oldRelay, oldOK := e.ObjectOld.(*unstructured.Unstructured)
 			newRelay, newOK := e.ObjectNew.(*unstructured.Unstructured)
-			return oldOK && newOK && (oldRelay.GetDeletionTimestamp() == nil) != (newRelay.GetDeletionTimestamp() == nil)
+			return oldOK && newOK && (!reflect.DeepEqual(oldRelay.Object["status"], newRelay.Object["status"]) ||
+				(oldRelay.GetDeletionTimestamp() == nil) != (newRelay.GetDeletionTimestamp() == nil))
 		}}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
@@ -180,6 +181,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 		return PostgresAccessPreparedData{}, ctrl.Result{}, nil
 	}
 	access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "access is reconciling"})
+	access.GetStatus().(*v1.PostgresAccessStatus).RelayEndpoint = ""
 	now := time.Now()
 	if !now.Before(access.Spec.ExpiresAt.Time) {
 		return PostgresAccessPreparedData{Expired: true}, ctrl.Result{}, nil
@@ -287,6 +289,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	if prepared.Expired {
 		status := access.GetStatus().(*v1.PostgresAccessStatus)
 		status.RelayAccess = ""
+		status.RelayEndpoint = ""
 		status.TokenSecret = ""
 		status.ServerName = ""
 		status.ServerCASecret = ""
@@ -322,6 +325,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 
 	status := access.GetStatus().(*v1.PostgresAccessStatus)
 	status.RelayAccess = rcaccess.RelayAccessName(access)
+	status.RelayEndpoint = ""
 	status.ServerName = prepared.Cluster.Name + "-rw." + access.Namespace + ".svc.cluster.local"
 	status.ServerCASecret = prepared.Cluster.GetServerCASecretName()
 	if prepared.TokenPersisted {
@@ -352,6 +356,13 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 			!reflect.DeepEqual(prepared.RelayAccess.Object["spec"], desired.Object["spec"]) {
 			return nil, ctrl.Result{}, fmt.Errorf("RelayAccess %q has a different owner or immutable spec", desired.GetName())
 		}
+		endpoint, found, err := unstructured.NestedString(prepared.RelayAccess.Object, "status", "endpoint")
+		if err != nil {
+			return nil, ctrl.Result{}, fmt.Errorf("reading owned RelayAccess endpoint: %w", err)
+		}
+		if found {
+			status.RelayEndpoint = endpoint
+		}
 		relayAction = action.Claim(desired, access, existsConditionGetter, r.Recorder)
 	} else {
 		relayAction = action.Create(desired, access, existsConditionGetter, r.Recorder)
@@ -361,7 +372,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		prepared.Role.Spec.Login && prepared.Role.Spec.ValidUntil != nil &&
 		prepared.Role.Spec.ValidUntil.Time.Truncate(time.Second).Equal(access.Spec.ExpiresAt.Truncate(time.Second)) &&
 		reflect.DeepEqual(prepared.Role.Spec.InRoles, role.Spec.InRoles)
-	setPostgresAccessReadyCondition(status, roleReady && prepared.TokenPersisted && prepared.RelayAccess != nil)
+	setPostgresAccessReadyCondition(status, roleReady && prepared.TokenPersisted && status.RelayEndpoint != "")
 	return []action.Action{
 		action.ExclusiveCreateOrUpdate(secret, access, existsConditionGetter, r.Recorder),
 		action.CreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
@@ -389,11 +400,11 @@ func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []meta
 }
 
 func setPostgresAccessReadyCondition(status *v1.PostgresAccessStatus, ready bool) {
-	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "waiting for applied database role and persisted relay mapping and token"}
+	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Pending", Message: "waiting for applied database role, persisted relay token and operator-published endpoint"}
 	if ready {
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = "Ready"
-		condition.Message = "Database role applied; relay mapping and token persisted (relay data path not verified)"
+		condition.Message = "Database role applied; relay mapping, token and egress policy persisted (relay data path not verified)"
 	}
 	status.SetCondition(condition)
 }

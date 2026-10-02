@@ -48,6 +48,11 @@ type PostgresAccessStatus struct {
 	// +optional
 	RelayAccess string `json:"relayAccess,omitempty"`
 
+	// RelayEndpoint is the public URL published by the relay operator for
+	// the owned RelayAccess after its egress policy is persisted.
+	// +optional
+	RelayEndpoint string `json:"relayEndpoint,omitempty"`
+
 	// TokenSecret is the name of the controller-owned bearer token Secret.
 	// Only the authorized broker may retrieve its contents.
 	// +optional
