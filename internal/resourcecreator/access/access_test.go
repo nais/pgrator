@@ -16,8 +16,8 @@ func TestDatabaseRoleName(t *testing.T) {
 		instance string
 		want     string
 	}{
-		{name: "email local part", username: "frode.sundby@nav.no", instance: "orders-restore", want: "frode-sundby-orders-restore-39901eb0e00a4f9c"},
-		{name: "normalizes local part", username: "Frode_Sundby@nav.no", instance: "orders", want: "frode-sundby-orders-10d081ca63812026"},
+		{name: "email local part", username: "frode.sundby@nav.no", instance: "orders-restore", want: "frode-sundby-orders-restore-email-39901eb0e00a4f9c"},
+		{name: "normalizes local part", username: "Frode_Sundby@nav.no", instance: "orders", want: "frode-sundby-orders-email-10d081ca63812026"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,11 +48,20 @@ func TestCreateDatabaseRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDatabaseRole() error = %v", err)
 	}
-	if role.Name != "frode-sundby-orders-restore-39901eb0e00a4f9c" {
+	if role.Name != "frode-sundby-orders-restore-email-39901eb0e00a4f9c" {
 		t.Errorf("role metadata name = %q", role.Name)
 	}
-	if role.Spec.Name != role.Name {
-		t.Errorf("role spec name = %q, want %q", role.Spec.Name, role.Name)
+	if role.Spec.Name != access.Spec.Username {
+		t.Errorf("PostgreSQL role name = %q, want %q", role.Spec.Name, access.Spec.Username)
+	}
+	otherBranch := access.DeepCopy()
+	otherBranch.Spec.PostgresBranch = "orders-main"
+	otherRole, err := CreateDatabaseRole(testScheme(t), otherBranch, false)
+	if err != nil {
+		t.Fatalf("CreateDatabaseRole(other branch) error = %v", err)
+	}
+	if otherRole.Name == role.Name || otherRole.Spec.Name != role.Spec.Name {
+		t.Errorf("other branch must use a separate Kubernetes resource but the same PostgreSQL identity: %q / %q", otherRole.Name, otherRole.Spec.Name)
 	}
 	if role.Spec.ClusterRef.Name != "pg-orders-restore" {
 		t.Errorf("cluster = %q, want pg-orders-restore", role.Spec.ClusterRef.Name)
@@ -72,5 +81,30 @@ func TestCreateDatabaseRole(t *testing.T) {
 	}
 	if strings.Contains(role.Spec.Comment, access.Spec.Username) {
 		t.Error("role comment must not expose the user's full email address")
+	}
+}
+
+func TestCredentialSecretUsesPostgreSQLIdentity(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: "frode.sundby@nav.no", PostgresBranch: "orders-main",
+	}}
+	secret, err := CreateCredentialSecret(testScheme(t), access, "password")
+	if err != nil {
+		t.Fatalf("CreateCredentialSecret() error = %v", err)
+	}
+	if got := secret.StringData["username"]; got != access.Spec.Username {
+		t.Errorf("credential username = %q, want %q", got, access.Spec.Username)
+	}
+}
+
+func TestPostgresRoleRejectsUsernameTruncation(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: strings.Repeat("a", roleNameLimit) + "@nav.no", PostgresBranch: "orders-main",
+	}}
+	if _, err := CreateCredentialSecret(testScheme(t), access, "password"); err == nil {
+		t.Fatal("credential must not use a truncated PostgreSQL username")
+	}
+	if _, err := CreateDatabaseRole(testScheme(t), access, true); err == nil {
+		t.Fatal("DatabaseRole must not use a truncated PostgreSQL username")
 	}
 }

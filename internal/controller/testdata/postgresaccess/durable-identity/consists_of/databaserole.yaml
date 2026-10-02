@@ -5,12 +5,12 @@ object:
   apiVersion: postgresql.cnpg.io/v1
   kind: DatabaseRole
   metadata:
-    name: frode-sundby-orders-restore-15aaddee-34af135648968333
+    name: frode-sundby-orders-restore-15aaddee-email-34af135648968333
     namespace: myteam
   spec:
     cluster:
       name: pg-orders-restore-15aaddee
-    name: frode-sundby-orders-restore-15aaddee-34af135648968333
+    name: frode.sundby@nav.no
     databaseRoleReclaimPolicy: retain
     login: true
     passwordSecret:
