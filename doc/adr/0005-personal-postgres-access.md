@@ -4,6 +4,13 @@ status: accepted
 
 # Orchestrate personal Postgres access with a PostgresAccess resource
 
+Historical decision: ADR 0006 replaces the WireGuard/Tunnel transport below with
+relay-backed access. ADR 0007 renames physical instances to `PostgresBranch`.
+Since then, the PostgreSQL role name has changed to the authenticated email
+(verbatim, with a 63-byte limit); the branch-specific Kubernetes DatabaseRole
+object name remains hashed. Existing SQL roles are not migrated automatically.
+For the current contract see the [README](../../README.md) and the API types.
+
 Personal access crosses separate transport and database boundaries. A WireGuard
 tunnel provides a private path, but it is not a PostgreSQL identity.
 `tunnel-operator` is the only human database data plane: we do not use

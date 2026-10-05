@@ -1,18 +1,17 @@
 # pgrator
 
-Postgres branches have local names within a Postgres (`main` by default). `Postgres.spec.activeBranch`, `status.activeBranch`, and recovery `sourceBranch` use local names; `PostgresAccess.spec.postgresBranch` uses the branch **object** name. Branch objects are named with `v1.PostgresBranchObjectName(postgres, branch)` and must have matching immutable `spec.postgres` and `spec.branchName`.
-
-
-Kubernetes operator for the [nais](https://nais.io) platform that manages **Postgres**, **Valkey**, and **OpenSearch** resources. It reconciles opinionated nais CRDs into the full set of cloud-provider resources needed to run these services on GCP.
+Kubernetes operator for the [nais](https://nais.io) platform that manages **Postgres**, **Valkey**, and **OpenSearch** resources. It reconciles opinionated nais CRDs into the resources needed to run these services on GCP.
 
 ## Managed resources
 
 | CRD               | API group    | Backend                                   | Creates                                                                                  |
 |-------------------|--------------|-------------------------------------------|------------------------------------------------------------------------------------------|
-| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources    |
-| `PostgresBinding` | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies              |
-| `Valkey`          | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven Valkey instance + ServiceIntegration (metrics)                                     |
-| `OpenSearch`      | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven OpenSearch instance + ServiceIntegration (metrics)                                 |
+| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Logical database; creates the default `PostgresBranch` |
+| `PostgresBranch`  | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Independent CNPG `Cluster`, `Pooler`, network and optional WAL archive/backup resources |
+| `PostgresBinding` | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Workload database roles, connection/certificate Secrets and NetworkPolicies |
+| `PostgresAccess`  | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Time-limited personal role, credentials, relay mapping and database ingress policy |
+| `Valkey`          | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven Valkey instance + ServiceIntegration (metrics) |
+| `OpenSearch`      | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven OpenSearch instance + ServiceIntegration (metrics) |
 
 ## Getting started
 
@@ -56,7 +55,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed information about project st
 
 ### Postgres
 
-The `Postgres` CRD (`nais.io/v1`) provisions a [CloudNativePG](https://cloudnative-pg.io) cluster. The reconciler is being rebuilt greenfield (cert-based auth, PostgreSQL 18); see the type in `pkg/api/v1/postgres_types.go`.
+`Postgres` is the logical database. Pgrator creates its default `main` `PostgresBranch`; each branch is an independent, writable CNPG cluster with its own data history. A recovery branch uses an immutable `bootstrap.recovery.sourceBranch` (local name) and UTC `targetTime` to restore from another branch's archive. Recovery does not merge data or switch the active branch.
+
+Branch names are local to a Postgres: `Postgres.spec.activeBranch`, `status.activeBranch` and recovery `sourceBranch` use local names. Kubernetes `PostgresBranch.metadata.name` is a deterministic, hashed object name from `v1.PostgresBranchObjectName(postgres, branch)`; `spec.postgres` and `spec.branchName` must match and are immutable. `PostgresAccess.spec.postgresBranch` refers to this **object name**, not the local name. See [ADR 0007](doc/adr/0007-name-physical-postgres-resources-branches.md).
+
+`spec.activeBranch` requests a selection; `status.activeBranch` records the branch pgrator has selected. Without an explicit request, `main` is selected initially and an existing selection is retained. For an explicit request, pgrator checks that the branch identity matches and neither it nor its CNPG cluster is terminating, and that the cluster is initialized and has a Ready condition. An unready request fails reconciliation instead of updating observed status. **Do not treat that status gate as an atomic cutover guarantee:** binding reconciliation also reads the requested spec, and admission and reconciliation are not atomic with branch deletion. Verify dependent bindings and connections during activation.
+
+`PostgresBinding` supplies workloads with a stable logical connection Secret for the selected branch. `PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry removes access resources while CNPG's `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
+
+The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
 
 ## CI/CD
 

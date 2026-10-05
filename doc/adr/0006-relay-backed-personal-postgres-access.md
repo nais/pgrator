@@ -7,9 +7,16 @@ status: accepted
 ADR 0005 described the former WireGuard/tunnel-operator design. Pgrator now
 implements this relay-backed transport contract directly; its PostgresAccess
 API no longer accepts a WireGuard key and its status contains no Tunnel data.
-The NAIS API and CLI have not yet migrated. ADR 0005's logical database and
-pgrator-orchestration boundaries remain, including the short-lived SCRAM
-password and durable personal database role. Only the transport changes.
+The NAIS API and CLI now consume relay-backed access. ADR 0007 renames physical
+instances to `PostgresBranch`; `PostgresAccess.spec.postgresBranch` holds its
+Kubernetes object name. The PostgreSQL role name is now the authenticated
+email, not the hashed Kubernetes DatabaseRole name described in ADR 0005.
+The short-lived SCRAM password and retained SQL role remain. The implementation
+also waits for the owned RelayAccess's published `status.endpoint` before
+marking PostgresAccess Ready and copies it into `status.relayEndpoint` for API
+connection delivery; Ready does not prove that SQL connectivity works.
+The implementation notes below record the original decision and rollout
+questions, not the current migration status.
 
 An isolated proof of concept in `dev-nais-dev` carried PostgreSQL traffic from
 a localhost listener over ordinary HTTP/3 `CONNECT`, through a Google UDP
@@ -67,7 +74,7 @@ source for each *new* connection, not for each PostgreSQL message. The relay
 must not accept an arbitrary host/port from the client even if the client
 holds a valid credential. PostgreSQL TLS is not terminated by the relay.
 
-## Boundaries to resolve before implementation
+## Original implementation and rollout considerations (historical)
 
 - **Client proof and delivery:** Pgrator's per-access bearer token is never
   logged or placed in status. The existing owner-only NAIS API connection

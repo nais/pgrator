@@ -2,7 +2,7 @@
 
 This directory contains markdown templates for [nais/doc](https://github.com/nais/doc).
 
-These templates are used together with [cmd/docgen](../cmd/docgen) to generate documentation for each CustomResourceDefinition (CRD).
+These templates are used together with [cmd/docgen](../cmd/docgen) to generate documentation for selected CustomResourceDefinitions (CRDs). `PostgresBranch` is an internal API kind and is excluded from the published documentation. `Postgres` has a standalone schema but is not yet advertised in the aggregate schemas.
 
 ## Structure
 
@@ -25,7 +25,7 @@ For the `Postgres` CRD:
 
 ## CI/CD
 
-The job named `documentation` in the GitHub Actions workflow [.github/workflows/main.yml](../.github/workflows/main.yml) automatically generates and pushes documentation changes directly to [nais/doc](https://github.com/nais/doc).
+The `documentation` job in [.github/workflows/main.yml](../.github/workflows/main.yml) runs on `main` and copies only the generated Postgres, Valkey and OpenSearch examples/references to [nais/doc](https://github.com/nais/doc). PostgresAccess and PostgresBinding templates generate local output but are not published by that job. The `schemas` job handles OpenAPI output separately.
 
 ## Adding a new CRD
 
@@ -48,7 +48,7 @@ Once a new first-party CRD has been added there, follow these steps to add docum
 To generate the documentation locally:
 
 ```shell
-mise run generate-doc
+mise run generate:doc
 ```
 
-The generated files will be placed in the [output/](output) directory, overwriting existing files.
+The generated files will be placed in the [output/](output) directory, overwriting existing files. Edit templates or API type descriptions instead of generated output.

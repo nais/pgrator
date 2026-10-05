@@ -21,4 +21,6 @@ tags: [postgres, reference]
     This feature is an alpha feature, and is subject to API change, instability or removal.
     See the [main Postgres page](../README.md) for more information.
 
-This document describes all possible configuration values in the `PostgresAccess` spec.
+This document describes all possible configuration values in the `PostgresAccess` spec. Access is normally requested through the NAIS API/CLI, not by authoring this resource directly. `spec.postgresBranch` is the Kubernetes **object name** of the selected `PostgresBranch`, not its local branch name. `spec.username` is the authenticated email and is used verbatim as the PostgreSQL role name (maximum 63 bytes). The hashed Kubernetes DatabaseRole object name is separate.
+
+The access is tied to that branch, not subsequent active-branch changes. Pgrator copies the endpoint from its owned `RelayAccess.status.endpoint` into `status.relayEndpoint` only while the mapping is valid. Ready requires the current CNPG role to be applied, a persisted token Secret and that endpoint; it does not prove end-to-end relay or SQL connectivity. The API delivers connection material only to the access owner.

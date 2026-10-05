@@ -2,14 +2,16 @@
 
 ## Project purpose
 
-`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It watches four custom resources:
+`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It reconciles six custom resources:
 
 | CRD               | API group    | What it creates                                                                               |
 |-------------------|--------------|-----------------------------------------------------------------------------------------------|
-| `Postgres`        | `nais.io/v1` | CNPG `Cluster`, `Pooler`, NetworkPolicy, and optional WAL archive and backup resources         |
-| `PostgresBinding` | `nais.io/v1` | CNPG `DatabaseRole`, connection and certificate Secrets, and NetworkPolicies                   |
-| `Valkey`          | `nais.io/v1` | Aiven `Valkey` CR + `ServiceIntegration`                                                       |
-| `OpenSearch`      | `nais.io/v1` | Aiven `OpenSearch` CR + `ServiceIntegration`                                                   |
+| `Postgres`        | `nais.io/v1` | Logical database and default `PostgresBranch` |
+| `PostgresBranch`  | `nais.io/v1` | Independent CNPG cluster, pooler, network and optional WAL archive/backup resources |
+| `PostgresBinding` | `nais.io/v1` | Workload DatabaseRole, connection and certificate Secrets, NetworkPolicies |
+| `PostgresAccess`  | `nais.io/v1` | Personal DatabaseRole, credentials, RelayAccess mapping, database ingress policy |
+| `Valkey`          | `nais.io/v1` | Aiven `Valkey` CR + `ServiceIntegration` |
+| `OpenSearch`      | `nais.io/v1` | Aiven `OpenSearch` CR + `ServiceIntegration` |
 
 The operator translates simple, opinionated nais user specs into the full set of cloud-provider resources needed to run those services inside a Kubernetes cluster on GCP.
 
@@ -50,13 +52,13 @@ pgrator/
 │   ├── main.go            # Operator entry point; wires controllers + webhooks
 │   └── docgen/docgen.go   # CLI tool: generates nais/doc reference markdown
 ├── pkg/api/               # Separate Go module (github.com/nais/pgrator/pkg/api)
-│   ├── v1/                # nais.io/v1 CRD types: Postgres, Valkey, OpenSearch (+ webhooks)
+│   ├── v1/                # nais.io/v1 CRD types: Postgres, PostgresBranch, PostgresBinding, PostgresAccess, Valkey, OpenSearch
 │   ├── annotation.go      # Shared annotation constants
 │   ├── object.go          # NaisObject interface
 │   └── status.go          # BaseStatus (shared by all CRDs)
 ├── internal/
 │   ├── config/            # Env-var based config struct
-│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBinding, Valkey, OpenSearch)
+│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBranch, PostgresBinding, PostgresAccess, Valkey, OpenSearch)
 │   │   └── testdata/      # Golden test data (per-resource test cases)
 │   ├── resourcecreator/   # Factories: builds child K8s/Aiven/GCP/CNPG objects
 │   ├── synchronizer/      # Generic reconcile loop + action system
@@ -78,7 +80,6 @@ pgrator/
 ├── charts/pgrator/        # Helm chart for production deployment
 ├── tests/e2e/             # Chainsaw e2e test cases
 ├── doc/                   # Documentation templates + generated output (gitignored output/)
-├── example/               # Example CRD manifests
 ├── .config/mise/          # mise configuration and tasks
 │   ├── config.toml        # Tool versions + all task definitions
 │   └── tasks/             # Specialized file tasks (docker, actions, generate:doc)
@@ -176,7 +177,7 @@ mise run test
 | Binary / command                 | Source                 | Description                                               |
 |----------------------------------|------------------------|-----------------------------------------------------------|
 | `manager` (container entrypoint) | `cmd/main.go`          | Kubernetes operator; runs indefinitely                    |
-| `go run cmd/docgen/docgen.go`    | `cmd/docgen/docgen.go` | One-shot doc generator; outputs markdown to `doc/output/` |
+| `mise run generate:doc`         | `cmd/docgen/docgen.go` | Generates documentation and OpenAPI output in `doc/output/` |
 
 ---
 
@@ -206,7 +207,7 @@ Helm chart exposes most of these via `charts/pgrator/values.yaml`.
 
 | Pattern                                                                                                                                                                    | Evidence                                                                                  |
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| **Generic reconciler via `Synchronizer[T, P]`**: all three controllers plug into the same generic synchronizer; resource-specific logic is in `Prepare`/`Update`/`Delete`. | `internal/synchronizer/synchronizer.go`, `internal/synchronizer/reconciler/reconciler.go` |
+| **Generic reconciler via `Synchronizer[T, P]`**: resource controllers plug into the same generic synchronizer; resource-specific logic is in `Prepare`/`Update`/`Delete`. | `internal/synchronizer/synchronizer.go`, `internal/synchronizer/reconciler/reconciler.go` |
 | **Action objects**: all mutations are expressed as `action.Action` values — none executed inline in reconcilers.                                                           | `internal/synchronizer/action/action.go`, `internal/controller/postgres_controller.go`    |
 | **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgres_controller.go:57`, `valkey_controller.go:35`                |
 | **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/synchronizer/synchronizer.go`  |
