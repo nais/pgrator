@@ -462,6 +462,7 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 
 	completedCluster := ownedRecoveryCluster(t, scheme, instance, true)
 	related.Insert(completedCluster)
+	prepared.RecoveryClusterUID = completedCluster.UID
 	instance.GetStatus().SetCondition(metav1.Condition{Type: recoveryCompletedCondition, Status: metav1.ConditionTrue, Reason: "Completed", Message: string(completedCluster.UID)})
 	actions, _, err = reconciler.Update(instance, prepared, related)
 	if err != nil {
@@ -514,6 +515,71 @@ func TestRecoveredBranchSurvivesSourceDeletionAndTemporaryOutage(t *testing.T) {
 		}
 	}
 	t.Fatal("no CNPG Cluster update planned")
+}
+
+func TestRecoveryClusterCannotChangeBetweenPreparationAndUpdate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	for _, tc := range []struct {
+		name                 string
+		presentAtPreparation bool
+		clusterAtUpdate      string
+		wantError            bool
+	}{
+		{name: "same cluster", presentAtPreparation: true, clusterAtUpdate: "original"},
+		{name: "replaced cluster", presentAtPreparation: true, clusterAtUpdate: "replacement", wantError: true},
+		{name: "removed cluster", presentAtPreparation: true, wantError: true},
+		{name: "new cluster after preparation", clusterAtUpdate: "replacement", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instance := recoveryInstance("primary")
+			original := ownedRecoveryCluster(t, scheme, instance, true)
+			source := &v1.PostgresBranch{
+				ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"},
+				Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"},
+			}
+			objects := []client.Object{
+				&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{MajorVersion: "18"}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
+				source,
+				&barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: "source-archive", Namespace: "team", Labels: map[string]string{rcstorage.OwnerNameLabel: source.Name}}},
+				&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: "source-archive", Namespace: "team"}},
+			}
+			if tc.presentAtPreparation {
+				objects = append(objects, original)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			reconciler := &PostgresBranchReconciler{Config: &config.Config{
+				GoogleProjectID: "cluster-gcp-project", Google: config.Google{Location: "europe-north1"},
+				CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
+			}, Scheme: scheme, Recorder: recorder}
+			prepared, _, err := reconciler.Prepare(context.Background(), reader, instance)
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			related := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+			switch tc.clusterAtUpdate {
+			case "original":
+				related.Insert(original)
+			case "replacement":
+				replacement := original.DeepCopy()
+				replacement.UID = "replacement-uid"
+				related.Insert(replacement)
+			}
+			actions, _, err := reconciler.Update(instance, prepared, related)
+			if tc.wantError {
+				requireErrorContains(t, err, "changed since preparation")
+				if len(actions) != 0 {
+					t.Fatalf("planned %d actions for a changed recovery cluster", len(actions))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			assertClusterAction(t, actions)
+		})
+	}
 }
 
 func TestUnfinishedRecoveryStillRequiresSource(t *testing.T) {

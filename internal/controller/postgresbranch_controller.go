@@ -67,7 +67,8 @@ type PostgresBranchPreparedData struct {
 	PostgresDeleting    bool            `yaml:"postgresDeleting,omitempty"`
 	RecoverySource      *rccnpg.RecoverySource
 	RecoverySourceReady bool
-	BlockingRecoveries  []string `yaml:"blockingRecoveries,omitempty"`
+	RecoveryClusterUID  types.UID `yaml:"recoveryClusterUID,omitempty"`
+	BlockingRecoveries  []string  `yaml:"blockingRecoveries,omitempty"`
 }
 
 func (r *PostgresBranchReconciler) Name() string {
@@ -352,6 +353,10 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 		if cluster.DeletionTimestamp != nil {
 			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q is being deleted", cluster.Name)
 		}
+		if cluster.UID == "" {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q has no UID", cluster.Name)
+		}
+		prepared.RecoveryClusterUID = cluster.UID
 		if recoveredClusterUID := completedRecoveryClusterUID(obj); recoveredClusterUID != "" && recoveredClusterUID != string(cluster.UID) {
 			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovered Cluster %q was replaced; refusing to bootstrap from the original recovery source", cluster.Name)
 		}
@@ -359,9 +364,6 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 			return prepared, ctrl.Result{}, nil
 		}
 		if recoveryBackedUp(cluster) {
-			if cluster.UID == "" {
-				return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q has no UID", cluster.Name)
-			}
 			// Synchronizer persists status before Update runs. Record the backed-up
 			// Cluster UID before removing bootstrap inputs from the Cluster spec.
 			obj.GetStatus().SetCondition(metav1.Condition{
@@ -407,6 +409,11 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		Namespace: obj.GetNamespace(),
 	}}
 	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
+	if prepared.RecoverySource != nil {
+		if existingCluster == nil && prepared.RecoveryClusterUID != "" || existingCluster != nil && existingCluster.UID != prepared.RecoveryClusterUID {
+			return nil, ctrl.Result{}, fmt.Errorf("recovery cluster %q changed since preparation", clusterKey.Name)
+		}
+	}
 	setObservedClusterName(obj, existingCluster)
 
 	specSource := &v1.Postgres{
@@ -489,10 +496,13 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
 			return nil, ctrl.Result{}, err
 		}
-		if clusterExists && existingCluster.UID == "" && prepared.RecoverySource != nil {
-			return nil, ctrl.Result{}, fmt.Errorf("recovery cluster %q has no UID", existingCluster.Name)
-		}
-		if clusterExists && existingCluster.UID != "" {
+		if prepared.RecoverySource != nil {
+			if clusterExists {
+				actions = append(actions, action.UpdateSameUID(cluster, obj, prepared.RecoveryClusterUID, clusterConditionGetter, r.Recorder))
+			} else {
+				actions = append(actions, action.Create(cluster, obj, clusterConditionGetter, r.Recorder))
+			}
+		} else if clusterExists && existingCluster.UID != "" {
 			actions = append(actions, action.UpdateSameUID(cluster, obj, existingCluster.UID, clusterConditionGetter, r.Recorder))
 		} else {
 			actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
