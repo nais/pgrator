@@ -67,6 +67,8 @@ type PostgresBranchPreparedData struct {
 	PostgresDeleting    bool            `yaml:"postgresDeleting,omitempty"`
 	RecoverySource      *rccnpg.RecoverySource
 	RecoverySourceReady bool
+	RecoveryClusterUID  types.UID `yaml:"recoveryClusterUID,omitempty"`
+	BlockingRecoveries  []string  `yaml:"blockingRecoveries,omitempty"`
 }
 
 func (r *PostgresBranchReconciler) Name() string {
@@ -85,7 +87,7 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-					return oldOK && newOK && (continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster) || recoveryComplete(oldCluster) != recoveryComplete(newCluster))
+					return oldOK && newOK && (continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster) || recoveryComplete(oldCluster) != recoveryComplete(newCluster) || recoveryBackedUp(oldCluster) != recoveryBackedUp(newCluster))
 				},
 			},
 		},
@@ -261,6 +263,18 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 	prepared.ActiveBranch = effectiveActiveBranch(postgres)
 	prepared.PostgresDeleting = !postgres.GetDeletionTimestamp().IsZero()
+	// The source archive must remain until dependent recoveries are detached.
+	// No recovery inputs are required to delete this branch itself.
+	if obj.DeletionTimestamp != nil {
+		if !prepared.PostgresDeleting {
+			blocking, err := r.blockingRecoveries(ctx, reader, obj)
+			if err != nil {
+				return PostgresBranchPreparedData{}, ctrl.Result{}, err
+			}
+			prepared.BlockingRecoveries = blocking
+		}
+		return prepared, ctrl.Result{}, nil
+	}
 	if obj.Spec.Bootstrap != nil && obj.Spec.Bootstrap.Recovery != nil && !r.walArchivingEnabled() {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery requires WAL archiving")
 	}
@@ -286,6 +300,33 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 	if obj.Spec.Bootstrap == nil || obj.Spec.Bootstrap.Recovery == nil {
 		return prepared, ctrl.Result{}, nil
 	}
+	return r.prepareRecovery(ctx, reader, obj, prepared)
+}
+
+func (r *PostgresBranchReconciler) blockingRecoveries(ctx context.Context, reader client.Reader, branch *v1.PostgresBranch) ([]string, error) {
+	dependents := &v1.PostgresBranchList{}
+	if err := reader.List(ctx, dependents, client.InNamespace(branch.Namespace), client.MatchingFields{postgresBranchRecoverySourceIndex: branch.Name}); err != nil {
+		return nil, fmt.Errorf("listing dependent recoveries: %w", err)
+	}
+	var blocking []string
+	for i := range dependents.Items {
+		dependent := &dependents.Items[i]
+		if dependent.DeletionTimestamp != nil {
+			continue
+		}
+		cluster := &cnpgv1.Cluster{}
+		key := client.ObjectKey{Namespace: branch.Namespace, Name: rccnpg.ClusterNameFor(dependent.Name)}
+		if err := reader.Get(ctx, key, cluster); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("getting dependent recovery cluster %q: %w", key.Name, err)
+		}
+		if !recoveryFinished(dependent, cluster) || cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery != nil || len(cluster.Spec.ExternalClusters) != 0 {
+			blocking = append(blocking, dependent.Name)
+		}
+	}
+	return blocking, nil
+}
+
+func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader client.Reader, obj *v1.PostgresBranch, prepared PostgresBranchPreparedData) (PostgresBranchPreparedData, ctrl.Result, error) {
 	recovery := obj.Spec.Bootstrap.Recovery
 	sourceName := v1.PostgresBranchObjectName(obj.Spec.Postgres, recovery.SourceBranch)
 	prepared.RecoverySource = &rccnpg.RecoverySource{
@@ -304,10 +345,37 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must be UTC")
 	}
 	cluster := &cnpgv1.Cluster{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(obj.GetName())}, cluster); err == nil && recoveryComplete(cluster) {
-		return prepared, ctrl.Result{}, nil
+	err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(obj.GetName())}, cluster)
+	if err == nil {
+		if !metav1.IsControlledBy(cluster, obj) {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q is not owned by PostgresBranch %q", cluster.Name, obj.Name)
+		}
+		if cluster.DeletionTimestamp != nil {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q is being deleted", cluster.Name)
+		}
+		if cluster.UID == "" {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery cluster %q has no UID", cluster.Name)
+		}
+		prepared.RecoveryClusterUID = cluster.UID
+		if recoveredClusterUID := completedRecoveryClusterUID(obj); recoveredClusterUID != "" && recoveredClusterUID != string(cluster.UID) {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovered Cluster %q was replaced; refusing to bootstrap from the original recovery source", cluster.Name)
+		}
+		if recoveryFinished(obj, cluster) {
+			return prepared, ctrl.Result{}, nil
+		}
+		if recoveryBackedUp(cluster) {
+			// Synchronizer persists status before Update runs. Record the backed-up
+			// Cluster UID before removing bootstrap inputs from the Cluster spec.
+			obj.GetStatus().SetCondition(metav1.Condition{
+				Type: recoveryCompletedCondition, Status: metav1.ConditionTrue,
+				Reason: "Completed", Message: string(cluster.UID), ObservedGeneration: obj.Generation,
+			})
+			return prepared, ctrl.Result{}, nil
+		}
 	} else if !apierrors.IsNotFound(err) {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery cluster: %w", err)
+	} else if completedRecoveryClusterUID(obj) != "" {
+		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovered Cluster %q disappeared; refusing to bootstrap from the original recovery source", rccnpg.ClusterNameFor(obj.GetName()))
 	}
 	source := &v1.PostgresBranch{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: sourceName}, source); err != nil {
@@ -315,6 +383,9 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 	if !validBranchIdentity(source) || source.Spec.Postgres != obj.Spec.Postgres || source.Spec.BranchName != recovery.SourceBranch {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source branch %q belongs to Postgres %q, want %q", source.GetName(), source.Spec.Postgres, obj.Spec.Postgres)
+	}
+	if source.DeletionTimestamp != nil {
+		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source branch %q is being deleted", source.Name)
 	}
 	sourceArchives := &barmanv1.ObjectStoreList{}
 	if err := reader.List(ctx, sourceArchives, client.InNamespace(obj.GetNamespace()), client.MatchingLabels{rcstorage.OwnerNameLabel: source.GetName()}); err != nil {
@@ -338,6 +409,11 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		Namespace: obj.GetNamespace(),
 	}}
 	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
+	if prepared.RecoverySource != nil {
+		if existingCluster == nil && prepared.RecoveryClusterUID != "" || existingCluster != nil && existingCluster.UID != prepared.RecoveryClusterUID {
+			return nil, ctrl.Result{}, fmt.Errorf("recovery cluster %q changed since preparation", clusterKey.Name)
+		}
+	}
 	setObservedClusterName(obj, existingCluster)
 
 	specSource := &v1.Postgres{
@@ -386,7 +462,8 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
 	clusterExists := existingCluster != nil
-	recoveryInProgress := prepared.RecoverySource != nil && !recoveryComplete(existingCluster)
+	recovered := prepared.RecoverySource != nil && recoveryFinished(obj, existingCluster)
+	recoveryInProgress := prepared.RecoverySource != nil && !recovered
 	if wal.Enabled() {
 		walActions, err := r.walActions(obj, prepared, wal, recoveryInProgress, relatedObjects, specSource)
 		if err != nil {
@@ -395,7 +472,13 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		actions = append(actions, walActions...)
 	}
 	if prepared.RecoverySource == nil || clusterExists || prepared.RecoverySourceReady && recoveryInfrastructureReady(obj, wal, prepared.RecoverySource, relatedObjects) {
-		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, prepared.RecoverySource)
+		recoverySource := prepared.RecoverySource
+		if recovered {
+			// The source archive belongs to another branch and may have been deleted.
+			// Once recovered, replicas and backups use this branch's own archive.
+			recoverySource = nil
+		}
+		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, recoverySource)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
 		}
@@ -413,7 +496,17 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
 			return nil, ctrl.Result{}, err
 		}
-		actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
+		if prepared.RecoverySource != nil {
+			if clusterExists {
+				actions = append(actions, action.UpdateSameUID(cluster, obj, prepared.RecoveryClusterUID, clusterConditionGetter, r.Recorder))
+			} else {
+				actions = append(actions, action.Create(cluster, obj, clusterConditionGetter, r.Recorder))
+			}
+		} else if clusterExists && existingCluster.UID != "" {
+			actions = append(actions, action.UpdateSameUID(cluster, obj, existingCluster.UID, clusterConditionGetter, r.Recorder))
+		} else {
+			actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
+		}
 	}
 
 	return actions, ctrl.Result{}, nil
@@ -712,6 +805,41 @@ func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
 	return false
 }
 
+const recoveryCompletedCondition = "RecoveryCompleted"
+
+// recoveryFinished is a one-way bootstrap milestone for this particular
+// Cluster object, independent of whether it is currently Ready.
+func recoveryFinished(branch *v1.PostgresBranch, cluster *cnpgv1.Cluster) bool {
+	return cluster != nil && cluster.DeletionTimestamp == nil &&
+		metav1.IsControlledBy(cluster, branch) && cluster.UID != "" &&
+		completedRecoveryClusterUID(branch) == string(cluster.UID)
+}
+
+func completedRecoveryClusterUID(branch *v1.PostgresBranch) string {
+	for _, condition := range branch.GetStatus().GetConditions() {
+		if condition.Type == recoveryCompletedCondition && condition.Status == metav1.ConditionTrue {
+			return condition.Message
+		}
+	}
+	return ""
+}
+
+// A successful backup of this Cluster proves that it no longer depends on
+// the source archive. Initialized alone is not sufficient: the new branch
+// must first have a usable archive of its own.
+func recoveryBackedUp(cluster *cnpgv1.Cluster) bool {
+	if !cluster.IsInitialized() || cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery == nil {
+		return false
+	}
+	for _, condition := range cluster.Status.Conditions {
+		if condition.Type == "LastBackupSucceeded" && condition.Status == metav1.ConditionTrue &&
+			condition.LastTransitionTime.After(cluster.CreationTimestamp.Time) {
+			return true
+		}
+	}
+	return false
+}
+
 func recoveryComplete(cluster *cnpgv1.Cluster) bool {
 	if cluster == nil || !cluster.IsInitialized() {
 		return false
@@ -793,6 +921,10 @@ func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner *v1.
 func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresBranchPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	if prep.ActiveBranch != "" && obj.Spec.BranchName == prep.ActiveBranch && !prep.PostgresDeleting {
 		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: branch is the active PostgresBranch")
+		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	if len(prep.BlockingRecoveries) > 0 {
+		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: recovery branches still depend on this branch's archive: %v", prep.BlockingRecoveries)
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return nil, ctrl.Result{}, nil

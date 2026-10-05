@@ -9,6 +9,7 @@ import (
 	"github.com/nais/pgrator/pkg/api"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -16,6 +17,7 @@ import (
 
 type update struct {
 	action
+	expectedUID types.UID
 }
 
 func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
@@ -35,6 +37,9 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	key := client.ObjectKeyFromObject(a.obj)
 	if err = c.Get(ctx, key, existingObj); err != nil {
 		return err
+	}
+	if a.expectedUID != "" && existingObj.GetUID() != a.expectedUID {
+		return fmt.Errorf("%s was replaced (UID %q, expected %q)", typeName(a.obj), existingObj.GetUID(), a.expectedUID)
 	}
 
 	if err = copyMeta(a.obj, existing); err != nil {
@@ -64,4 +69,10 @@ func Update(obj client.Object, owner api.NaisObject, conditionGetter ConditionGe
 			recorder:        recorder,
 		},
 	}
+}
+
+// UpdateSameUID updates only the resource that was observed during preparation.
+// A missing or replaced resource must not be recreated from an old recovery spec.
+func UpdateSameUID(obj client.Object, owner api.NaisObject, uid types.UID, conditionGetter ConditionGetter, recorder events.Recorder) Action {
+	return &update{action: action{obj: obj, owner: owner, conditionGetter: conditionGetter, recorder: recorder}, expectedUID: uid}
 }

@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
@@ -342,6 +343,12 @@ func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
 	}{
 		{name: "missing source", instance: recoveryInstance("missing"), want: "getting recovery source branch"},
 		{name: "self source", instance: recoveryInstance("restore"), want: "cannot be itself"},
+		{name: "deleting source", instance: recoveryInstance("primary"), source: func() *v1.PostgresBranch {
+			source := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team", Finalizers: []string{"postgresbranch.nais.io"}}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}}
+			now := metav1.Now()
+			source.DeletionTimestamp = &now
+			return source
+		}(), want: "is being deleted"},
 		{name: "other Postgres", instance: recoveryInstance("primary"), source: &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other", BranchName: "primary"}}, want: "belongs to Postgres"},
 		{name: "non UTC target", instance: func() *v1.PostgresBranch {
 			instance := recoveryInstance("primary")
@@ -371,10 +378,11 @@ func TestPrepareCompletedRecoveryDoesNotRequireSource(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
 	instance := recoveryInstance("deleted-source")
+	cluster := ownedRecoveryCluster(t, scheme, instance, true)
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
-		&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "restore")), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}},
+		cluster,
 	).Build()
 	_, _, err := (&PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal"}}}).Prepare(context.Background(), reader, instance)
 	if err != nil {
@@ -452,12 +460,263 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 	assertClusterAction(t, actions)
 	assertSourcePolicyAction(t, actions, true)
 
-	related.Insert(&cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "restore")), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}})
+	completedCluster := ownedRecoveryCluster(t, scheme, instance, true)
+	related.Insert(completedCluster)
+	prepared.RecoveryClusterUID = completedCluster.UID
+	instance.GetStatus().SetCondition(metav1.Condition{Type: recoveryCompletedCondition, Status: metav1.ConditionTrue, Reason: "Completed", Message: string(completedCluster.UID)})
 	actions, _, err = reconciler.Update(instance, prepared, related)
 	if err != nil {
 		t.Fatalf("updating completed recovery: %v", err)
 	}
 	assertSourcePolicyAction(t, actions, false)
+}
+
+func TestRecoveredBranchSurvivesSourceDeletionAndTemporaryOutage(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	instance := recoveryInstance("deleted-source")
+	instance.Generation = 1
+	cluster := ownedRecoveryCluster(t, scheme, instance, false)
+	cluster.Generation = 3
+	cluster.Status.Conditions = append(cluster.Status.Conditions, metav1.Condition{
+		Type: "LastBackupSucceeded", Status: metav1.ConditionTrue, Reason: "BackupSucceeded",
+		LastTransitionTime: metav1.NewTime(time.Date(2026, time.September, 9, 14, 0, 0, 0, time.UTC)),
+	})
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{MajorVersion: "18"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
+		cluster,
+	).Build()
+	reconciler := &PostgresBranchReconciler{Config: &config.Config{
+		GoogleProjectID: "cluster-gcp-project", Google: config.Google{Location: "europe-north1"},
+		CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
+	}, Scheme: scheme}
+
+	prepared, _, err := reconciler.Prepare(context.Background(), reader, instance)
+	if err != nil {
+		t.Fatalf("preparing previously recovered branch without source: %v", err)
+	}
+	if got := completedRecoveryClusterUID(instance); got != string(cluster.UID) {
+		t.Fatalf("recovery milestone = %q, want cluster UID %q", got, cluster.UID)
+	}
+	related := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+	related.Insert(cluster)
+	actions, _, err := reconciler.Update(instance, prepared, related)
+	if err != nil {
+		t.Fatalf("updating previously recovered branch: %v", err)
+	}
+	assertSourcePolicyAction(t, actions, false)
+	for _, planned := range actions {
+		if updated, ok := planned.GetObject().(*cnpgv1.Cluster); ok {
+			if updated.Spec.ExternalClusters != nil || updated.Spec.Bootstrap == nil || updated.Spec.Bootstrap.Recovery != nil {
+				t.Fatalf("cluster still depends on deleted source: %#v", updated)
+			}
+			return
+		}
+	}
+	t.Fatal("no CNPG Cluster update planned")
+}
+
+func TestRecoveryClusterCannotChangeBetweenPreparationAndUpdate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	for _, tc := range []struct {
+		name                 string
+		presentAtPreparation bool
+		clusterAtUpdate      string
+		wantError            bool
+	}{
+		{name: "same cluster", presentAtPreparation: true, clusterAtUpdate: "original"},
+		{name: "replaced cluster", presentAtPreparation: true, clusterAtUpdate: "replacement", wantError: true},
+		{name: "removed cluster", presentAtPreparation: true, wantError: true},
+		{name: "new cluster after preparation", clusterAtUpdate: "replacement", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instance := recoveryInstance("primary")
+			original := ownedRecoveryCluster(t, scheme, instance, true)
+			source := &v1.PostgresBranch{
+				ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"},
+				Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"},
+			}
+			objects := []client.Object{
+				&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{MajorVersion: "18"}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
+				source,
+				&barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: "source-archive", Namespace: "team", Labels: map[string]string{rcstorage.OwnerNameLabel: source.Name}}},
+				&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: "source-archive", Namespace: "team"}},
+			}
+			if tc.presentAtPreparation {
+				objects = append(objects, original)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			reconciler := &PostgresBranchReconciler{Config: &config.Config{
+				GoogleProjectID: "cluster-gcp-project", Google: config.Google{Location: "europe-north1"},
+				CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
+			}, Scheme: scheme, Recorder: recorder}
+			prepared, _, err := reconciler.Prepare(context.Background(), reader, instance)
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			related := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+			switch tc.clusterAtUpdate {
+			case "original":
+				related.Insert(original)
+			case "replacement":
+				replacement := original.DeepCopy()
+				replacement.UID = "replacement-uid"
+				related.Insert(replacement)
+			}
+			actions, _, err := reconciler.Update(instance, prepared, related)
+			if tc.wantError {
+				requireErrorContains(t, err, "changed since preparation")
+				if len(actions) != 0 {
+					t.Fatalf("planned %d actions for a changed recovery cluster", len(actions))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			assertClusterAction(t, actions)
+		})
+	}
+}
+
+func TestUnfinishedRecoveryStillRequiresSource(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	instance := recoveryInstance("deleted-source")
+	cluster := ownedRecoveryCluster(t, scheme, instance, false)
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
+		cluster,
+	).Build()
+	reconciler := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"}}}
+	_, _, err := reconciler.Prepare(context.Background(), reader, instance)
+	requireErrorContains(t, err, "getting recovery source branch")
+}
+
+func TestCompletedRecoveryDoesNotRebootstrapMissingOrReplacedCluster(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	for _, tc := range []struct {
+		name    string
+		cluster bool
+	}{
+		{name: "missing cluster"},
+		{name: "replaced cluster", cluster: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instance := recoveryInstance("primary")
+			instance.UID = "branch-uid"
+			instance.GetStatus().SetCondition(metav1.Condition{
+				Type: recoveryCompletedCondition, Status: metav1.ConditionTrue,
+				Reason: "Completed", Message: "original-cluster-uid",
+			})
+			objects := []client.Object{
+				&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team", Labels: map[string]string{ProjectIDLabel: "team-gcp-project"}}},
+			}
+			if tc.cluster {
+				objects = append(objects, ownedRecoveryCluster(t, scheme, instance, true))
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			_, _, err := (&PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"}}}).Prepare(context.Background(), reader, instance)
+			requireErrorContains(t, err, "refusing to bootstrap")
+		})
+	}
+}
+
+func TestDeletingRecoveredBranchDoesNotRequireSource(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	instance := recoveryInstance("deleted-source")
+	now := metav1.Now()
+	instance.DeletionTimestamp = &now
+	reader := fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&v1.PostgresBranch{}, postgresBranchRecoverySourceIndex, recoverySourceBranchIndex).
+		WithObjects(&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}).Build()
+	_, _, err := (&PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"}}}).Prepare(context.Background(), reader, instance)
+	if err != nil {
+		t.Fatalf("preparing branch deletion without source or Cluster: %v", err)
+	}
+}
+
+func TestSourceDeletionWaitsForDependentRecoveryToDetach(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	for _, tc := range []struct {
+		name      string
+		cluster   bool
+		detached  bool
+		wantBlock bool
+	}{
+		{name: "recovery not started", wantBlock: true},
+		{name: "recovery still references source", cluster: true, wantBlock: true},
+		{name: "recovery detached from source", cluster: true, detached: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}}
+			now := metav1.Now()
+			source.DeletionTimestamp = &now
+			source.Finalizers = []string{"postgresbranch.nais.io"}
+			dependent := recoveryInstance("primary")
+			objects := []client.Object{
+				&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}},
+				source, dependent,
+			}
+			if tc.cluster {
+				cluster := ownedRecoveryCluster(t, scheme, dependent, tc.detached)
+				if tc.detached {
+					cluster.Spec.Bootstrap = &cnpgv1.BootstrapConfiguration{InitDB: &cnpgv1.BootstrapInitDB{}}
+					dependent.GetStatus().SetCondition(metav1.Condition{Type: recoveryCompletedCondition, Status: metav1.ConditionTrue, Reason: "Completed", Message: string(cluster.UID)})
+				}
+				objects = append(objects, cluster)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).
+				WithIndex(&v1.PostgresBranch{}, postgresBranchRecoverySourceIndex, recoverySourceBranchIndex).
+				WithObjects(objects...).Build()
+			reconciler := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"}}, Recorder: recorder}
+			prepared, _, err := reconciler.Prepare(context.Background(), reader, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, result, err := reconciler.Delete(source, prepared, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := !result.IsZero(); got != tc.wantBlock {
+				t.Errorf("deletion blocked = %t, want %t", got, tc.wantBlock)
+			}
+		})
+	}
+}
+
+func ownedRecoveryCluster(t *testing.T, scheme *runtime.Scheme, instance *v1.PostgresBranch, ready bool) *cnpgv1.Cluster {
+	t.Helper()
+	if instance.UID == "" {
+		instance.UID = "branch-uid"
+	}
+	cluster := &cnpgv1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: instance.Namespace, UID: "cluster-uid", CreationTimestamp: metav1.NewTime(time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC))},
+		Spec:       cnpgv1.ClusterSpec{Bootstrap: &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{Source: "recovery-source"}}},
+		Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{
+			{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue},
+			{Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionFalse},
+		}},
+	}
+	if ready {
+		cluster.Status.Conditions[1].Status = metav1.ConditionTrue
+		cluster.Status.Conditions = append(cluster.Status.Conditions, metav1.Condition{
+			Type: "LastBackupSucceeded", Status: metav1.ConditionTrue, Reason: "BackupSucceeded",
+			LastTransitionTime: metav1.NewTime(time.Date(2026, time.September, 9, 14, 0, 0, 0, time.UTC)),
+		})
+	}
+	if err := controllerutil.SetControllerReference(instance, cluster, scheme); err != nil {
+		t.Fatal(err)
+	}
+	return cluster
 }
 
 func recoveryInstance(source string) *v1.PostgresBranch {
