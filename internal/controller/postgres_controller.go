@@ -86,7 +86,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresBranch %q: %w", obj.Spec.ActiveBranch, err)
 	}
 
-	if !validBranchIdentity(requested) || requested.Spec.Postgres != obj.GetName() || requested.Spec.BranchName != obj.Spec.ActiveBranch {
+	if !validBranchIdentity(requested) || requested.Spec.Postgres != obj.GetName() || requested.Spec.BranchName != obj.Spec.ActiveBranch || !requested.DeletionTimestamp.IsZero() {
 		return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 	}
 
@@ -101,7 +101,7 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 
 	return PostgresPreparedData{
 		RequestedBranch: obj.Spec.ActiveBranch,
-		RequestedReady:  recoveryComplete(cluster),
+		RequestedReady:  cluster.DeletionTimestamp.IsZero() && recoveryComplete(cluster),
 	}, ctrl.Result{}, nil
 }
 

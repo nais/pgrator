@@ -1,14 +1,17 @@
 package controller
 
 import (
+	"context"
 	"testing"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestUpdateSetsActiveBranchStatus(t *testing.T) {
@@ -40,6 +43,60 @@ func TestUpdateSetsActiveBranchStatus(t *testing.T) {
 			}
 			if got := postgres.Status.ActiveBranch; got != tt.want {
 				t.Errorf("status.activeBranch = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestActivationWaitsForReadyBranch(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		branchDeleting  bool
+		clusterDeleting bool
+		clusterReady    bool
+		wantActive      string
+	}{
+		{name: "ready", clusterReady: true, wantActive: "restore"},
+		{name: "cluster not ready"},
+		{name: "branch deleting", clusterReady: true, branchDeleting: true},
+		{name: "cluster deleting", clusterReady: true, clusterDeleting: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			initscheme.InitScheme(scheme)
+			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "restore"}, Status: &v1.PostgresStatus{ActiveBranch: "main"}}
+			branchName := v1.PostgresBranchObjectName("orders", "restore")
+			branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: branchName, Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
+			cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: v1.CNPGClusterName(branchName), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}}}}
+			if tt.clusterReady {
+				cluster.Status.Conditions = append(cluster.Status.Conditions, metav1.Condition{Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue})
+			}
+			if tt.branchDeleting {
+				now := metav1.Now()
+				branch.DeletionTimestamp = &now
+				branch.Finalizers = []string{"postgresbranch.nais.io"}
+			}
+			if tt.clusterDeleting {
+				now := metav1.Now()
+				cluster.DeletionTimestamp = &now
+				cluster.Finalizers = []string{"postgresql.cnpg.io/finalizer"}
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(branch, cluster).Build()
+			reconciler := &PostgresReconciler{Config: &config.Config{}, Recorder: recorder, Scheme: scheme}
+			prepared, _, err := reconciler.Prepare(context.Background(), reader, postgres)
+			if err != nil {
+				t.Fatalf("Prepare() error = %v", err)
+			}
+			_, _, err = reconciler.Update(postgres, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme))
+			if (err == nil) != (tt.wantActive != "") {
+				t.Fatalf("Update() error = %v, want active branch %q", err, tt.wantActive)
+			}
+			want := tt.wantActive
+			if want == "" {
+				want = "main"
+			}
+			if postgres.Status.ActiveBranch != want {
+				t.Errorf("status.activeBranch = %q, want %q", postgres.Status.ActiveBranch, want)
 			}
 		})
 	}
