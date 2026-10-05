@@ -103,6 +103,11 @@ spec:
           status:
             description: status defines the observed state of PostgresBranch
             properties:
+              clusterName:
+                description: |-
+                  ClusterName is the name of the observed CNPG Cluster owned by this branch.
+                  It is empty until the cluster exists.
+                type: string
               conditions:
                 description: |-
                   conditions represent the current state of the controlled resource.

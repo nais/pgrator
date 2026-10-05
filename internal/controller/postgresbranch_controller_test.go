@@ -72,6 +72,38 @@ func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 	}
 }
 
+func TestPostgresBranchReportsObservedClusterName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	branch := &v1.PostgresBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team", UID: types.UID("branch-uid")},
+		Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"},
+	}
+	clusterName := rccnpg.ClusterNameFor(branch.Name)
+	ownedCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name: clusterName, Namespace: branch.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: branch.UID, Controller: new(true)}},
+	}}
+	for _, tt := range []struct {
+		name    string
+		cluster *cnpgv1.Cluster
+		want    string
+	}{
+		{name: "not created yet"},
+		{name: "owned cluster exists", cluster: ownedCluster, want: clusterName},
+		{name: "same name with another owner", cluster: &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: branch.Namespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: types.UID("old-uid"), Controller: new(true)}}}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := branch.DeepCopy()
+			instance.GetStatus().(*v1.PostgresBranchStatus).ClusterName = "previous-cluster"
+			setObservedClusterName(instance, tt.cluster)
+			if got := instance.Status.ClusterName; got != tt.want {
+				t.Errorf("clusterName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContinuousArchivingReady(t *testing.T) {
 	tests := []struct {
 		name       string

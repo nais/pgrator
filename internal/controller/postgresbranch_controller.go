@@ -333,6 +333,13 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 }
 
 func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	clusterKey := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.ClusterNameFor(obj.GetName()),
+		Namespace: obj.GetNamespace(),
+	}}
+	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
+	setObservedClusterName(obj, existingCluster)
+
 	specSource := &v1.Postgres{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.GetName(),
@@ -378,11 +385,6 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	clusterKey := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
-		Name:      rccnpg.ClusterNameFor(obj.GetName()),
-		Namespace: obj.GetNamespace(),
-	}}
-	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
 	clusterExists := existingCluster != nil
 	recoveryInProgress := prepared.RecoverySource != nil && !recoveryComplete(existingCluster)
 	if wal.Enabled() {
@@ -415,6 +417,14 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func setObservedClusterName(branch *v1.PostgresBranch, cluster *cnpgv1.Cluster) {
+	status := branch.GetStatus().(*v1.PostgresBranchStatus)
+	status.ClusterName = ""
+	if cluster != nil && metav1.IsControlledBy(cluster, branch) {
+		status.ClusterName = cluster.GetName()
+	}
 }
 
 func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error) {
