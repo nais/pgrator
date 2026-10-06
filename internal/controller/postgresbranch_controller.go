@@ -414,7 +414,6 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 			return nil, ctrl.Result{}, fmt.Errorf("recovery cluster %q changed since preparation", clusterKey.Name)
 		}
 	}
-	setObservedClusterName(obj, existingCluster)
 
 	specSource := &v1.Postgres{
 		ObjectMeta: metav1.ObjectMeta{
@@ -484,6 +483,8 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		}
 		cluster.Labels["postgres.nais.io/name"] = obj.Spec.Postgres
 		cluster.Labels["postgres.nais.io/branch"] = obj.Spec.BranchName
+		cluster.Spec.InheritedMetadata.Labels["postgres.nais.io/name"] = obj.Spec.Postgres
+		cluster.Spec.InheritedMetadata.Labels["postgres.nais.io/branch"] = obj.Spec.BranchName
 		// postInitSQL, which creates the app_readwritecreate group role, runs only
 		// at initdb. Mark the cluster as readwritecreate-capable only when this
 		// reconcile creates a fresh initdb cluster; once set, the marker is
@@ -510,14 +511,6 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 
 	return actions, ctrl.Result{}, nil
-}
-
-func setObservedClusterName(branch *v1.PostgresBranch, cluster *cnpgv1.Cluster) {
-	status := branch.GetStatus().(*v1.PostgresBranchStatus)
-	status.ClusterName = ""
-	if cluster != nil && metav1.IsControlledBy(cluster, branch) {
-		status.ClusterName = cluster.GetName()
-	}
 }
 
 func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error) {
