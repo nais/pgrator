@@ -18,6 +18,7 @@ import (
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -73,56 +74,37 @@ func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 	}
 }
 
-func TestPostgresBranchReportsObservedClusterName(t *testing.T) {
+func TestPostgresBranchInheritsIdentityLabelsOnCNPGPods(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
 	reconciler := &PostgresBranchReconciler{
-		Config: &config.Config{
-			GoogleProjectID: "cluster-gcp-project",
-			Google:          config.Google{Location: "europe-north1"},
-			CNPG:            config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
-		},
+		Config: &config.Config{CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "standard-rwo"}},
 		Scheme: scheme,
 	}
 	branch := &v1.PostgresBranch{
-		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team", UID: types.UID("branch-uid")},
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team", UID: "branch-uid"},
 		Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"},
 	}
-	clusterName := rccnpg.ClusterNameFor(branch.Name)
-	ownedCluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
-		Name: clusterName, Namespace: branch.Namespace,
-		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: branch.UID, Controller: new(true)}},
-	}}
-	for _, tt := range []struct {
-		name    string
-		cluster *cnpgv1.Cluster
-		want    string
-	}{
-		{name: "not created yet"},
-		{name: "owned cluster exists", cluster: ownedCluster, want: clusterName},
-		{name: "same name with another owner", cluster: &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: branch.Namespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: types.UID("old-uid"), Controller: new(true)}}}}},
-		{name: "owned cluster with another name", cluster: &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "different-cluster", Namespace: branch.Namespace, OwnerReferences: ownedCluster.OwnerReferences}}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			instance := branch.DeepCopy()
-			instance.GetStatus().(*v1.PostgresBranchStatus).ClusterName = "previous-cluster"
-			relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
-			if tt.cluster != nil {
-				relatedObjects.Insert(tt.cluster)
-			}
-			_, _, err := reconciler.Update(instance, PostgresBranchPreparedData{
-				PostgresUID:         types.UID("feedab1e-beef-cafe-babe-700d1e100d1e"),
-				TeamGoogleProjectID: "team-gcp-project",
-				PostgresSpec:        v1.PostgresSpec{MajorVersion: "18"},
-			}, relatedObjects)
-			if err != nil {
-				t.Fatalf("Update() error = %v", err)
-			}
-			if got := instance.Status.ClusterName; got != tt.want {
-				t.Errorf("clusterName = %q, want %q", got, tt.want)
-			}
-		})
+	actions, _, err := reconciler.Update(branch, PostgresBranchPreparedData{
+		PostgresSpec: v1.PostgresSpec{MajorVersion: "18", Resources: v1.PostgresResources{
+			Cpu: apiresource.MustParse("100m"), Memory: apiresource.MustParse("512Mi"), DiskSize: apiresource.MustParse("10Gi"),
+		}},
+	}, relatedobjectsmap.NewRelatedObjectsMap(scheme))
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, action := range actions {
+		cluster, ok := action.GetObject().(*cnpgv1.Cluster)
+		if !ok {
+			continue
+		}
+		labels := cluster.Spec.InheritedMetadata.Labels
+		if labels["postgres.nais.io/name"] != "orders" || labels["postgres.nais.io/branch"] != "main" {
+			t.Errorf("inherited Postgres identity labels = %v", labels)
+		}
+		return
+	}
+	t.Fatal("Update did not produce a CNPG Cluster")
 }
 
 func TestContinuousArchivingReady(t *testing.T) {

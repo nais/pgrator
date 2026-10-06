@@ -50,11 +50,6 @@ type PostgresBranchSpec struct {
 // PostgresBranchStatus defines the observed state of a PostgresBranch.
 type PostgresBranchStatus struct {
 	api.BaseStatus `json:",inline"`
-
-	// ClusterName is the name of the observed CNPG Cluster owned by this branch.
-	// It is empty until the cluster exists.
-	// +optional
-	ClusterName string `json:"clusterName,omitempty"`
 }
 
 // +kubebuilder:object:root=true
