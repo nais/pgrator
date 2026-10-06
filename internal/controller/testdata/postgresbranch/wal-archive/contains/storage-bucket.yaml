@@ -21,6 +21,7 @@ object:
         blockOwnerDeletion: true
   spec:
     location: europe-north1
+    uniformBucketLevelAccess: true
     publicAccessPrevention: inherited
     lifecycleRule:
       - action:

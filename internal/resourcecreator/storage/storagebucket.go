@@ -48,8 +48,9 @@ func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnr
 func CreateStorageBucket(postgres *v1.Postgres, bucketName, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	bucket := minimalStorageBucket(postgres, bucketName)
 	bucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
-		Location:               location,
-		PublicAccessPrevention: storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
+		Location:                 location,
+		UniformBucketLevelAccess: true,
+		PublicAccessPrevention:   storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
 		LifecycleRules: []storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRule{
 			{
 				Action: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleAction{
