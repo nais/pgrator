@@ -161,6 +161,49 @@ func TestContinuousArchivingReady(t *testing.T) {
 	}
 }
 
+func TestUpdateRepairsExistingWALBucketAccess(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+
+	reconciler := &PostgresBranchReconciler{
+		Config: &config.Config{
+			GoogleProjectID: "cluster-gcp-project",
+			Google:          config.Google{Location: "europe-north1"},
+			CNPG:            config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
+		},
+		Scheme: scheme,
+	}
+	instance := &v1.PostgresBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("mydb", "main"), Namespace: "myteam", UID: "d3adb33f-beef-cafe-babe-700d1e100d1e"},
+		Spec:       v1.PostgresBranchSpec{Postgres: "mydb", BranchName: "main"},
+	}
+	prepared := PostgresBranchPreparedData{
+		PostgresUID:         types.UID("feedab1e-beef-cafe-babe-700d1e100d1e"),
+		TeamGoogleProjectID: "team-gcp-project",
+		PostgresSpec:        v1.PostgresSpec{MajorVersion: "18"},
+	}
+	relatedObjects := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+	relatedObjects.Insert(&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{
+		Name: reconcilerBucketName(instance, prepared), Namespace: instance.Namespace,
+	}})
+
+	actions, _, err := reconciler.Update(instance, prepared, relatedObjects)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	for _, plannedAction := range actions {
+		bucket, ok := plannedAction.GetObject().(*storagecnrm.StorageBucket)
+		if !ok {
+			continue
+		}
+		if !bucket.Spec.UniformBucketLevelAccess {
+			t.Fatal("existing WAL bucket was not reconciled with uniform bucket-level access")
+		}
+		return
+	}
+	t.Fatal("Update() did not reconcile the existing WAL bucket")
+}
+
 func TestUpdateDoesNotCreateScheduledBackupBeforeContinuousArchiving(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
