@@ -136,44 +136,40 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
 	}
 
+	branches := relatedObjects.GetMatchingType(&v1.PostgresBranch{})
+	actions := make([]action.Action, 0, len(branches)+1)
+	status := obj.GetStatus().(*v1.PostgresStatus)
 	if obj.Spec.ActiveBranch != "" {
 		if !prepared.RequestedReady {
 			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 		}
-		obj.GetStatus().(*v1.PostgresStatus).ActiveBranch = obj.Spec.ActiveBranch
-
-		actions := make([]action.Action, 0)
-		for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresBranch{}) {
-			instance, ok := candidate.(*v1.PostgresBranch)
-			if !ok || instance.GetNamespace() != obj.GetNamespace() || !validBranchIdentity(instance) || instance.Spec.Postgres != obj.GetName() {
-				continue
-			}
-			if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
-				return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
-			}
-			actions = append(actions, action.Claim(instance, obj, existsConditionGetter, r.Recorder))
+		status.ActiveBranch = obj.Spec.ActiveBranch
+	} else {
+		if status.ActiveBranch == "" {
+			status.ActiveBranch = v1.DefaultBranchName
 		}
-		if len(actions) > 0 {
-			return actions, ctrl.Result{}, nil
-		}
-		if relatedObjects.GetMatching(instance) == nil {
-			return nil, ctrl.Result{}, nil
-		}
-		return []action.Action{action.Claim(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
+		actions = append(actions, action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder))
 	}
-
-	status := obj.GetStatus().(*v1.PostgresStatus)
-	if status.ActiveBranch == "" {
-		status.ActiveBranch = v1.DefaultBranchName
+	// Branches have their own lifecycle. Removing the activation request must
+	// not prune previously claimed branches, including workload-pinned ones.
+	for _, candidate := range branches {
+		branch, ok := candidate.(*v1.PostgresBranch)
+		if !ok || branch.Namespace != obj.Namespace || !validBranchIdentity(branch) || branch.Spec.Postgres != obj.Name {
+			continue
+		}
+		if obj.Spec.ActiveBranch == "" && branch.Name == instance.Name {
+			continue // The default branch already has a create/update action.
+		}
+		if err := controllerutil.SetControllerReference(obj, branch, r.Scheme); err != nil {
+			return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
+		}
+		actions = append(actions, action.Claim(branch, obj, existsConditionGetter, r.Recorder))
 	}
-	return []action.Action{action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)}, ctrl.Result{}, nil
+	return actions, ctrl.Result{}, nil
 }
 
-func effectiveActiveBranch(postgres *v1.Postgres) string {
-	if postgres.Spec.ActiveBranch != "" {
-		return postgres.Spec.ActiveBranch
-	}
+func observedActiveBranch(postgres *v1.Postgres) string {
 	if postgres.Status != nil && postgres.Status.ActiveBranch != "" {
 		return postgres.Status.ActiveBranch
 	}

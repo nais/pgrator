@@ -67,6 +67,14 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
+	// Branch pins access to a local branch of Postgres. Omitted follows the
+	// observed active branch. An unavailable explicit branch never falls back.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Branch string `json:"branch,omitempty"`
+
 	// SecretName is the stable connection Secret name Naiserator mounts into the
 	// workload. It is selected by Naiserator to avoid naming collisions. Empty is
 	// supported only for bindings created before this field was introduced.

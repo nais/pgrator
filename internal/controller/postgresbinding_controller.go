@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"reflect"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	rcbinding "github.com/nais/pgrator/internal/resourcecreator/binding"
@@ -43,8 +44,9 @@ var _ reconciler.Reconciler[*v1.PostgresBinding, PostgresBindingPreparedData] = 
 // PostgresBindingPreparedData contains the selected branch and, when all CNPG
 // source material is present, an internally consistent credential snapshot.
 type PostgresBindingPreparedData struct {
-	Branch   string `yaml:"branch"`
-	Snapshot *bindingSnapshot
+	Branch      string `yaml:"branch"`
+	Unavailable bool   `yaml:"unavailable,omitempty"`
+	Snapshot    *bindingSnapshot
 }
 
 type bindingSnapshot struct {
@@ -124,6 +126,18 @@ func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.Relations
 			},
 		},
 		{
+			Type: &v1.PostgresBranch{},
+			Map:  r.bindingsForBranch,
+			Predicate: predicate.Funcs{
+				CreateFunc: func(event.CreateEvent) bool { return true },
+				DeleteFunc: func(event.DeleteEvent) bool { return true },
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
+						!reflect.DeepEqual(e.ObjectOld.GetDeletionTimestamp(), e.ObjectNew.GetDeletionTimestamp())
+				},
+			},
+		},
+		{
 			Type:      &core_v1.Secret{},
 			Map:       r.bindingsForSourceSecret,
 			Predicate: sourceSecretEventFilter(),
@@ -153,6 +167,21 @@ func (r *PostgresBindingReconciler) bindingsForPostgres(ctx context.Context, rea
 		return nil, fmt.Errorf("listing PostgresBindings for Postgres %q: %w", postgres.GetName(), err)
 	}
 	return bindingRequests(bindings.Items), nil
+}
+
+func (r *PostgresBindingReconciler) bindingsForBranch(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	branch, ok := object.(*v1.PostgresBranch)
+	if !ok || !validBranchIdentity(branch) {
+		return nil, nil
+	}
+	return r.bindingsForPostgres(ctx, reader, &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: branch.Spec.Postgres, Namespace: branch.Namespace}})
+}
+
+func selectedBindingBranch(binding *v1.PostgresBinding, postgres *v1.Postgres) string {
+	if binding.Spec.Branch != "" {
+		return binding.Spec.Branch
+	}
+	return observedActiveBranch(postgres)
 }
 
 func (r *PostgresBindingReconciler) bindingsForSourceSecret(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -190,13 +219,13 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		}
 		return nil, fmt.Errorf("getting Postgres %q: %w", binding.Spec.Postgres, err)
 	}
-	activeBranch := effectiveActiveBranch(postgres)
+	activeBranch := selectedBindingBranch(binding, postgres)
 	instance := &v1.PostgresBranch{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}, instance); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
+		return nil, fmt.Errorf("getting selected PostgresBranch %q: %w", activeBranch, err)
 	}
 	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
 		return nil, nil
@@ -236,30 +265,35 @@ func bindingRequests(bindings []v1.PostgresBinding) []reconcile.Request {
 // resolving the Postgres by name in the binding's own namespace is what enforces
 // that a team cannot bind to another team's database.
 func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.PostgresBinding) (PostgresBindingPreparedData, ctrl.Result, error) {
+	if !obj.DeletionTimestamp.IsZero() {
+		return PostgresBindingPreparedData{}, ctrl.Result{}, nil
+	}
 	postgres := &v1.Postgres{}
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
 		if apierrors.IsNotFound(err) {
-			if !obj.GetDeletionTimestamp().IsZero() {
-				return PostgresBindingPreparedData{}, ctrl.Result{}, nil
-			}
-			return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf(
-				"no Postgres named %q in namespace %q", obj.Spec.Postgres, obj.GetNamespace())
+			return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
 		}
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	activeBranch := effectiveActiveBranch(postgres)
+	activeBranch := selectedBindingBranch(obj, postgres)
 
 	instance := &v1.PostgresBranch{}
 	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}
 	if err := reader.Get(ctx, instanceKey, instance); err != nil {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting active PostgresBranch %q: %w", activeBranch, err)
+		if apierrors.IsNotFound(err) {
+			return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+		}
+		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting selected PostgresBranch %q: %w", activeBranch, err)
 	}
 	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
 	}
 
+	if !postgres.DeletionTimestamp.IsZero() || !instance.DeletionTimestamp.IsZero() {
+		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+	}
 	prepared := PostgresBindingPreparedData{Branch: instance.GetName()}
 	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance.GetName())
 	if err != nil {
@@ -485,6 +519,31 @@ func readSecretData(ctx context.Context, reader client.Reader, key client.Object
 
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
+	if prepared.Unavailable {
+		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "BranchUnavailable", Message: "the selected Postgres branch is missing or deleting", ObservedGeneration: obj.Generation})
+		// Withdraw stale connection Secrets and network access, but do not drop
+		// existing login roles merely because the selected branch is unavailable.
+		for _, candidate := range relatedObjects.GetMatchingType(&cnpgv1.DatabaseRole{}) {
+			role, ok := candidate.(*cnpgv1.DatabaseRole)
+			if !ok || !metav1.IsControlledBy(role, obj) {
+				continue
+			}
+			for _, credential := range obj.Spec.Credentials {
+				if credential != v1.PostgresBindingCredentialAdmin && role.Spec.Name == obj.RoleName(credential) {
+					actions = append(actions, action.Claim(role, obj, existsConditionGetter, r.Recorder))
+					break
+				}
+			}
+		}
+		return actions, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "CredentialsPending", Message: "waiting for credentials for the selected Postgres branch", ObservedGeneration: obj.Generation}
+	if prepared.Snapshot != nil {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "CredentialsReady"
+		condition.Message = "credentials for the selected Postgres branch are ready"
+	}
+	obj.GetStatus().SetCondition(condition)
 	for _, credential := range obj.Spec.Credentials {
 		// app is the durable owner identity. The Postgres branch owns its
 		// DatabaseRole and certificate; bindings only consume it.
@@ -520,8 +579,23 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 			TypeMeta:   metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
 			ObjectMeta: metav1.ObjectMeta{Name: rcbinding.ConfigSecretName(obj), Namespace: obj.GetNamespace()},
 		}
-		if relatedObjects.GetMatching(stub) != nil {
-			actions = append(actions, action.Claim(stub, obj, existsConditionGetter, r.Recorder))
+		if existing, ok := relatedObjects.GetMatching(stub).(*core_v1.Secret); ok {
+			// Explicit branch changes must not retain a connection to a different
+			// branch while its credentials are being provisioned. Same-branch
+			// certificate rotation can safely keep the last complete snapshot.
+			keep := true
+			if obj.Spec.Branch != "" {
+				for _, credential := range obj.Spec.Credentials {
+					key := v1.ConnectionEnvPrefix(credential) + "PGHOST"
+					if string(existing.Data[key]) != rccnpg.PoolerNameFor(prepared.Branch)+"."+obj.Namespace {
+						keep = false
+						break
+					}
+				}
+			}
+			if keep {
+				actions = append(actions, action.Claim(stub, obj, existsConditionGetter, r.Recorder))
+			}
 		}
 	}
 

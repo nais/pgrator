@@ -64,6 +64,14 @@ spec:
               its one-time addition to bindings created before it was part of the API.
               Credentials may change as the workload's uses.postgres declaration changes.
             properties:
+              branch:
+                description: |-
+                  Branch pins access to a local branch of Postgres. Omitted follows the
+                  observed active branch. An unavailable explicit branch never falls back.
+                maxLength: 63
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                type: string
               consumer:
                 description: Consumer identifies what is granted access.
                 properties:

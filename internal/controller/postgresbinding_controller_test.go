@@ -37,7 +37,7 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
 	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Spec.BranchName}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Spec.BranchName}, Status: &v1.PostgresStatus{ActiveBranch: instance.Spec.BranchName}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "team"}, Spec: cnpgv1.ClusterSpec{Certificates: &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}}}
 	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
 	certSecret := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
@@ -337,7 +337,7 @@ func TestPostgresBindingRelationshipMappers(t *testing.T) {
 	otherBinding.Name = "unrelated"
 	otherBinding.Spec.Postgres = "other"
 	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Spec.BranchName}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: instance.Spec.BranchName}, Status: &v1.PostgresStatus{ActiveBranch: instance.Spec.BranchName}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(instance.Name), Namespace: "team"}, Spec: cnpgv1.ClusterSpec{Certificates: &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}}}
 	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
 	certificateName := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
