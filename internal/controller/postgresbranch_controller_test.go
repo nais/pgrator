@@ -58,9 +58,9 @@ func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 		wantRequeueAfter time.Duration
 	}{
 		{name: "blocked when active", prep: PostgresBranchPreparedData{ActiveBranch: "primary", PostgresDeleting: false}, wantRequeueAfter: 30 * time.Second},
-		{name: "allowed when not active", prep: PostgresBranchPreparedData{ActiveBranch: "restore"}},
+		{name: "allowed when not active", prep: PostgresBranchPreparedData{ActiveBranch: "restore", HasOtherBranch: true}},
 		{name: "allowed when Postgres is deleting", prep: PostgresBranchPreparedData{ActiveBranch: "primary", PostgresDeleting: true}},
-		{name: "allowed when Postgres is gone", prep: PostgresBranchPreparedData{}},
+		{name: "allowed when Postgres is gone", prep: PostgresBranchPreparedData{PostgresDeleting: true}},
 	}
 
 	for _, tt := range tests {

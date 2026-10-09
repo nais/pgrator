@@ -145,10 +145,11 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 		}
 		status.ActiveBranch = obj.Spec.ActiveBranch
-	} else {
-		if status.ActiveBranch == "" {
-			status.ActiveBranch = v1.DefaultBranchName
-		}
+	}
+	// Do not recreate main after another branch has been selected.
+	ensureMain := obj.Spec.ActiveBranch == "" && observedActiveBranch(obj) == v1.DefaultBranchName
+	if ensureMain {
+		status.ActiveBranch = v1.DefaultBranchName
 		actions = append(actions, action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder))
 	}
 	// Branches have their own lifecycle. Removing the activation request must
@@ -158,7 +159,7 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 		if !ok || branch.Namespace != obj.Namespace || !validBranchIdentity(branch) || branch.Spec.Postgres != obj.Name {
 			continue
 		}
-		if obj.Spec.ActiveBranch == "" && branch.Name == instance.Name {
+		if ensureMain && branch.Name == instance.Name {
 			continue // The default branch already has a create/update action.
 		}
 		if err := controllerutil.SetControllerReference(obj, branch, r.Scheme); err != nil {

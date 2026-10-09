@@ -65,8 +65,8 @@ type PostgresBranchPreparedData struct {
 	TeamGoogleProjectID string          `yaml:"teamGoogleProjectID"`
 	ActiveBranch        string          `yaml:"activeBranch,omitempty"`
 	RequestedBranch     string          `yaml:"requestedBranch,omitempty"`
-	BlockingBindings    []string        `yaml:"blockingBindings,omitempty"`
 	PostgresDeleting    bool            `yaml:"postgresDeleting,omitempty"`
+	HasOtherBranch      bool            `yaml:"hasOtherBranch,omitempty"`
 	RecoverySource      *rccnpg.RecoverySource
 	RecoverySourceReady bool
 	RecoveryClusterUID  types.UID `yaml:"recoveryClusterUID,omitempty"`
@@ -253,7 +253,7 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
 		if apierrors.IsNotFound(err) && !obj.GetDeletionTimestamp().IsZero() {
-			return PostgresBranchPreparedData{}, ctrl.Result{}, nil
+			return PostgresBranchPreparedData{PostgresDeleting: true}, ctrl.Result{}, nil
 		}
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
@@ -270,20 +270,25 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 	// No recovery inputs are required to delete this branch itself.
 	if obj.DeletionTimestamp != nil {
 		if !prepared.PostgresDeleting {
+			branches := &v1.PostgresBranchList{}
+			if err := reader.List(ctx, branches, client.InNamespace(obj.Namespace)); err != nil {
+				return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("listing remaining branches: %w", err)
+			}
+			for _, branch := range branches.Items {
+				if branch.Spec.Postgres != obj.Spec.Postgres || branch.Name == obj.Name {
+					continue
+				}
+				if !branch.DeletionTimestamp.IsZero() || !validBranchIdentity(&branch) {
+					continue
+				}
+				prepared.HasOtherBranch = true
+				break // One other live branch is enough.
+			}
 			blocking, err := r.blockingRecoveries(ctx, reader, obj)
 			if err != nil {
 				return PostgresBranchPreparedData{}, ctrl.Result{}, err
 			}
 			prepared.BlockingRecoveries = blocking
-			bindings := &v1.PostgresBindingList{}
-			if err := reader.List(ctx, bindings, client.InNamespace(obj.Namespace)); err != nil {
-				return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("listing branch bindings: %w", err)
-			}
-			for _, binding := range bindings.Items {
-				if binding.Spec.Postgres == obj.Spec.Postgres && selectedBindingBranch(&binding, postgres) == obj.Spec.BranchName {
-					prepared.BlockingBindings = append(prepared.BlockingBindings, binding.Name)
-				}
-			}
 		}
 		return prepared, ctrl.Result{}, nil
 	}
@@ -928,8 +933,8 @@ func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresB
 		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: branch is the active PostgresBranch")
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-	if len(prep.BlockingBindings) > 0 {
-		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: workloads still reference this branch: %v", prep.BlockingBindings)
+	if !prep.PostgresDeleting && !prep.HasOtherBranch {
+		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: this is the last branch; delete the whole Postgres instead")
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	if len(prep.BlockingRecoveries) > 0 {
