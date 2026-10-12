@@ -53,6 +53,20 @@ schema, including Valkey's `spec.version` and `spec.persistence`. Object
 fields reject unknown properties unless the schema explicitly allows additional properties.
 Documentation examples and schemas are generated independently.
 
+Use `+nais:doc:NativeRequired=true` on a spec field to require it in native JSON Schemas
+and mark it required in native reference documentation without changing CRD validation:
+
+```go
+// +optional
+// +nais:doc:NativeRequired=true
+Version ValkeyVersion `json:"version,omitempty"`
+```
+
+Valkey uses this marker for `spec.version`, which remains optional in the CRD for
+existing instances. The marker works for any native resource, including fields in
+nested objects, array items, and map values. It adds to existing required fields;
+omitting it or setting it to false leaves CRD-derived requirements unchanged.
+
 Valkey's fields require coordinated CLI support: `nais/api` accepts `version` and
 `persistenceDisabled`, but native apply in `nais/cli` must map `spec.version` and
 `spec.persistence.disabled` to those mutation inputs. CLI versions without this mapping

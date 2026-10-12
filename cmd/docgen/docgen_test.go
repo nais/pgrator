@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/xeipuuv/gojsonschema"
+	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 )
 
 // generateSchemas runs the docgen pipeline once (markdown + JSON schemas) and
@@ -107,7 +111,9 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 				mustValidate(t, sch, manifest, false, "unsupported Valkey version")
 				mustValidate(t, aggregate, manifest, false, "unsupported Valkey version via all.json")
 				delete(spec, "version")
-				mustValidate(t, sch, manifest, true, "omitted Valkey version")
+				mustValidate(t, sch, manifest, false, "omitted Valkey version")
+				mustValidate(t, aggregate, manifest, false, "omitted Valkey version via all.json")
+				spec["version"] = "9.1"
 				for _, disabled := range []bool{true, false} {
 					spec["persistence"] = map[string]any{"disabled": disabled}
 					mustValidate(t, sch, manifest, true, "Valkey persistence")
@@ -148,6 +154,11 @@ func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 				"spec":    spec,
 			}
 			mustValidate(t, editor, manifest, true, "native manifest")
+			if gvk.Kind == valkeyKind {
+				delete(spec, "version")
+				mustValidate(t, editor, manifest, false, "native Valkey without spec.version")
+				spec["version"] = "9.1"
+			}
 			delete(manifest, "version")
 			mustValidate(t, editor, manifest, gvk.Kind == unpublishedKind, "native manifest without version")
 		})
@@ -186,6 +197,145 @@ func TestNativeValkeyDocumentationIncludesVersionAndPersistence(t *testing.T) {
 				t.Errorf("%s missing native field %q", filename, field)
 			}
 		}
+		if filename == "reference.md" {
+			_, versionSection, found := strings.Cut(string(data), "## version")
+			versionSection, _, _ = strings.Cut(versionSection, "\n## ")
+			if !found || !strings.Contains(versionSection, "Required: `true`") {
+				t.Error("Valkey reference does not mark version as required")
+			}
+		}
+	}
+}
+
+func TestValkeyCRDVersionRemainsOptional(t *testing.T) {
+	for _, filename := range []string{
+		"../../config/crd/bases/nais.io_valkeys.yaml",
+		"../../charts/pgrator/templates/crd/nais.io_valkeys.yaml",
+	} {
+		t.Run(filename, func(t *testing.T) {
+			data, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var crd apiext.CustomResourceDefinition
+			if err := yaml.Unmarshal(data, &crd); err != nil {
+				t.Fatal(err)
+			}
+			if len(crd.Spec.Versions) == 0 {
+				t.Fatal("CRD has no versions")
+			}
+			for _, version := range crd.Spec.Versions {
+				spec := version.Schema.OpenAPIV3Schema.Properties["spec"]
+				if _, ok := spec.Properties["version"]; !ok {
+					t.Fatal("CRD missing spec.version")
+				}
+				if slices.Contains(spec.Required, "version") {
+					t.Error("CRD requires spec.version")
+				}
+			}
+		})
+	}
+}
+
+func TestNativeSpecSchemaRequiredMarkers(t *testing.T) {
+	marked := apiext.JSONSchemaProps{Type: "string"}
+	if err := (Doc{NativeRequired: true}).ApplyToSchema(nil, &marked); err != nil {
+		t.Fatal(err)
+	}
+	optional := apiext.JSONSchemaProps{Type: "string"}
+	if err := (Doc{NativeRequired: false}).ApplyToSchema(nil, &optional); err != nil {
+		t.Fatal(err)
+	}
+	object := apiext.JSONSchemaProps{
+		Type:       "object",
+		Required:   []string{"existing"},
+		Properties: map[string]apiext.JSONSchemaProps{"existing": marked, "field": marked, "optional": optional},
+	}
+	for _, tc := range []struct {
+		name    string
+		spec    apiext.JSONSchemaProps
+		valid   any
+		invalid any
+	}{
+		{
+			name: "spec field", spec: object,
+			valid:   map[string]any{"existing": "value", "field": "value"},
+			invalid: map[string]any{"existing": "value"},
+		},
+		{
+			name:    "nested object",
+			spec:    apiext.JSONSchemaProps{Type: "object", Properties: map[string]apiext.JSONSchemaProps{"nested": object}},
+			valid:   map[string]any{"nested": map[string]any{"existing": "value", "field": "value"}},
+			invalid: map[string]any{"nested": map[string]any{"existing": "value"}},
+		},
+		{
+			name: "array item",
+			spec: apiext.JSONSchemaProps{
+				Type: "object", Properties: map[string]apiext.JSONSchemaProps{
+					"list": {Type: "array", Items: &apiext.JSONSchemaPropsOrArray{Schema: &object}},
+				},
+			},
+			valid:   map[string]any{"list": []any{map[string]any{"existing": "value", "field": "value"}}},
+			invalid: map[string]any{"list": []any{map[string]any{"existing": "value"}}},
+		},
+		{
+			name: "map value",
+			spec: apiext.JSONSchemaProps{
+				Type: "object", AdditionalProperties: &apiext.JSONSchemaPropsOrBool{Allows: true, Schema: &object},
+			},
+			valid:   map[string]any{"entry": map[string]any{"existing": "value", "field": "value"}},
+			invalid: map[string]any{"entry": map[string]any{"existing": "value"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := apiext.JSONSchemaProps{Properties: map[string]apiext.JSONSchemaProps{"spec": tc.spec}}
+			original, err := deepCopySchema(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, err := nativeSpecSchema(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(source, original) {
+				t.Error("native markers changed the source CRD schema")
+			}
+			reapplied, err := nativeSpecSchema(apiext.JSONSchemaProps{
+				Properties: map[string]apiext.JSONSchemaProps{"spec": spec},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(spec, reapplied) {
+				t.Error("reapplying native markers changed the schema")
+			}
+			clearExamples(&spec)
+			doc, err := schemaToMap(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sch, err := gojsonschema.NewSchema(gojsonschema.NewGoLoader(doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			mustValidate(t, sch, tc.valid, true, "marked field present; unmarked and false-marked fields optional")
+			mustValidate(t, sch, tc.invalid, false, "marked field missing")
+		})
+	}
+}
+
+func TestNativeSpecSchemaRejectsMalformedMarker(t *testing.T) {
+	_, err := nativeSpecSchema(apiext.JSONSchemaProps{
+		Properties: map[string]apiext.JSONSchemaProps{
+			"spec": {
+				Type: "object", Properties: map[string]apiext.JSONSchemaProps{
+					"field": {Type: "string", Example: &apiext.JSON{Raw: []byte(`{"NativeRequired":"invalid"}`)}},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "field") {
+		t.Fatalf("expected contextual marker error, got %v", err)
 	}
 }
 

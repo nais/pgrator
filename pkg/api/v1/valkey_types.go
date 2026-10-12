@@ -198,6 +198,7 @@ type ValkeySpec struct {
 	// Aiven reports as running, and it cannot be unset again afterwards.
 	// Aiven upgrading an instance on its own is adopted here rather than reverted.
 	// +optional
+	// +nais:doc:NativeRequired=true
 	Version ValkeyVersion `json:"version,omitempty"`
 
 	// MaxMemoryPolicy defines the maximum memory policy for the Valkey instance
