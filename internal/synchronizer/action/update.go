@@ -42,14 +42,17 @@ func (a *update) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 		return fmt.Errorf("%s was replaced (UID %q, expected %q)", typeName(a.obj), existingObj.GetUID(), a.expectedUID)
 	}
 
-	if err = copyMeta(a.obj, existing); err != nil {
-		return fmt.Errorf("copying metadata: %w", err)
+	changed, err := prepareUpdate(a.obj, existingObj)
+	if err != nil {
+		return fmt.Errorf("preparing update: %w", err)
 	}
 
-	if err = c.Update(ctx, a.obj); err != nil {
-		return err
+	if changed {
+		if err = c.Update(ctx, a.obj); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 
 	// Use the previously fetched object for conditions: it carries the live
 	// status subresource, which c.Update() does not return.

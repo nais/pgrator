@@ -381,7 +381,7 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 			return prepared, ctrl.Result{}, nil
 		}
 		if recoveryBackedUp(cluster) {
-			// Synchronizer persists status before Update runs. Record the backed-up
+			// Checkpoint the status before Update runs. Record the backed-up
 			// Cluster UID before removing bootstrap inputs from the Cluster spec.
 			obj.GetStatus().SetCondition(metav1.Condition{
 				Type: recoveryCompletedCondition, Status: metav1.ConditionTrue,
@@ -816,6 +816,10 @@ func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
 }
 
 const recoveryCompletedCondition = "RecoveryCompleted"
+
+func (r *PostgresBranchReconciler) StatusCheckpointRequired(current, original *v1.PostgresBranch) bool {
+	return completedRecoveryClusterUID(current) != completedRecoveryClusterUID(original)
+}
 
 // recoveryFinished is a one-way bootstrap milestone for this particular
 // Cluster object, independent of whether it is currently Ready.

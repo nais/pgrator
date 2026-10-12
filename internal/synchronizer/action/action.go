@@ -41,25 +41,6 @@ func (a *action) SkipOwnership() bool {
 	return a.skipOwnership
 }
 
-func copyMeta(dst, src runtime.Object) error {
-	srcacc, err := meta.Accessor(src)
-	if err != nil {
-		return err
-	}
-
-	dstacc, err := meta.Accessor(dst)
-	if err != nil {
-		return err
-	}
-
-	// Must always be present when updating a resource
-	dstacc.SetResourceVersion(srcacc.GetResourceVersion())
-	dstacc.SetUID(srcacc.GetUID())
-	dstacc.SetSelfLink(srcacc.GetSelfLink())
-
-	return err
-}
-
 func describeObj(obj client.Object) string {
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 	namespace := obj.GetNamespace()

@@ -3,6 +3,7 @@ package synchronizer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/nais/pgrator/internal/synchronizer/action"
@@ -25,9 +26,12 @@ import (
 // update, when set, stands in for a reconciler that discovers something during reconciliation and
 // records it on the object it was handed.
 type stubReconciler struct {
-	prepare func(*v1.Valkey) error
-	update  func(*v1.Valkey) []action.Action
+	prepare    func(*v1.Valkey) error
+	update     func(*v1.Valkey) []action.Action
+	checkpoint bool
 }
+
+func (s stubReconciler) StatusCheckpointRequired(_, _ *v1.Valkey) bool { return s.checkpoint }
 
 func (stubReconciler) Name() string                       { return "valkey" }
 func (stubReconciler) New() *v1.Valkey                    { return &v1.Valkey{} }
@@ -218,6 +222,45 @@ func TestReconcileDoesNotPatchWhenPrepareChangedNothing(t *testing.T) {
 	}
 }
 
+func TestReconcileWritesStatusOnceUnlessCheckpointRequired(t *testing.T) {
+	for _, checkpoint := range []bool{false, true} {
+		t.Run(fmt.Sprintf("checkpoint=%t", checkpoint), func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := v1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			obj := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "team", UID: "uid", Finalizers: []string{"valkey"}}}
+			writes := 0
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(obj).WithStatusSubresource(obj).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client, name string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+					writes++
+					return c.SubResource(name).Update(ctx, obj, opts...)
+				}}).Build()
+			r := stubReconciler{checkpoint: checkpoint, update: func(owner *v1.Valkey) []action.Action {
+				stored := storedValkey(t, c, obj)
+				if checkpoint && stored.GetStatus().GetReconcilePhase() != "EvaluatingUpdate" {
+					t.Fatal("actions evaluated before checkpoint was persisted")
+				}
+				return nil
+			}}
+			s := NewSynchronizer(c, scheme, r, events.NewRecorder(kevents.NewFakeRecorder(100)))
+			if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}); err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if checkpoint {
+				want++
+			}
+			if writes != want {
+				t.Fatalf("status writes=%d, want %d", writes, want)
+			}
+			if storedValkey(t, c, obj).GetStatus().GetReconcilePhase() != "Completed" {
+				t.Fatal("closing status not persisted")
+			}
+		})
+	}
+}
+
 func storedValkey(t *testing.T, k8sClient client.Client, obj *v1.Valkey) *v1.Valkey {
 	t.Helper()
 
@@ -226,6 +269,23 @@ func storedValkey(t *testing.T, k8sClient client.Client, obj *v1.Valkey) *v1.Val
 		t.Fatalf("reading %q: %v", obj.GetName(), err)
 	}
 	return fetched
+}
+
+func TestReconcileReturnsClosingStatusWriteFailure(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	obj := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "team", UID: "uid", Finalizers: []string{"valkey"}}}
+	want := errors.New("status write failed")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(obj).WithStatusSubresource(obj).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+			return want
+		}}).Build()
+	s := NewSynchronizer(c, scheme, stubReconciler{}, events.NewRecorder(kevents.NewFakeRecorder(100)))
+	if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}); !errors.Is(err, want) {
+		t.Fatalf("reconcile error=%v, want %v", err, want)
+	}
 }
 
 // A reconciler that resolves a value during reconciliation has nowhere to put it but the object it

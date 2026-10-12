@@ -81,6 +81,12 @@ type FinalizerNamer interface {
 	FinalizerName() string
 }
 
+// StatusCheckpointer is implemented when preparation records a durable milestone
+// that must reach the API server before child resources may be changed.
+type StatusCheckpointer[T client.Object] interface {
+	StatusCheckpointRequired(current, original T) bool
+}
+
 // MetricsLabeler can be implemented by reconcilers to provide resource-specific
 // labels for Prometheus metrics (e.g., major_version, high_availability).
 type MetricsLabeler[T client.Object] interface {

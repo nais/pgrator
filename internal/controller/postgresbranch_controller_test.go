@@ -12,6 +12,7 @@ import (
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
+	"github.com/nais/pgrator/internal/synchronizer"
 	syncaction "github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	iamcnrm "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
@@ -22,8 +23,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
@@ -45,6 +48,60 @@ func TestPersonalAccessGroupHasNoLoginOrPrivileges(t *testing.T) {
 	}
 	if group.Spec.ReclaimPolicy != cnpgv1.DatabaseRoleReclaimDelete {
 		t.Errorf("personal authentication group reclaim policy = %q", group.Spec.ReclaimPolicy)
+	}
+}
+
+func TestPostgresBranchStableReconcileDoesNotWriteChildren(t *testing.T) {
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "branch-noop", Labels: map[string]string{ProjectIDLabel: "team-project"}}}
+	requireNoError(t, k8sClient.Create(ctx, namespace))
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: namespace.Name}, Spec: v1.PostgresSpec{
+		MajorVersion: "18", Resources: v1.PostgresResources{Cpu: apiresource.MustParse("100m"), Memory: apiresource.MustParse("512Mi"), DiskSize: apiresource.MustParse("10Gi")},
+	}}
+	requireNoError(t, k8sClient.Create(ctx, postgres))
+	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName(postgres.Name, "main"), Namespace: namespace.Name}, Spec: v1.PostgresBranchSpec{Postgres: postgres.Name, BranchName: "main"}}
+	requireNoError(t, k8sClient.Create(ctx, branch))
+	childWrites := 0
+	count := func(obj client.Object) {
+		if _, ok := obj.(*v1.PostgresBranch); !ok {
+			childWrites++
+		}
+	}
+	watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+	requireNoError(t, err)
+	c := interceptor.NewClient(watchClient, interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			count(obj)
+			return c.Update(ctx, obj, opts...)
+		},
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			count(obj)
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	r := &PostgresBranchReconciler{Config: &config.Config{APIServerIP: "172.16.0.2/32", CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "standard-rwo"}}, Scheme: k8sClient.Scheme(), Recorder: recorder}
+	s := synchronizer.NewSynchronizer(c, c.Scheme(), r, recorder)
+	reconcile := func() {
+		t.Helper()
+		_, err := s.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(branch)})
+		requireNoError(t, err)
+	}
+	reconcile()
+	cluster := &cnpgv1.Cluster{}
+	requireNoError(t, c.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: rccnpg.ClusterNameFor(branch.Name)}, cluster))
+	childWrites = 0
+	reconcile()
+	reconcile()
+	if childWrites != 0 {
+		t.Fatalf("stable reconciles wrote children %d times", childWrites)
+	}
+	// A changed child must still be repaired even with unchanged branch input.
+	requireNoError(t, c.Get(ctx, client.ObjectKeyFromObject(cluster), cluster))
+	cluster.Spec.Instances = 9
+	requireNoError(t, c.Update(ctx, cluster))
+	childWrites = 0
+	reconcile()
+	if childWrites != 1 {
+		t.Fatalf("drift correction wrote %d children, want 1", childWrites)
 	}
 }
 
@@ -517,12 +574,16 @@ func TestRecoveredBranchSurvivesSourceDeletionAndTemporaryOutage(t *testing.T) {
 		CNPG: config.CNPG{WalBucketPrefix: "wal-bucket-prefix"},
 	}, Scheme: scheme}
 
+	original := instance.DeepCopy()
 	prepared, _, err := reconciler.Prepare(context.Background(), reader, instance)
 	if err != nil {
 		t.Fatalf("preparing previously recovered branch without source: %v", err)
 	}
 	if got := completedRecoveryClusterUID(instance); got != string(cluster.UID) {
 		t.Fatalf("recovery milestone = %q, want cluster UID %q", got, cluster.UID)
+	}
+	if !reconciler.StatusCheckpointRequired(instance, original) || reconciler.StatusCheckpointRequired(instance, instance.DeepCopy()) {
+		t.Fatal("recovery milestone must be checkpointed only when newly recorded")
 	}
 	related := relatedobjectsmap.NewRelatedObjectsMap(scheme)
 	related.Insert(cluster)
