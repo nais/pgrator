@@ -18,24 +18,121 @@ import (
 
 type countingRecorder struct{ changes int }
 
-func TestRemovingRecoveryBootstrapAlsoRemovesDefaultedRecoveryFields(t *testing.T) {
-	cluster := &cnpgv1.Cluster{Spec: cnpgv1.ClusterSpec{Bootstrap: &cnpgv1.BootstrapConfiguration{
-		Recovery: &cnpgv1.BootstrapRecovery{Source: "source"},
-	}}}
-	if err := prepareCreate(cluster); err != nil {
+func TestManagedUpdatePreservesExternalFieldsDuringAdoptionAndRemoval(t *testing.T) {
+	const externalValue = "preserved-external-value"
+	const previousValue = "previous-managed-value"
+	for _, baseline := range []bool{false, true} {
+		name := "adoption"
+		if baseline {
+			name = "removal"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := newExclusiveCreateOrUpdateScheme(t)
+			owner := newExclusiveOwner("owner")
+			stored := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name: "config", Namespace: owner.Namespace,
+				Labels:      map[string]string{"managed": previousValue},
+				Annotations: map[string]string{"managed": previousValue},
+			}, Data: map[string]string{"managed": previousValue}}
+			if baseline {
+				if err := prepareCreate(stored); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stored.Labels["external"] = externalValue
+			stored.Annotations["external"] = externalValue
+			stored.Data["external"] = externalValue
+			stored.BinaryData = map[string][]byte{"external": []byte(externalValue)}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).Build()
+			desired := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: stored.Name, Namespace: stored.Namespace}}
+			if !baseline {
+				desired.Data = map[string]string{"managed": "new"}
+			}
+			perform := func() {
+				t.Helper()
+				if err := Update(desired.DeepCopy(), owner, noConditions, &mockRecorder{}).Do(ctx, c, scheme, &mockOwnerManager{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			perform()
+			got := &corev1.ConfigMap{}
+			if err := c.Get(ctx, client.ObjectKeyFromObject(stored), got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Labels["external"] != externalValue || got.Annotations["external"] != externalValue || got.Data["external"] != externalValue || string(got.BinaryData["external"]) != externalValue {
+				t.Fatalf("external fields lost: %#v", got)
+			}
+			if baseline {
+				if _, ok := got.Data["managed"]; ok {
+					t.Fatal("managed data was not removed")
+				}
+				if _, ok := got.Labels["managed"]; ok {
+					t.Fatal("managed label was not removed")
+				}
+				if _, ok := got.Annotations["managed"]; ok {
+					t.Fatal("managed annotation was not removed")
+				}
+			} else if got.Data["managed"] != "new" || got.Labels["managed"] != previousValue || got.Annotations["managed"] != previousValue {
+				t.Fatal("adoption did not limit ownership to desired fields")
+			}
+			rv := got.ResourceVersion
+			perform()
+			if err := c.Get(ctx, client.ObjectKeyFromObject(stored), got); err != nil {
+				t.Fatal(err)
+			}
+			if got.ResourceVersion != rv {
+				t.Fatal("reconcile did not converge")
+			}
+		})
+	}
+}
+
+func TestManagedUpdateRemovesEmptyManagedMap(t *testing.T) {
+	stored := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Data: map[string]string{"managed": "removed-value"}}
+	if err := prepareCreate(stored); err != nil {
 		t.Fatal(err)
 	}
-	// Admission adds a nested field not present in the original desired spec.
-	cluster.Spec.Bootstrap.Recovery.Database = "app"
-	desired := &cnpgv1.Cluster{Spec: cnpgv1.ClusterSpec{Bootstrap: &cnpgv1.BootstrapConfiguration{
-		InitDB: &cnpgv1.BootstrapInitDB{Database: "app"},
-	}}}
-	changed, err := prepareUpdate(desired, cluster)
-	if err != nil || !changed {
-		t.Fatalf("removing recovery: changed=%t, err=%v", changed, err)
+	desired := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: stored.Name}}
+	if _, err := prepareUpdate(desired, stored); err != nil {
+		t.Fatal(err)
 	}
-	if desired.Spec.Bootstrap.Recovery != nil {
-		t.Fatal("defaulted fields kept the recovery subtree alive")
+	if desired.Data != nil {
+		t.Fatalf("empty map left behind: %v", desired.Data)
+	}
+}
+
+func TestRemovingRecoveryBootstrapAlsoRemovesDefaultedRecoveryFields(t *testing.T) {
+	for _, baseline := range []bool{false, true} {
+		name := "adoption"
+		if baseline {
+			name = "recorded baseline"
+		}
+		t.Run(name, func(t *testing.T) {
+			cluster := &cnpgv1.Cluster{Spec: cnpgv1.ClusterSpec{Bootstrap: &cnpgv1.BootstrapConfiguration{
+				Recovery: &cnpgv1.BootstrapRecovery{Source: "source"},
+			}, ExternalClusters: []cnpgv1.ExternalCluster{{Name: "source"}}}}
+			if baseline {
+				if err := prepareCreate(cluster); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Admission adds a nested field not present in the original desired spec.
+			cluster.Spec.Bootstrap.Recovery.Database = "app"
+			desired := &cnpgv1.Cluster{Spec: cnpgv1.ClusterSpec{Bootstrap: &cnpgv1.BootstrapConfiguration{
+				InitDB: &cnpgv1.BootstrapInitDB{Database: "app"},
+			}}}
+			changed, err := prepareUpdate(desired, cluster)
+			if err != nil || !changed {
+				t.Fatalf("removing recovery: changed=%t, err=%v", changed, err)
+			}
+			if desired.Spec.Bootstrap.Recovery != nil {
+				t.Fatal("defaulted fields kept the recovery subtree alive")
+			}
+			if len(desired.Spec.ExternalClusters) != 0 {
+				t.Fatal("recovery source references were not removed")
+			}
+		})
 	}
 }
 

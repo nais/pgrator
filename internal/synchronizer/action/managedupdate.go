@@ -36,8 +36,8 @@ func prepareCreate(obj client.Object) error {
 // prepareUpdate merges desired fields into the live object and removes fields
 // managed on the previous pass that are no longer desired. Maps merge recursively;
 // lists are atomic. Status and server metadata always come from the live object.
-// Existing resources without a baseline are adopted using the old replacement
-// contract. New resources record their baseline before admission runs.
+// Existing resources without a baseline adopt only the desired fields; omitted
+// live fields have unknown ownership and must be preserved.
 func prepareUpdate(desired, existing client.Object) (bool, error) {
 	if existing.GetDeletionTimestamp() != nil {
 		return false, fmt.Errorf("%s is being deleted", describeObj(existing))
@@ -59,13 +59,23 @@ func prepareUpdate(desired, existing client.Object) (bool, error) {
 			return false, fmt.Errorf("reading managed fields: %w", err)
 		}
 	} else {
-		old, err := managedContent(existing)
-		if err != nil {
-			return false, err
-		}
-		previous = fieldTree(old)
+		previous = fieldTree(wanted)
 	}
 	mergeManaged(current, wanted, previous)
+	// Recovery -> initdb is an explicit lifecycle transition, not ordinary map
+	// removal. Remove the entire recovery subtree, including admission defaults,
+	// and its source references even when adopting a pre-baseline Cluster.
+	if cluster, ok := desired.(*cnpgv1.Cluster); ok && cluster.Spec.Bootstrap != nil && cluster.Spec.Bootstrap.InitDB != nil && cluster.Spec.Bootstrap.Recovery == nil {
+		live := existing.(*cnpgv1.Cluster)
+		if live.Spec.Bootstrap != nil && live.Spec.Bootstrap.Recovery != nil {
+			spec := current["spec"].(map[string]any)
+			bootstrap := spec["bootstrap"].(map[string]any)
+			delete(bootstrap, "recovery")
+			if len(cluster.Spec.ExternalClusters) == 0 {
+				delete(spec, "externalClusters")
+			}
+		}
+	}
 	encoded, err := json.Marshal(fieldTree(wanted))
 	if err != nil {
 		return false, err
@@ -163,11 +173,20 @@ func fieldTree(content map[string]any) map[string]any {
 }
 
 func mergeManaged(current, desired, previous map[string]any) {
-	for key := range previous {
+	for key, value := range previous {
 		if _, ok := desired[key]; ok {
 			continue
 		}
-		delete(current, key)
+		if nested, ok := value.(map[string]any); ok {
+			if live, ok := current[key].(map[string]any); ok {
+				mergeManaged(live, nil, nested)
+				if len(live) == 0 {
+					delete(current, key)
+				}
+			}
+		} else {
+			delete(current, key)
+		}
 	}
 	for key, value := range desired {
 		if nested, ok := value.(map[string]any); ok {
