@@ -466,10 +466,6 @@ func nativeSpecSchema(gvk schema.GroupVersionKind, schemata apiext.JSONSchemaPro
 	if err != nil {
 		return apiext.JSONSchemaProps{}, err
 	}
-	if gvk.Kind == valkeyKind {
-		delete(spec.Properties, "version")
-		delete(spec.Properties, "persistence") // Parsed by the CLI, but not applied.
-	}
 	return spec, nil
 }
 
@@ -1081,10 +1077,6 @@ func naisifyManifest(v any) any {
 				}
 			}
 		case "spec":
-			if old["kind"] == valkeyKind {
-				delete(v.(map[string]any), "version")
-				delete(v.(map[string]any), "persistence")
-			}
 			ret.Spec = v
 		}
 	}
