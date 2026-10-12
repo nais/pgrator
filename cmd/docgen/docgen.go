@@ -401,7 +401,7 @@ func processKindVersion(
 	referenceRenderer := referenceRenderer{example: rawExample}
 	referenceSchema := schemata.Properties["spec"]
 	if _, ok := NativeKinds[gvk]; ok {
-		referenceSchema, err = nativeSpecSchema(gvk, schemata)
+		referenceSchema, err = nativeSpecSchema(schemata)
 		if err != nil {
 			return "", false, err
 		}
@@ -440,7 +440,7 @@ func writeJSONSchema(
 	nativeVersion string,
 	schemata apiext.JSONSchemaProps,
 ) (string, error) {
-	spec, err := nativeSpecSchema(gvk, schemata)
+	spec, err := nativeSpecSchema(schemata)
 	if err != nil {
 		return "", err
 	}
@@ -461,14 +461,10 @@ func writeJSONSchema(
 	return filename, nil
 }
 
-func nativeSpecSchema(gvk schema.GroupVersionKind, schemata apiext.JSONSchemaProps) (apiext.JSONSchemaProps, error) {
+func nativeSpecSchema(schemata apiext.JSONSchemaProps) (apiext.JSONSchemaProps, error) {
 	spec, err := deepCopySchema(schemata.Properties["spec"])
 	if err != nil {
 		return apiext.JSONSchemaProps{}, err
-	}
-	if gvk.Kind == valkeyKind {
-		delete(spec.Properties, "version")
-		delete(spec.Properties, "persistence") // Parsed by the CLI, but not applied.
 	}
 	return spec, nil
 }
@@ -1081,10 +1077,6 @@ func naisifyManifest(v any) any {
 				}
 			}
 		case "spec":
-			if old["kind"] == valkeyKind {
-				delete(v.(map[string]any), "version")
-				delete(v.(map[string]any), "persistence")
-			}
 			ret.Spec = v
 		}
 	}

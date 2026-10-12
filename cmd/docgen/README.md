@@ -49,10 +49,15 @@ at `https://schemas.nais.io/`.
 
 Each schema describes `version: v1`, `type`, `name`, optional `labels`, and `spec` — never the
 Kubernetes `apiVersion`/`kind`/`metadata` envelope. The spec fields are derived from the CRD
-schema where they match the native format; Valkey's CRD-only `spec.version` and currently ignored
-`spec.persistence` are omitted. Object
+schema, including Valkey's `spec.version` and `spec.persistence`. Object
 fields reject unknown properties unless the schema explicitly allows additional properties.
 Documentation examples and schemas are generated independently.
+
+Valkey's fields require coordinated CLI support: `nais/api` accepts `version` and
+`persistenceDisabled`, but native apply in `nais/cli` must map `spec.version` and
+`spec.persistence.disabled` to those mutation inputs. CLI versions without this mapping
+reject `spec.version` and ignore `spec.persistence`; exposing the fields in a schema
+does not add runtime support.
 
 ### Aggregate schema
 

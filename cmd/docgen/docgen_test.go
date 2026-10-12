@@ -79,10 +79,6 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 			mustValidate(t, aggregate, crd, false, "Kubernetes CRD form via all.json")
 
 			spec := crd["spec"].(map[string]any)
-			if gvk.Kind == valkeyKind {
-				delete(spec, "version")     // Not accepted by the native Valkey mutation.
-				delete(spec, "persistence") // Parsed but ignored by the CLI.
-			}
 			manifest := map[string]any{
 				"version": version,
 				"type":    gvk.Kind,
@@ -102,11 +98,25 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 
 			switch gvk.Kind {
 			case valkeyKind:
-				spec["version"] = "9.1"
-				mustValidate(t, sch, manifest, false, "CRD-only Valkey version")
+				for _, version := range []string{"8.1", "9.0", "9.1"} {
+					spec["version"] = version
+					mustValidate(t, sch, manifest, true, "supported Valkey version")
+					mustValidate(t, aggregate, manifest, true, "supported Valkey version via all.json")
+				}
+				spec["version"] = "unsupported"
+				mustValidate(t, sch, manifest, false, "unsupported Valkey version")
+				mustValidate(t, aggregate, manifest, false, "unsupported Valkey version via all.json")
 				delete(spec, "version")
-				spec["persistence"] = map[string]any{"disabled": true}
-				mustValidate(t, sch, manifest, false, "Valkey persistence ignored by CLI")
+				mustValidate(t, sch, manifest, true, "omitted Valkey version")
+				for _, disabled := range []bool{true, false} {
+					spec["persistence"] = map[string]any{"disabled": disabled}
+					mustValidate(t, sch, manifest, true, "Valkey persistence")
+					mustValidate(t, aggregate, manifest, true, "Valkey persistence via all.json")
+				}
+				spec["persistence"] = map[string]any{"disabled": "true"}
+				mustValidate(t, sch, manifest, false, "invalid Valkey persistence type")
+				spec["persistence"] = map[string]any{"unknownField": unknownValue}
+				mustValidate(t, sch, manifest, false, "unknown Valkey persistence field")
 			case "OpenSearch":
 				http := spec["http"].(map[string]any)
 				http["unknownField"] = unknownValue
@@ -131,10 +141,6 @@ func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 				t.Fatalf("marshalToInterface: %v", err)
 			}
 			spec := crd["spec"].(map[string]any)
-			if gvk.Kind == valkeyKind {
-				delete(spec, "version")
-				delete(spec, "persistence")
-			}
 			manifest := map[string]any{
 				"version": version,
 				"type":    gvk.Kind,
@@ -158,7 +164,7 @@ func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 	}
 }
 
-func TestNativeValkeyDocumentationOmitsCRDOnlyVersion(t *testing.T) {
+func TestNativeValkeyDocumentationIncludesVersionAndPersistence(t *testing.T) {
 	outputDir := t.TempDir()
 	cfg := &Config{
 		APIDir: "../../pkg/api/...", OutputDir: outputDir,
@@ -167,7 +173,7 @@ func TestNativeValkeyDocumentationOmitsCRDOnlyVersion(t *testing.T) {
 	if err := runWithConfig(cfg); err != nil {
 		t.Fatalf("runWithConfig: %v", err)
 	}
-	for filename, excludedFields := range map[string][]string{
+	for filename, includedFields := range map[string][]string{
 		"reference.md": {"## version", "## persistence"},
 		"example.md":   {"  version:", "  persistence:"},
 	} {
@@ -175,9 +181,9 @@ func TestNativeValkeyDocumentationOmitsCRDOnlyVersion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, field := range excludedFields {
-			if strings.Contains(string(data), field) {
-				t.Errorf("%s describes unsupported native field %q", filename, field)
+		for _, field := range includedFields {
+			if !strings.Contains(string(data), field) {
+				t.Errorf("%s missing native field %q", filename, field)
 			}
 		}
 	}
