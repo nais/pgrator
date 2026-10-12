@@ -368,7 +368,10 @@ func TestReferenceDocumentationMapValues(t *testing.T) {
 		extraPaths []string
 	}{
 		{name: "object values", settings: mapSchema(object), valuePath: "settings[key]"},
-		{name: "fixed and arbitrary keys", settings: mixed, valuePath: "settings[key]", extraPaths: []string{"settings.fixed"}},
+		{
+			name: "fixed and arbitrary keys", settings: mixed,
+			valuePath: "settings[key]", extraPaths: []string{"settings.fixed"},
+		},
 		{name: "nested maps", settings: mapSchema(mapSchema(object)), valuePath: "settings[key][key]"},
 		{name: "array of maps", settings: arraySchema(mapSchema(object)), valuePath: "settings[][key]"},
 		{name: "map of arrays", settings: mapSchema(arraySchema(object)), valuePath: "settings[key][]"},
