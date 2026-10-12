@@ -116,6 +116,8 @@ type Doc struct {
 	Hidden bool `marker:"Hidden,optional"`
 	// Immutable declares the field as immutable
 	Immutable bool `marker:"Immutable,optional"`
+	// NativeRequired requires the field in native schemas and documentation, not in the CRD.
+	NativeRequired bool `marker:"NativeRequired,optional"`
 	// Links to documentation or other information
 	// Use semicolons to separate multiple marker values.
 	Link []string `marker:"Link,optional"`
@@ -147,7 +149,7 @@ type ExtDoc struct {
 }
 
 // Hijack the "example" field for custom documentation fields
-func (m Doc) ApplyToSchema(props *apiext.JSONSchemaProps) error {
+func (m Doc) ApplyToSchema(_ *crd_markers.SchemaContext, props *apiext.JSONSchemaProps) error {
 	d := &Doc{}
 	if props.Example != nil {
 		err := json.Unmarshal(props.Example.Raw, d)
@@ -466,7 +468,75 @@ func nativeSpecSchema(schemata apiext.JSONSchemaProps) (apiext.JSONSchemaProps, 
 	if err != nil {
 		return apiext.JSONSchemaProps{}, err
 	}
+	if err := applyNativeRequired(&spec); err != nil {
+		return apiext.JSONSchemaProps{}, err
+	}
 	return spec, nil
+}
+
+func applyNativeRequired(props *apiext.JSONSchemaProps) error {
+	if props == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(props.Properties))
+	for key := range props.Properties {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		prop := props.Properties[key]
+		if prop.Example != nil {
+			var doc Doc
+			if err := json.Unmarshal(prop.Example.Raw, &doc); err != nil {
+				return fmt.Errorf("decode native marker for %s: %w", key, err)
+			}
+			if doc.NativeRequired && !slices.Contains(props.Required, key) {
+				props.Required = append(props.Required, key)
+			}
+		}
+		if err := applyNativeRequired(&prop); err != nil {
+			return fmt.Errorf("property %s: %w", key, err)
+		}
+		props.Properties[key] = prop
+	}
+	for _, properties := range []map[string]apiext.JSONSchemaProps{props.PatternProperties, props.Definitions} {
+		for key, prop := range properties {
+			if err := applyNativeRequired(&prop); err != nil {
+				return fmt.Errorf("schema %s: %w", key, err)
+			}
+			properties[key] = prop
+		}
+	}
+	if props.Items != nil {
+		if err := applyNativeRequired(props.Items.Schema); err != nil {
+			return err
+		}
+		for i := range props.Items.JSONSchemas {
+			if err := applyNativeRequired(&props.Items.JSONSchemas[i]); err != nil {
+				return err
+			}
+		}
+	}
+	for _, child := range []*apiext.JSONSchemaPropsOrBool{props.AdditionalProperties, props.AdditionalItems} {
+		if child != nil {
+			if err := applyNativeRequired(child.Schema); err != nil {
+				return err
+			}
+		}
+	}
+	for _, schemas := range [][]apiext.JSONSchemaProps{props.AllOf, props.OneOf, props.AnyOf} {
+		for i := range schemas {
+			if err := applyNativeRequired(&schemas[i]); err != nil {
+				return err
+			}
+		}
+	}
+	for key, dependency := range props.Dependencies {
+		if err := applyNativeRequired(dependency.Schema); err != nil {
+			return fmt.Errorf("dependency %s: %w", key, err)
+		}
+	}
+	return applyNativeRequired(props.Not)
 }
 
 // nativeEnvelope builds the version/type/name/labels/spec manifest accepted by nais apply.
@@ -867,9 +937,7 @@ func (r referenceRenderer) render(w io.Writer, level int, jsonpath, key string, 
 		Type:        node.Type,
 	}
 
-	// Override children when encountering an array
-	if node.Type == "array" {
-		node.Properties = node.Items.Schema.Properties
+	if node.Type == "array" && node.Items != nil && node.Items.Schema != nil {
 		jsonpath += "[]"
 	}
 
@@ -946,21 +1014,22 @@ func (r referenceRenderer) render(w io.Writer, level int, jsonpath, key string, 
 		}
 	}
 
-	if len(node.Properties) == 0 {
-		if isTenantSpecific {
-			_, _ = io.WriteString(w, "{%- endif %}\n")
-		}
-		return
+	children := node
+	if node.Type == "array" && node.Items != nil && node.Items.Schema != nil {
+		children = *node.Items.Schema
 	}
 
 	keys := make([]string, 0)
-	for k := range node.Properties {
+	for k := range children.Properties {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		r.render(w, level+1, jsonpath+"."+k, k, node, node.Properties[k])
+		r.render(w, level+1, jsonpath+"."+k, k, children, children.Properties[k])
+	}
+	if children.AdditionalProperties != nil && children.AdditionalProperties.Schema != nil {
+		r.render(w, level+1, jsonpath+"[key]", "[key]", children, *children.AdditionalProperties.Schema)
 	}
 
 	if isTenantSpecific {
