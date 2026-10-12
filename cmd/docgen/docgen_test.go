@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -336,6 +337,80 @@ func TestNativeSpecSchemaRejectsMalformedMarker(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "field") {
 		t.Fatalf("expected contextual marker error, got %v", err)
+	}
+}
+
+func TestReferenceDocumentationMapValues(t *testing.T) {
+	version := apiext.JSONSchemaProps{Type: "string"}
+	if err := (Doc{NativeRequired: true}).ApplyToSchema(nil, &version); err != nil {
+		t.Fatal(err)
+	}
+	object := apiext.JSONSchemaProps{
+		Type: "object", Properties: map[string]apiext.JSONSchemaProps{
+			"version":  version,
+			"optional": {Type: "string"},
+		},
+	}
+	mapSchema := func(value apiext.JSONSchemaProps) apiext.JSONSchemaProps {
+		return apiext.JSONSchemaProps{
+			Type: "object", AdditionalProperties: &apiext.JSONSchemaPropsOrBool{Allows: true, Schema: &value},
+		}
+	}
+	arraySchema := func(item apiext.JSONSchemaProps) apiext.JSONSchemaProps {
+		return apiext.JSONSchemaProps{Type: "array", Items: &apiext.JSONSchemaPropsOrArray{Schema: &item}}
+	}
+	mixed := mapSchema(object)
+	mixed.Properties = map[string]apiext.JSONSchemaProps{"fixed": {Type: "string"}}
+	for _, tc := range []struct {
+		name       string
+		settings   apiext.JSONSchemaProps
+		valuePath  string
+		extraPaths []string
+	}{
+		{name: "object values", settings: mapSchema(object), valuePath: "settings[key]"},
+		{name: "fixed and arbitrary keys", settings: mixed, valuePath: "settings[key]", extraPaths: []string{"settings.fixed"}},
+		{name: "nested maps", settings: mapSchema(mapSchema(object)), valuePath: "settings[key][key]"},
+		{name: "array of maps", settings: arraySchema(mapSchema(object)), valuePath: "settings[][key]"},
+		{name: "map of arrays", settings: mapSchema(arraySchema(object)), valuePath: "settings[key][]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := nativeSpecSchema(apiext.JSONSchemaProps{
+				Properties: map[string]apiext.JSONSchemaProps{
+					"spec": {Type: "object", Properties: map[string]apiext.JSONSchemaProps{"settings": tc.settings}},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			filename := filepath.Join(t.TempDir(), "reference.md")
+			renderer := referenceRenderer{example: map[string]any{"spec": map[string]any{}}}
+			if err := Write(renderer.render, "../../doc/templates/nais.io/v1/valkey/reference.md", filename, spec); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reference := string(data)
+			for _, field := range []struct {
+				path     string
+				required bool
+			}{
+				{path: tc.valuePath + ".version", required: true},
+				{path: tc.valuePath + ".optional", required: false},
+			} {
+				_, section, found := strings.Cut(reference, " "+field.path+"\n")
+				section, _, _ = strings.Cut(section, "\n#")
+				if !found || !strings.Contains(section, fmt.Sprintf("Required: `%t`", field.required)) {
+					t.Errorf("reference missing %s with required=%t:\n%s", field.path, field.required, reference)
+				}
+			}
+			for _, path := range tc.extraPaths {
+				if !strings.Contains(reference, " "+path+"\n") {
+					t.Errorf("reference missing %s", path)
+				}
+			}
+		})
 	}
 }
 

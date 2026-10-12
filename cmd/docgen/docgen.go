@@ -937,9 +937,7 @@ func (r referenceRenderer) render(w io.Writer, level int, jsonpath, key string, 
 		Type:        node.Type,
 	}
 
-	// Override children when encountering an array
-	if node.Type == "array" {
-		node.Properties = node.Items.Schema.Properties
+	if node.Type == "array" && node.Items != nil && node.Items.Schema != nil {
 		jsonpath += "[]"
 	}
 
@@ -1016,21 +1014,22 @@ func (r referenceRenderer) render(w io.Writer, level int, jsonpath, key string, 
 		}
 	}
 
-	if len(node.Properties) == 0 {
-		if isTenantSpecific {
-			_, _ = io.WriteString(w, "{%- endif %}\n")
-		}
-		return
+	children := node
+	if node.Type == "array" && node.Items != nil && node.Items.Schema != nil {
+		children = *node.Items.Schema
 	}
 
 	keys := make([]string, 0)
-	for k := range node.Properties {
+	for k := range children.Properties {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		r.render(w, level+1, jsonpath+"."+k, k, node, node.Properties[k])
+		r.render(w, level+1, jsonpath+"."+k, k, children, children.Properties[k])
+	}
+	if children.AdditionalProperties != nil && children.AdditionalProperties.Schema != nil {
+		r.render(w, level+1, jsonpath+"[key]", "[key]", children, *children.AdditionalProperties.Schema)
 	}
 
 	if isTenantSpecific {

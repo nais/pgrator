@@ -66,6 +66,8 @@ Valkey uses this marker for `spec.version`, which remains optional in the CRD fo
 existing instances. The marker works for any native resource, including fields in
 nested objects, array items, and map values. It adds to existing required fields;
 omitting it or setting it to false leaves CRD-derived requirements unchanged.
+Reference paths use `[key]` for arbitrary map keys, for example
+`settings[key].version`, and `[]` for array items.
 
 Valkey's fields require coordinated CLI support: `nais/api` accepts `version` and
 `persistenceDisabled`, but native apply in `nais/cli` must map `spec.version` and
