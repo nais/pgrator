@@ -69,6 +69,48 @@ Rollout order for branch selection: publish the shared API types; install the up
 
 The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
 
+#### Why every branch has a `-personal-access` DatabaseRole
+
+The PostgresBranch controller creates a CNPG `DatabaseRole` named
+`<cluster-name>-personal-access` for **every branch**, even when nobody has
+requested personal access. This is a branch-owned authentication group, not a
+`PostgresAccess` or a personal user. Its SQL name is `nais_pa_<branch-hash>`;
+it has `NOLOGIN`, no password and no database privileges.
+
+When a person requests a `PostgresAccess`, that controller creates the user's
+DatabaseRole and grants membership in two groups:
+
+- the branch's authentication group, allowing TLS/SCRAM password authentication
+  through the Cluster's `pg_hba` rule; and
+- the selected privilege group (`app_read`, `app_readwrite` or
+  `app_readwritecreate`), determining what the user may do in the database.
+
+The authentication group must be unique per branch because recovery copies
+SQL roles, memberships and passwords from the source. The restored cluster's
+`pg_hba` rule requires its **own** group, so copied personal credentials do not
+automatically grant password access to the destination. A new `PostgresAccess`
+targeting that branch grants the required membership.
+
+Unlike the privilege groups created by `postInitSQL`, this group is managed by
+a separate DatabaseRole: bootstrap SQL runs only for `initdb`, not recovery.
+Putting it only in bootstrap SQL would copy the source group during restore
+without creating the destination group. The DatabaseRole covers new, existing
+and recovered clusters and is controller-owned by the branch with
+`ReclaimPolicy: Delete`; the user's access-owned DatabaseRole uses `Retain`.
+
+An event such as `Updated DatabaseRole ...-personal-access` concerns this group,
+not a personal access request. In versions that update children unconditionally,
+it can also appear when the group configuration is unchanged.
+
+Implementation entry points:
+- [`createPersonalAccessGroupRole`](internal/controller/postgresbranch_controller.go)
+  creates the branch-owned group.
+- [`PersonalAccessRole` and `CreateCluster`](internal/resourcecreator/cnpg/cnpg.go)
+  define its SQL name and authentication rule; `postInitSQL` defines the bootstrap
+  privilege groups.
+- [`CreateDatabaseRole`](internal/resourcecreator/access/access.go) defines the
+  personal user's memberships.
+
 ## CI/CD
 
 GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`.
