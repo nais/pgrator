@@ -14,7 +14,6 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	"github.com/nais/pgrator/pkg/api"
-	core_v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -89,10 +88,8 @@ func (s *Synchronizer[T, P]) GetOwnerManager() ownership.OwnerManager {
 	return s.ownerManager
 }
 
-// TODO: consider refactoring this, especially the status updates (we should only update the status once; i.e. when the function actually returns) and the finalizer handling.
-//
 // nolint:gocyclo
-func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
 	logger := logf.FromContext(ctx)
 	startTime := time.Now()
 	resourceType := s.reconciler.Name()
@@ -140,21 +137,17 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		if err != nil && !s.deferredStatusUpdateIsStale(ctx, obj, err) {
 			logger.Error(err, "deferred update of status failed")
+			if returnErr == nil {
+				returnErr = err
+			}
 		}
 	}()
 
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Reconciling", "Reconciling %s/%s", obj.GetNamespace(), obj.GetName())
+	logger.V(1).Info("Reconciling", "namespace", obj.GetNamespace(), "name", obj.GetName())
 
 	obj.GetStatus().SetReconcilePhase("Preparing")
-	if err := updateStatus(); err != nil {
-		if apierrors.IsConflict(err) {
-			logger.Info("conflict during status update in Preparing phase, requeuing")
-			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
 
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Preparing", "Preparing resources")
+	logger.V(1).Info("Preparing resources")
 
 	prep, result, err := s.reconciler.Prepare(ctx, s.client, obj)
 	if err != nil {
@@ -185,14 +178,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if deletionTimestamp != nil {
 		if controllerutil.ContainsFinalizer(obj, finalizer) {
 			obj.GetStatus().SetReconcilePhase("EvaluatingDeletion")
-			s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingDeletion", "Evaluating deletion of resources")
-			if err = updateStatus(); err != nil {
-				if apierrors.IsConflict(err) {
-					logger.Info("conflict during status update in EvaluatingDeletion phase, requeuing")
-					return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
-				}
-				return ctrl.Result{}, err
-			}
+			logger.V(1).Info("Evaluating deletion of resources")
 			actions, result, err = s.reconciler.Delete(obj, prep, relatedObjects)
 			if err != nil {
 				logger.Error(err, "failed to calculate delete actions")
@@ -211,13 +197,11 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	} else {
 		obj.GetStatus().SetReconcilePhase("EvaluatingUpdate")
-		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "EvaluatingUpdate", "Evaluating update of resources")
-		if err = updateStatus(); err != nil {
-			if apierrors.IsConflict(err) {
-				logger.Info("conflict during status update in EvaluatingUpdate phase, requeuing")
-				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
+		logger.V(1).Info("Evaluating update of resources")
+		if checkpoint, ok := any(s.reconciler).(reconciler.StatusCheckpointer[T]); ok && checkpoint.StatusCheckpointRequired(obj, original.(T)) {
+			if err = updateStatus(); err != nil {
+				return ctrl.Result{}, err
 			}
-			return ctrl.Result{}, err
 		}
 		actions, result, err = s.reconciler.Update(obj, prep, relatedObjects)
 		if err != nil {
@@ -230,14 +214,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	obj.GetStatus().SetReconcilePhase("UpdatingOwnership")
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "UpdatingOwnership", "Updating ownership records")
-	if err = updateStatus(); err != nil {
-		if apierrors.IsConflict(err) {
-			logger.Info("conflict during status update in UpdatingOwnership phase, requeuing")
-			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
+	logger.V(1).Info("Updating ownership records")
 	s.UpdatingOwnership(actions, relatedObjects)
 
 	// Skip unreferenced resource detection during multi-phase deletion.
@@ -245,14 +222,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// yet referenced by actions should be preserved until the final phase.
 	if deleteResult.IsZero() {
 		obj.GetStatus().SetReconcilePhase("DetectingUnreferenced")
-		s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "DetectingUnreferenced", "Detecting unreferenced resources")
-		if err = updateStatus(); err != nil {
-			if apierrors.IsConflict(err) {
-				logger.Info("conflict during status update in DetectingUnreferenced phase, requeuing")
-				return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
-			}
-			return ctrl.Result{}, err
-		}
+		logger.V(1).Info("Detecting unreferenced resources")
 
 		actions, err = s.DetectUnreferenced(ctx, obj, actions)
 		if err != nil {
@@ -265,14 +235,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	obj.GetStatus().SetReconcilePhase("PerformingActions")
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "PerformingActions", "Performing %d actions", len(actions))
-	if err := updateStatus(); err != nil {
-		if apierrors.IsConflict(err) {
-			logger.Info("conflict during status update in PerformingActions phase, requeuing")
-			return ctrl.Result{RequeueAfter: 4 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
+	logger.V(1).Info("Performing actions", "count", len(actions))
 
 	actionResult, err := s.PerformActions(ctx, actions)
 	if err != nil {
@@ -307,7 +270,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	obj.GetStatus().SetReconcilePhase("Completed")
-	s.recorder.RecordEvent(obj, core_v1.EventTypeNormal, "Completed", "Successfully synchronized %s/%s", obj.GetNamespace(), obj.GetName())
+	logger.V(1).Info("Successfully synchronized", "namespace", obj.GetNamespace(), "name", obj.GetName())
 
 	// Record metrics for successful reconciliation
 	metrics.ObserveReconcileDuration(resourceType, "success", time.Since(startTime))
@@ -370,7 +333,7 @@ func (s *Synchronizer[T, P]) retryStatusUpdate(ctx context.Context, obj T) error
 }
 
 func (s *Synchronizer[T, P]) deferredStatusUpdateIsStale(ctx context.Context, obj T, err error) bool {
-	if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return true
 	}
 	current := s.reconciler.New()

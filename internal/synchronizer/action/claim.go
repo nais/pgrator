@@ -41,12 +41,13 @@ func (a *claim) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme,
 	patchSource := client.MergeFrom(original)
 
 	modified := existing.(client.Object)
-	ownerManager.AddOwnerAnnotation(modified, a.owner)
-
-	if err = c.Patch(ctx, modified, patchSource); err != nil {
-		return err
+	if !ownerManager.HasOwnerAnnotation(modified, a.owner) {
+		ownerManager.AddOwnerAnnotation(modified, a.owner)
+		if err = c.Patch(ctx, modified, patchSource); err != nil {
+			return err
+		}
+		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Claimed", "Claimed ownership of %s", describeObj(a.obj))
 	}
-	a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Claimed", "Claimed ownership of %s", describeObj(a.obj))
 
 	for _, condition := range a.conditionGetter(modified, scheme) {
 		a.owner.GetStatus().SetCondition(condition)
