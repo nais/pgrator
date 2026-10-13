@@ -6,62 +6,36 @@ import (
 	"reflect"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// PostgresBindingValidator ensures only one binding manages a cluster's app role.
+// PostgresBindingValidator enforces immutable binding identity. Admin credentials
+// may be consumed by multiple bindings; the branch owns the app role and certificate.
 // +kubebuilder:object:generate=false
-type PostgresBindingValidator struct {
-	reader client.Reader
-}
+type PostgresBindingValidator struct{}
 
 func (p *PostgresBinding) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, p).
-		WithValidator(&PostgresBindingValidator{reader: mgr.GetAPIReader()}).
+		WithValidator(&PostgresBindingValidator{}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/validate-nais-io-v1-postgresbinding,mutating=false,failurePolicy=fail,sideEffects=None,groups=nais.io,resources=postgresbindings,verbs=create;update,versions=v1,name=vpostgresbinding.nais.io,admissionReviewVersions=v1
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *PostgresBindingValidator) ValidateCreate(ctx context.Context, obj *PostgresBinding) (admission.Warnings, error) {
-	return nil, v.validate(ctx, obj)
+func (v *PostgresBindingValidator) ValidateCreate(_ context.Context, _ *PostgresBinding) (admission.Warnings, error) {
+	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type.
-func (v *PostgresBindingValidator) ValidateUpdate(ctx context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
+func (v *PostgresBindingValidator) ValidateUpdate(_ context.Context, oldObj *PostgresBinding, newObj *PostgresBinding) (admission.Warnings, error) {
 	if oldObj.Spec.Postgres != newObj.Spec.Postgres || (oldObj.Spec.SecretName != "" && oldObj.Spec.SecretName != newObj.Spec.SecretName) || !reflect.DeepEqual(oldObj.Spec.Consumer, newObj.Spec.Consumer) {
 		return nil, fmt.Errorf("postgres, secretName, and consumer are immutable")
 	}
-	return nil, v.validate(ctx, newObj)
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type.
 func (v *PostgresBindingValidator) ValidateDelete(_ context.Context, _ *PostgresBinding) (admission.Warnings, error) {
 	return nil, nil
-}
-
-func (v *PostgresBindingValidator) validate(ctx context.Context, obj *PostgresBinding) error {
-	return v.validateAdminBinding(ctx, obj)
-}
-
-func (v *PostgresBindingValidator) validateAdminBinding(ctx context.Context, obj *PostgresBinding) error {
-	if !obj.HasCredential(PostgresBindingCredentialAdmin) {
-		return nil
-	}
-
-	bindings := &PostgresBindingList{}
-	if err := v.reader.List(ctx, bindings, client.InNamespace(obj.GetNamespace())); err != nil {
-		return fmt.Errorf("listing PostgresBindings: %w", err)
-	}
-	for _, binding := range bindings.Items {
-		if binding.GetName() == obj.GetName() {
-			continue
-		}
-		if binding.Spec.Postgres == obj.Spec.Postgres && binding.HasCredential(PostgresBindingCredentialAdmin) {
-			return fmt.Errorf("Postgres %q already has admin binding %q", obj.Spec.Postgres, binding.GetName())
-		}
-	}
-	return nil
 }
