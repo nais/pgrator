@@ -28,9 +28,12 @@ Each credential type maps to a database login identity. `admin` is the durable
 `app` database-owner login role. `read` and `readwrite` map to distinct
 workload-scoped login roles and their corresponding group-role membership. Thus
 credentials are distinct connection contracts, not necessarily distinct database
-login roles: an admin credential deliberately reuses `app`. Consequently, only
-one binding for a logical Postgres may contain `admin`; admission must enforce
-that invariant. The binding controller creates or reconciles the CNPG
+login roles: an admin credential deliberately reuses `app`. Multiple workloads
+may request admin credentials for the same logical Postgres, whether they follow
+the active branch or pin an explicit branch. Each branch owns its `app`
+DatabaseRole and certificate; bindings only read them and publish their own
+connection Secrets, so they do not compete to manage the admin role.
+The binding controller creates or reconciles the CNPG
 `DatabaseRole` and client certificate for every non-admin credential, while the
 Postgres/active-instance model provides the `app` credential.
 
@@ -143,8 +146,9 @@ mount instance-specific CNPG Secrets.
 - Pgrator creates or reconciles the required DatabaseRoles, reads CNPG-owned
   credential sources for the active instance, and writes only the stable binding
   Secret.
-- The admission webhook validates credential sets and permits at most one
-  admin-containing binding per logical Postgres.
+- The CRD validates credential sets; the admission webhook enforces immutable
+  binding identity. Admin-containing bindings are not restricted to one per
+  logical Postgres or branch.
 - The binding controller and generic synchronizer need relationship-aware watches
   and predicates that admit source Secret data updates; current generation-only
   child filtering is insufficient.

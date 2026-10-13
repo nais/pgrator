@@ -4,8 +4,8 @@ metadata:
   name: postgresbinding-admin
 spec:
   description: >-
-    An admin binding adopts the durable owner role and receives its own
-    CloudNativePG-managed client certificate.
+    Multiple admin bindings consume the branch-owned durable owner certificate
+    and publish independent connection Secrets.
   steps:
     - name: Create Postgres
       try:
@@ -69,7 +69,37 @@ spec:
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
-    - name: Deleting the binding removes its credential and retains the instance-owned role
+    - name: Another workload can pin the same branch with admin credentials
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBinding
+              metadata:
+                name: other-mydb
+              spec:
+                postgres: mydb
+                branch: main
+                consumer:
+                  workload:
+                    name: other
+                    type: application
+                credentials:
+                  - admin
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: other-mydb
+        - script:
+            content: |
+              set -eu
+              user=$(kubectl get secret other-mydb -n "$NAMESPACE" \
+                       -o jsonpath='{.data.PGUSER}' | base64 -d)
+              test "$user" = "app"
+
+    - name: Deleting one binding retains the shared owner and the other binding
       try:
         - delete:
             ref:
@@ -94,3 +124,9 @@ spec:
               kind: Secret
               metadata:
                 name: pg-mydb-main-6bc4781b-app-client-cert
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: other-mydb

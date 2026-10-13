@@ -5,9 +5,6 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func adminBinding(name, postgres string) *PostgresBinding {
@@ -24,20 +21,9 @@ func readBinding(name, postgres string) *PostgresBinding {
 	}}
 }
 
-func newPostgresBindingValidator(t *testing.T, objects ...*PostgresBinding) *PostgresBindingValidator {
-	t.Helper()
-	scheme := runtime.NewScheme()
-	requireNoError(t, AddToScheme(scheme))
-	clientObjects := make([]client.Object, len(objects))
-	for i := range objects {
-		clientObjects[i] = objects[i]
-	}
-	return &PostgresBindingValidator{reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(clientObjects...).Build()}
-}
-
 func TestPostgresBindingValidator(t *testing.T) {
 	ctx := context.Background()
-	validator := newPostgresBindingValidator(t, adminBinding("first", "mydb"))
+	validator := &PostgresBindingValidator{}
 
 	t.Run("ValidateCreate", func(t *testing.T) {
 		t.Run("first admin binding for a Postgres allowed", func(t *testing.T) {
@@ -45,9 +31,18 @@ func TestPostgresBindingValidator(t *testing.T) {
 			requireNoError(t, err)
 		})
 
-		t.Run("second admin binding for same Postgres rejected", func(t *testing.T) {
-			_, err := validator.ValidateCreate(ctx, adminBinding("second", "mydb"))
-			requireErrorContains(t, err, `Postgres "mydb" already has admin binding "first"`)
+		t.Run("second admin binding for same Postgres allowed", func(t *testing.T) {
+			_, err := validator.ValidateCreate(ctx, adminBinding("first", "mydb"))
+			requireNoError(t, err)
+			_, err = validator.ValidateCreate(ctx, adminBinding("second", "mydb"))
+			requireNoError(t, err)
+		})
+
+		t.Run("admin binding for explicit branch allowed alongside following binding", func(t *testing.T) {
+			binding := adminBinding("preview", "mydb")
+			binding.Spec.Branch = "pr-123"
+			_, err := validator.ValidateCreate(ctx, binding)
+			requireNoError(t, err)
 		})
 
 		t.Run("admin binding for a different Postgres allowed", func(t *testing.T) {
@@ -62,6 +57,17 @@ func TestPostgresBindingValidator(t *testing.T) {
 	})
 
 	t.Run("ValidateUpdate", func(t *testing.T) {
+		t.Run("branch and admin credential changes allowed with another admin binding", func(t *testing.T) {
+			old := readBinding("preview", "mydb")
+			for _, branch := range []string{"main", "pr-123", ""} {
+				updated := old.DeepCopy()
+				updated.Spec.Branch = branch
+				updated.Spec.Credentials = []PostgresBindingCredential{PostgresBindingCredentialAdmin, PostgresBindingCredentialReadWrite}
+				_, err := validator.ValidateUpdate(ctx, old, updated)
+				requireNoError(t, err)
+				old = updated
+			}
+		})
 		t.Run("credentials change allowed", func(t *testing.T) {
 			old := adminBinding("first", "mydb")
 			updated := old.DeepCopy()
