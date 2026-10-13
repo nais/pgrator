@@ -37,9 +37,6 @@ func (a *exclusiveCreateOrUpdate) Do(ctx context.Context, c client.Client, schem
 	key := client.ObjectKeyFromObject(a.obj)
 	created := false
 	if err = c.Get(ctx, key, existingObj); apierrors.IsNotFound(err) {
-		if err = prepareCreate(a.obj); err != nil {
-			return err
-		}
 		err = c.Create(ctx, a.obj)
 		if err == nil {
 			created = true
@@ -61,16 +58,13 @@ func (a *exclusiveCreateOrUpdate) Do(ctx context.Context, c client.Client, schem
 			}
 			return fmt.Errorf("%s is already claimed by %q", describeObj(a.obj), controller.Name)
 		}
-		changed, err := prepareUpdate(a.obj, existingObj)
-		if err != nil {
-			return fmt.Errorf("preparing update: %w", err)
+		if err = copyMeta(a.obj, existingObj); err != nil {
+			return fmt.Errorf("copying metadata: %w", err)
 		}
-		if changed {
-			if err = c.Update(ctx, a.obj); err != nil {
-				return err
-			}
-			a.recorder.RecordEvent(a.owner, corev1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
+		if err = c.Update(ctx, a.obj); err != nil {
+			return err
 		}
+		a.recorder.RecordEvent(a.owner, corev1.EventTypeNormal, "Updated", "Updated %s", describeObj(a.obj))
 	}
 
 	conditionSource := existingObj

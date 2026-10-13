@@ -101,8 +101,8 @@ func TestExclusiveCreateOrUpdateUpdatesAChildAlreadyOwnedByTheBinding(t *testing
 	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "myteam", Name: "binding-config"}, updated); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got := string(updated.Data["value"]); got != "updated" {
-		t.Errorf("Data[value] = %q, want %q", got, "updated")
+	if got := updated.StringData["value"]; got != "updated" {
+		t.Errorf("StringData[value] = %q, want %q", got, "updated")
 	}
 }
 

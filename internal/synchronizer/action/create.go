@@ -22,9 +22,6 @@ func (a *create) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme
 	log.Info(fmt.Sprintf("Create %s", typeName(a.obj)))
 
 	// Create the new resource
-	if err := prepareCreate(a.obj); err != nil {
-		return err
-	}
 	if err := c.Create(ctx, a.obj); err != nil {
 		return fmt.Errorf("failed to create resource: %w", err)
 	}

@@ -76,6 +76,10 @@ holds a valid credential. PostgreSQL TLS is not terminated by the relay.
 
 ## Original implementation and rollout considerations (historical)
 
+For the current branch-owned authentication group, its distinction from a
+personal `PostgresAccess`, and why it is a DatabaseRole rather than bootstrap
+SQL, see [Why every branch has a `-personal-access` DatabaseRole](../../README.md#why-every-branch-has-a--personal-access-databaserole).
+
 - **Client proof and delivery:** Pgrator's per-access bearer token is never
   logged or placed in status. The existing owner-only NAIS API connection
   query still needs to retrieve it by `status.tokenSecret` and deliver it only
