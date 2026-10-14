@@ -546,6 +546,9 @@ func postInitApplicationSQL() []string {
 	both := ReadRole + ", " + ReadWriteRole + ", " + ReadWriteCreateRole
 	return []string{
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", OwnerRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadWriteRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadWriteCreateRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadRole),
 		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
 		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
 		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
@@ -594,6 +597,8 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 		// these prefixed parameters. Audit is always on with sane defaults.
 		"pg_stat_statements.track": "all",
 		"pgaudit.log":              strings.Join([]string{"read", "write", "ddl", "role"}, ","),
+		"pgaudit.log_parameter":    "on",
+		"pgaudit.log_relation":     "on",
 	}
 }
 
