@@ -55,7 +55,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed information about project st
 
 ### Postgres
 
-`Postgres` is the logical database. Pgrator creates its default `main` `PostgresBranch`; each branch is an independent, writable CNPG cluster with its own data history. A recovery branch uses an immutable `bootstrap.recovery.sourceBranch` (local name) and UTC `targetTime` to restore from another branch's archive. Recovery does not merge data or switch the active branch.
+`Postgres` is the logical database. Pgrator creates its default `main` `PostgresBranch`; each branch is an independent, writable CNPG cluster with its own data history. A recovery branch uses an immutable `bootstrap.recovery.sourceBranch` (local name) to restore from another branch's archive. Without `targetTime`, recovery replays all available archived WAL to restore the latest available state. An explicit UTC `targetTime` requests point-in-time recovery and must be reachable in the archive; failure does not fall back to another recovery state. The source's last transaction time alone does not indicate whether WAL archiving is working. Recovery does not merge data or switch the active branch.
 
 Branch names are local to a Postgres: `Postgres.spec.activeBranch`, `status.activeBranch` and recovery `sourceBranch` use local names. Kubernetes `PostgresBranch.metadata.name` is a deterministic, hashed object name from `v1.PostgresBranchObjectName(postgres, branch)`; `spec.postgres` and `spec.branchName` must match and are immutable. `PostgresAccess.spec.postgresBranch` refers to this **object name**, not the local name. See [ADR 0007](doc/adr/0007-name-physical-postgres-resources-branches.md).
 

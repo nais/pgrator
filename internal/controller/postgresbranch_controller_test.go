@@ -322,7 +322,7 @@ func TestPrepareRecoveryUsesSourceBranchArchive(t *testing.T) {
 			Postgres: "orders", BranchName: "restore",
 			Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{
 				SourceBranch: "primary",
-				TargetTime:   targetTime,
+				TargetTime:   &targetTime,
 			}},
 		},
 	}
@@ -357,6 +357,17 @@ func TestPrepareRecoveryUsesSourceBranchArchive(t *testing.T) {
 	if got, want := prepared.RecoverySource.ServerName, rccnpg.ClusterNameFor(v1.PostgresBranchObjectName("orders", "primary")); got != want {
 		t.Errorf("recovery server = %q, want %q", got, want)
 	}
+	if prepared.RecoverySource.TargetTime == nil || !prepared.RecoverySource.TargetTime.Equal(&targetTime) {
+		t.Fatal("explicit recovery target was not preserved")
+	}
+	restore.Spec.Bootstrap.Recovery.TargetTime = nil
+	prepared, _, err = reconciler.Prepare(context.Background(), reader, restore)
+	if err != nil {
+		t.Fatalf("preparing latest restore: %v", err)
+	}
+	if prepared.RecoverySource == nil || prepared.RecoverySource.TargetTime != nil || prepared.RecoverySource.BucketName != archiveName {
+		t.Fatalf("latest restore source = %+v", prepared.RecoverySource)
+	}
 }
 
 func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
@@ -368,6 +379,11 @@ func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
 	}{
 		{name: "missing source", instance: recoveryInstance("missing"), want: "getting recovery source branch"},
 		{name: "self source", instance: recoveryInstance("restore"), want: "cannot be itself"},
+		{name: "zero target", instance: func() *v1.PostgresBranch {
+			instance := recoveryInstance("primary")
+			instance.Spec.Bootstrap.Recovery.TargetTime = &metav1.Time{}
+			return instance
+		}(), want: "must not be zero"},
 		{name: "deleting source", instance: recoveryInstance("primary"), source: func() *v1.PostgresBranch {
 			source := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team", Finalizers: []string{"postgresbranch.nais.io"}}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "primary"}}
 			now := metav1.Now()
@@ -377,7 +393,7 @@ func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
 		{name: "other Postgres", instance: recoveryInstance("primary"), source: &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other", BranchName: "primary"}}, want: "belongs to Postgres"},
 		{name: "non UTC target", instance: func() *v1.PostgresBranch {
 			instance := recoveryInstance("primary")
-			instance.Spec.Bootstrap.Recovery.TargetTime = metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.FixedZone("CEST", 7200)))
+			instance.Spec.Bootstrap.Recovery.TargetTime = new(metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.FixedZone("CEST", 7200))))
 			return instance
 		}(), want: "must be UTC"},
 	}
@@ -484,6 +500,31 @@ func TestUpdateRecoveryWaitsForInfrastructureAndRemovesSourcePolicyWhenComplete(
 	}
 	assertClusterAction(t, actions)
 	assertSourcePolicyAction(t, actions, true)
+
+	failedCluster := ownedRecoveryCluster(t, scheme, instance, false)
+	failedCluster.Status.Phase = cnpgv1.PhaseUnrecoverable
+	failedCluster.Status.PhaseReason = "recovery ended before configured recovery target was reached"
+	related.Insert(failedCluster)
+	prepared.RecoveryClusterUID = failedCluster.UID
+	for attempt := range 2 {
+		actions, _, err = reconciler.Update(instance, prepared, related)
+		if err != nil {
+			t.Fatalf("reconciling failed PITR attempt %d: %v", attempt, err)
+		}
+		assertClusterAction(t, actions)
+		assertSourcePolicyAction(t, actions, true)
+		for _, planned := range actions {
+			if cluster, ok := planned.GetObject().(*cnpgv1.Cluster); ok {
+				bootstrap := cluster.Spec.Bootstrap
+				if bootstrap == nil || bootstrap.InitDB != nil || bootstrap.Recovery == nil || bootstrap.Recovery.RecoveryTarget == nil {
+					t.Fatal("failed PITR must not fall back to initdb or latest recovery")
+				}
+				if got, want := bootstrap.Recovery.RecoveryTarget.TargetTime, instance.Spec.Bootstrap.Recovery.TargetTime.Format(time.RFC3339Nano); got != want {
+					t.Fatalf("failed PITR target = %q, want %q", got, want)
+				}
+			}
+		}
+	}
 
 	completedCluster := ownedRecoveryCluster(t, scheme, instance, true)
 	related.Insert(completedCluster)
@@ -749,7 +790,7 @@ func ownedRecoveryCluster(t *testing.T, scheme *runtime.Scheme, instance *v1.Pos
 }
 
 func recoveryInstance(source string) *v1.PostgresBranch {
-	return &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore", Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{SourceBranch: source, TargetTime: metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.UTC))}}}}
+	return &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore", Bootstrap: &v1.PostgresBranchBootstrap{Recovery: &v1.PostgresBranchRecovery{SourceBranch: source, TargetTime: new(metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.UTC)))}}}}
 }
 
 func readyRecoveryInfrastructure(t *testing.T, scheme *runtime.Scheme, reconciler *PostgresBranchReconciler, instance *v1.PostgresBranch, prepared PostgresBranchPreparedData) *relatedobjectsmap.RelatedObjectsMap {

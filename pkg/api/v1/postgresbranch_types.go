@@ -12,7 +12,7 @@ type PostgresBranchBootstrap struct {
 	Recovery *PostgresBranchRecovery `json:"recovery,omitempty"`
 }
 
-// PostgresBranchRecovery identifies an immutable point-in-time recovery source.
+// PostgresBranchRecovery identifies an immutable archive recovery source.
 type PostgresBranchRecovery struct {
 	// SourceBranch is the local name of the branch whose archive is recovered.
 	// +kubebuilder:validation:MinLength=1
@@ -20,8 +20,9 @@ type PostgresBranchRecovery struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	SourceBranch string `json:"sourceBranch"`
 
-	// TargetTime is the UTC point in time to recover to.
-	TargetTime metav1.Time `json:"targetTime"`
+	// TargetTime optionally selects a UTC point in time. When omitted, recovery
+	// replays all available archived WAL. An unreachable target fails recovery.
+	TargetTime *metav1.Time `json:"targetTime,omitempty"`
 }
 
 // PostgresBranchSpec defines the desired state of a physical Postgres branch.
