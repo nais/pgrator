@@ -80,7 +80,7 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 	}, &config.Config{}, WALArchive{BucketName: "orders-restore-archive"}, &RecoverySource{
 		BucketName: "orders-primary-archive",
 		ServerName: "pg-orders-primary",
-		TargetTime: targetTime,
+		TargetTime: &targetTime,
 	})
 	if err != nil {
 		t.Fatalf("CreateCluster() error = %v", err)
@@ -125,7 +125,7 @@ func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) 
 	}, &config.Config{}, WALArchive{BucketName: "orders-restore-archive"}, &RecoverySource{
 		BucketName: "orders-primary-archive",
 		ServerName: "pg-orders-primary",
-		TargetTime: targetTime,
+		TargetTime: &targetTime,
 	})
 	if err != nil {
 		t.Fatalf("CreateCluster() error = %v", err)
@@ -135,6 +135,31 @@ func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) 
 	want := targetTime.Format(time.RFC3339Nano)
 	if got != want {
 		t.Errorf("recovery target time = %q, want %q", got, want)
+	}
+}
+
+func TestCreateClusterLatestRecoveryHasNoTarget(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := CreateCluster(scheme, &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders-restore", Namespace: "team"},
+		Spec:       v1.PostgresSpec{MajorVersion: "18"},
+	}, &config.Config{}, WALArchive{BucketName: "orders-restore-archive"}, &RecoverySource{
+		BucketName: "orders-primary-archive", ServerName: "pg-orders-primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cluster.Spec.Bootstrap.InitDB != nil || cluster.Spec.Bootstrap.Recovery == nil {
+		t.Fatal("latest restore must use recovery, not initdb")
+	}
+	if cluster.Spec.Bootstrap.Recovery.RecoveryTarget != nil {
+		t.Fatal("latest restore must omit the entire recovery target")
+	}
+	if cluster.Spec.Bootstrap.Recovery.Source != "recovery-source" || len(cluster.Spec.ExternalClusters) != 1 {
+		t.Fatal("latest restore must retain the source archive")
 	}
 }
 

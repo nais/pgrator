@@ -14,6 +14,7 @@ func TestPostgresBranchAPIContract(t *testing.T) {
 	if err := v1.AddToScheme(scheme); err != nil {
 		t.Fatalf("register nais.io/v1: %v", err)
 	}
+
 	for _, kind := range []string{"PostgresBranch", "PostgresBranchList"} {
 		if _, err := scheme.New(v1.GroupVersion.WithKind(kind)); err != nil {
 			t.Errorf("scheme does not register %s: %v", kind, err)
@@ -40,5 +41,23 @@ func TestPostgresBranchAPIContract(t *testing.T) {
 				t.Errorf("wire format = %s, want %s without %s", data, tc.wantKey, tc.oldKey)
 			}
 		})
+	}
+}
+
+func TestLatestRecoveryOmitsTargetTime(t *testing.T) {
+	recovery := &v1.PostgresBranchRecovery{SourceBranch: "main"}
+	data, err := json.Marshal(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"sourceBranch":"main"}` {
+		t.Fatalf("latest recovery JSON = %s", data)
+	}
+	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := obj["targetTime"]; found {
+		t.Fatalf("latest recovery must omit targetTime, got %#v", obj)
 	}
 }

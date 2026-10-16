@@ -171,7 +171,7 @@ type WALArchive struct {
 type RecoverySource struct {
 	BucketName string
 	ServerName string
-	TargetTime metav1.Time
+	TargetTime *metav1.Time
 }
 
 // Enabled reports whether WAL archiving should be wired into the cluster.
@@ -381,13 +381,15 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 
 func bootstrap(recovery *RecoverySource) *cnpgv1.BootstrapConfiguration {
 	if recovery != nil {
+		var target *cnpgv1.RecoveryTarget
+		if recovery.TargetTime != nil {
+			target = &cnpgv1.RecoveryTarget{TargetTime: recovery.TargetTime.Format(time.RFC3339Nano)}
+		}
 		return &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{
-			Source: "recovery-source",
-			RecoveryTarget: &cnpgv1.RecoveryTarget{
-				TargetTime: recovery.TargetTime.Format(time.RFC3339Nano),
-			},
-			Database: DatabaseName,
-			Owner:    OwnerRole,
+			Source:         "recovery-source",
+			RecoveryTarget: target,
+			Database:       DatabaseName,
+			Owner:          OwnerRole,
 		}}
 	}
 	return &cnpgv1.BootstrapConfiguration{InitDB: &cnpgv1.BootstrapInitDB{

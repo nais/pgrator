@@ -64,12 +64,13 @@ spec:
                           pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                         targetTime:
-                          description: TargetTime is the UTC point in time to recover to.
+                          description: |-
+                            TargetTime optionally selects a UTC point in time. When omitted, recovery
+                            replays all available archived WAL. An unreachable target fails recovery.
                           format: date-time
                           type: string
                       required:
                         - sourceBranch
-                        - targetTime
                       type: object
                   type: object
                   x-kubernetes-validations:

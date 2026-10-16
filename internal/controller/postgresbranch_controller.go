@@ -354,12 +354,14 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 	if recovery.SourceBranch == obj.Spec.BranchName {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery source branch cannot be itself")
 	}
-	if recovery.TargetTime.IsZero() {
-		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time is required")
-	}
-	_, offset := recovery.TargetTime.Zone()
-	if offset != 0 {
-		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must be UTC")
+	if recovery.TargetTime != nil {
+		if recovery.TargetTime.IsZero() {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must not be zero")
+		}
+		_, offset := recovery.TargetTime.Zone()
+		if offset != 0 {
+			return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must be UTC")
+		}
 	}
 	cluster := &cnpgv1.Cluster{}
 	err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(obj.GetName())}, cluster)
