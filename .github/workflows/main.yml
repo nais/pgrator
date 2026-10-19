@@ -187,7 +187,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5.0.1
         name: "Setup Helm"
         with:
-          version: "3.8.0"
+          version: "3.21.4"
       - name: Set versions
         run: |-
           for chart in charts/*; do
@@ -223,6 +223,9 @@ jobs:
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
           helm install prometheus-crds prometheus-community/prometheus-operator-crds
+      - name: Install logging-operator ClusterFlow CRD
+        run: |
+          kubectl apply --server-side -f internal/controller/testdata/external-crds/logging.banzaicloud.io_clusterflows.yaml
       - name: Install Helm chart for project
         run: |
           helm install my-release ./charts/pgrator --create-namespace --namespace pgrator-system
