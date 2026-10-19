@@ -33,6 +33,12 @@ FQDN_NETWORK_POLICY_FILES=(
   networking.gke.io_fqdnnetworkpolicies.yaml
 )
 
+LOGGING_OPERATOR_VERSION="6.9.0"
+LOGGING_OPERATOR_BASE_URL="https://raw.githubusercontent.com/kube-logging/logging-operator/refs/tags/${LOGGING_OPERATOR_VERSION}/config/crd/bases/"
+LOGGING_OPERATOR_FILES=(
+  logging.banzaicloud.io_clusterflows.yaml
+)
+
 function download_crd {
   local base_url
   local filename
@@ -62,4 +68,8 @@ done
 
 for fname in "${FQDN_NETWORK_POLICY_FILES[@]}"; do
   download_crd "${FQDN_NETWORK_POLICY_BASE_URL}" "${fname}"
+done
+
+for fname in "${LOGGING_OPERATOR_FILES[@]}"; do
+  download_crd "${LOGGING_OPERATOR_BASE_URL}" "${fname}"
 done

@@ -32,7 +32,7 @@ docker_build(
 )
 
 # ---------------------------------------------------------------------------
-# 2. External CRDs (Aiven, Google IAM, barman plugin)
+# 2. External CRDs (Aiven, Google IAM, barman plugin, logging-operator)
 #
 # postgresql.cnpg.io CRDs are deliberately excluded: the CloudNativePG Helm
 # chart installs and owns those, and Helm refuses to adopt resources created by

@@ -49,9 +49,9 @@ spec:
     - record_modifier:
         remove_keys: kubernetes,kubernetes_namespace,stream,logtag,time
         records:
-          - google_cloud_project: "${ record.dig('kubernetes_namespace', 'labels', 'google-cloud-project') || '{{ .Values.google_cluster_project }}' }"
+          - google_cloud_project: "${ record.dig('kubernetes_namespace', 'labels', 'google-cloud-project') || '{{ .Values.google.projectId }}' }"
             nais_container_name: "${ record.dig('kubernetes', 'container_name') }"
             nais_pod_name: "${ record.dig('kubernetes', 'pod_name') }"
             nais_namespace_name: "${ record.dig('kubernetes', 'namespace_name') }"
   globalOutputRefs:
-    - {{ .Release.Name }}-team-logs
+    - logging-team-logs
