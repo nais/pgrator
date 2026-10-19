@@ -70,7 +70,9 @@ func TestPrepareClassifiesOnlyUnrecoverablePendingRecovery(t *testing.T) {
 	}{
 		{name: "unrecoverable recovery with failed job", wantFail: true},
 		{name: "unrecoverable recovery without job evidence"},
-		{name: "unrecoverable without phase reason"},
+		{name: "unrecoverable without phase reason", wantFail: true, change: func(_ *v1.PostgresBranch, c *cnpgv1.Cluster) {
+			c.Status.PhaseReason = ""
+		}},
 		{name: "ordinary readiness failure", change: func(_ *v1.PostgresBranch, c *cnpgv1.Cluster) { c.Status.Phase = cnpgv1.PhaseFirstPrimary }},
 		{name: "initialized before first backup", change: func(_ *v1.PostgresBranch, c *cnpgv1.Cluster) { c.Status.Conditions[0].Status = metav1.ConditionTrue }},
 		{name: "unknown initialization", change: func(_ *v1.PostgresBranch, c *cnpgv1.Cluster) { c.Status.Conditions[0].Status = metav1.ConditionUnknown }},
