@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	cnpgutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
@@ -24,6 +25,7 @@ import (
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -179,7 +181,75 @@ func (r *PostgresBranchReconciler) RelationshipWatches() []reconciler.Relationsh
 			Map:       r.branchesForRecoverySourceBucket,
 			Predicate: configConnectorReadinessEventFilter(),
 		},
+		{
+			Type: &batchv1.Job{},
+			Map:  r.branchesForRecoveryJob,
+			Predicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+				oldJob, oldOK := e.ObjectOld.(*batchv1.Job)
+				newJob, newOK := e.ObjectNew.(*batchv1.Job)
+				return oldOK && newOK && recoveryJobFailed(oldJob) != recoveryJobFailed(newJob)
+			}},
+		},
 	}
+}
+
+const recoveryJobRoleLabel = cnpgutils.JobRoleLabelName
+const recoveryJobClusterLabel = cnpgutils.ClusterLabelName
+const recoveryJobRole = "full-recovery"
+
+func recoveryJobFailed(job *batchv1.Job) bool {
+	for _, condition := range job.Status.Conditions {
+		if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *PostgresBranchReconciler) branchesForRecoveryJob(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	job, ok := object.(*batchv1.Job)
+	if !ok || job.Labels[recoveryJobRoleLabel] != recoveryJobRole || job.Labels[recoveryJobClusterLabel] == "" {
+		return nil, nil
+	}
+	owner := metav1.GetControllerOf(job)
+	if owner == nil || owner.Kind != "Cluster" || owner.APIVersion != cnpgv1.SchemeGroupVersion.String() ||
+		job.Labels[recoveryJobClusterLabel] != owner.Name {
+		return nil, nil
+	}
+	cluster := &cnpgv1.Cluster{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: owner.Name}, cluster); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if cluster.UID != owner.UID {
+		return nil, nil
+	}
+	branchOwner := metav1.GetControllerOf(cluster)
+	if branchOwner == nil || branchOwner.Kind != "PostgresBranch" || branchOwner.APIVersion != v1.GroupVersion.String() {
+		return nil, nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: job.Namespace, Name: branchOwner.Name}}}, nil
+}
+
+func recoveryBootstrapFailed(ctx context.Context, reader client.Reader, cluster *cnpgv1.Cluster) (bool, error) {
+	if cluster.Status.Phase != cnpgv1.PhaseUnrecoverable ||
+		cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery == nil {
+		return false, nil
+	}
+	jobs := &batchv1.JobList{}
+	if err := reader.List(ctx, jobs, client.InNamespace(cluster.Namespace),
+		client.MatchingLabels{
+			recoveryJobRoleLabel:    recoveryJobRole,
+			recoveryJobClusterLabel: cluster.Name,
+		}); err != nil {
+		return false, fmt.Errorf("listing recovery jobs for Cluster %q: %w", cluster.Name, err)
+	}
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		if metav1.IsControlledBy(job, cluster) && recoveryJobFailed(job) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func recoverySourceBranchIndex(object client.Object) []string {
@@ -385,9 +455,11 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 		if recoveryFinished(obj, cluster) {
 			return prepared, ctrl.Result{}, nil
 		}
-		if cluster.Status.Phase == cnpgv1.PhaseUnrecoverable &&
-			cluster.Spec.Bootstrap != nil && cluster.Spec.Bootstrap.Recovery != nil &&
-			meta.IsStatusConditionFalse(cluster.Status.Conditions, string(cnpgv1.ConditionInitialized)) {
+		failed, err := recoveryBootstrapFailed(ctx, reader, cluster)
+		if err != nil {
+			return prepared, ctrl.Result{}, err
+		}
+		if failed {
 			obj.GetStatus().SetCondition(metav1.Condition{
 				Type: recoveryFailedCondition, Status: metav1.ConditionTrue,
 				Reason: "Unrecoverable", ObservedGeneration: obj.Generation,
