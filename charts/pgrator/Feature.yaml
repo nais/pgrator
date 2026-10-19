@@ -5,6 +5,7 @@ dependencies:
       - cloudnative-image-catalog
       - cloudnative-pg
       - monitoring-crds
+      - logging-crds
 environmentKinds:
   - tenant
 values:

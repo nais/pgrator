@@ -1,0 +1,57 @@
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterFlow
+metadata:
+  name: {{ .Release.Name }}-cnpg-audit
+spec:
+  match:
+    - exclude:
+        labels:
+          logs.nais.io/flow-team_logs: "false"
+    - exclude:
+        namespaces:
+          - kube-system
+    - select:
+        labels:
+          logs.nais.io/flow-cnpg: "true"
+  filters:
+    # drop empty messages
+    - grep:
+        exclude:
+          - key: message
+            pattern: "/^\\s*$/"
+    # drop logs from debug containers
+    - grep:
+        exclude:
+          - key: $.kubernetes.container_name
+            pattern: /^debugger-.+/
+    - parser:
+        reserve_time: true
+        reserve_data: true
+        parse:
+          type: multi_format
+          patterns:
+            - format: json
+            - format: none
+    - grep:
+        regexp:
+          - key: logger
+            pattern: /^pgaudit$/
+    # mask ssn
+    - record_modifier:
+        records:
+          - message: |
+              ${ record['message'].gsub(/(^|[ '"\/&?=.,:\(\[\{])\d{11}([ '"\/&?=.,:\)\]\}]|$)/, '\1XXXXXXXXXXX\2') if record.has_key?('message') }
+    - record_modifier:
+        records:
+          - nais_app_name: "${ record.dig('kubernetes', 'labels', 'app') || record.dig('kubernetes', 'labels', 'app.kubernetes.io/name') || record.dig('kubernetes', 'container_name') }"
+            nais_service_namespace: "${ record.dig('kubernetes', 'namespace_name') }"
+    # must stay last, it removes the kubernetes keys used above
+    - record_modifier:
+        remove_keys: kubernetes,kubernetes_namespace,stream,logtag,time
+        records:
+          - google_cloud_project: "${ record.dig('kubernetes_namespace', 'labels', 'google-cloud-project') || '{{ .Values.google_cluster_project }}' }"
+            nais_container_name: "${ record.dig('kubernetes', 'container_name') }"
+            nais_pod_name: "${ record.dig('kubernetes', 'pod_name') }"
+            nais_namespace_name: "${ record.dig('kubernetes', 'namespace_name') }"
+  globalOutputRefs:
+    - {{ .Release.Name }}-team-logs

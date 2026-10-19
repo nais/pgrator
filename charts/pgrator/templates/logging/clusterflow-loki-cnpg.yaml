@@ -1,0 +1,42 @@
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterFlow
+metadata:
+  name: {{ .Release.Name }}-loki-cnpg
+spec:
+  match:
+    - exclude:
+        labels:
+          logs.nais.io/flow-loki: "false"
+    - exclude:
+        namespaces:
+          - kube-system
+    - select:
+        labels:
+          logs.nais.io/flow-cnpg: "true"
+  filters:
+    # pgaudit records go to team-logs only
+    - grep:
+        exclude:
+          - key: message
+            pattern: '/"logger":\s*"pgaudit"/'
+    # drop empty messages
+    - grep:
+        exclude:
+          - key: message
+            pattern: "/^\\s*$/"
+    # drop logs from debug containers
+    - grep:
+        exclude:
+          - key: $.kubernetes.container_name
+            pattern: /^debugger-.+/
+    # mask ssn
+    - record_modifier:
+        records:
+          - message: |
+              ${ record['message'].gsub(/(^|[ '"\/&?=.,:\(\[\{])\d{11}([ '"\/&?=.,:\)\]\}]|$)/, '\1XXXXXXXXXXX\2') if record.has_key?('message') }
+    - record_modifier:
+        records:
+          - nais_app_name: "${ record.dig('kubernetes', 'labels', 'app') || record.dig('kubernetes', 'labels', 'app.kubernetes.io/name') || record.dig('kubernetes', 'container_name') }"
+            nais_service_namespace: "${ record.dig('kubernetes', 'namespace_name') }"
+  globalOutputRefs:
+    - {{ .Release.Name }}-loki-management-tenant
