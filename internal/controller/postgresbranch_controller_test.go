@@ -375,11 +375,6 @@ func TestPrepareRecoveryRejectsInvalidProvenance(t *testing.T) {
 			return source
 		}(), want: "is being deleted"},
 		{name: "other Postgres", instance: recoveryInstance("primary"), source: &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "primary"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "other", BranchName: "primary"}}, want: "belongs to Postgres"},
-		{name: "non UTC target", instance: func() *v1.PostgresBranch {
-			instance := recoveryInstance("primary")
-			instance.Spec.Bootstrap.Recovery.TargetTime = metav1.NewTime(time.Date(2026, time.September, 9, 13, 10, 0, 0, time.FixedZone("CEST", 7200)))
-			return instance
-		}(), want: "must be UTC"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

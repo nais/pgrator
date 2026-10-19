@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // update, when set, stands in for a reconciler that discovers something during reconciliation and
@@ -285,6 +286,48 @@ func TestReconcileReturnsClosingStatusWriteFailure(t *testing.T) {
 	s := NewSynchronizer(c, scheme, stubReconciler{}, events.NewRecorder(kevents.NewFakeRecorder(100)))
 	if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}); !errors.Is(err, want) {
 		t.Fatalf("reconcile error=%v, want %v", err, want)
+	}
+}
+
+func TestTerminalPreparationFailureRetriesUntilStatusIsPersisted(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	obj := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "team", UID: "uid"}}
+	writeErr := errors.New("status write failed")
+	writes := 0
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(obj).WithStatusSubresource(obj).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client, name string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			writes++
+			if writes == 1 {
+				return writeErr
+			}
+			return c.SubResource(name).Update(ctx, obj, opts...)
+		}}).Build()
+	r := stubReconciler{
+		prepare: func(owner *v1.Valkey) error {
+			owner.GetStatus().SetCondition(metav1.Condition{
+				Type: "RecoveryFailed", Status: metav1.ConditionTrue, Reason: "Unrecoverable",
+			})
+			return reconcile.TerminalError(errors.New("recovery failed"))
+		},
+		update: func(*v1.Valkey) []action.Action {
+			t.Fatal("update must not run after terminal preparation failure")
+			return nil
+		},
+	}
+	s := NewSynchronizer(c, scheme, r, events.NewRecorder(kevents.NewFakeRecorder(100)))
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+	if _, err := s.Reconcile(context.Background(), request); !errors.Is(err, writeErr) || errors.Is(err, reconcile.TerminalError(nil)) {
+		t.Fatalf("status failure must be retried, got %v", err)
+	}
+	if _, err := s.Reconcile(context.Background(), request); !errors.Is(err, reconcile.TerminalError(nil)) {
+		t.Fatalf("persisted terminal failure must not be retried, got %v", err)
+	}
+	conditions := storedValkey(t, c, obj).GetStatus().GetConditions()
+	if len(conditions) != 1 || conditions[0].Type != "RecoveryFailed" || conditions[0].Status != metav1.ConditionTrue {
+		t.Fatalf("terminal condition not persisted: %v", conditions)
 	}
 }
 
