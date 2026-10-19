@@ -37,6 +37,9 @@ rules:
   verbs: [create, delete, get, list, patch, update, watch]
 
 # Resources needed for Postgres controller
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get, list, watch]
 - apiGroups: [postgresql.cnpg.io]
   resources: [clusters, databaseroles, scheduledbackups, poolers]
   verbs: [create, delete, get, list, patch, update, watch]
