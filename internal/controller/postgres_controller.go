@@ -18,6 +18,7 @@ import (
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	core_v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -86,7 +87,8 @@ func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, 
 		return PostgresPreparedData{}, ctrl.Result{}, fmt.Errorf("getting requested PostgresBranch %q: %w", obj.Spec.ActiveBranch, err)
 	}
 
-	if !validBranchIdentity(requested) || requested.Spec.Postgres != obj.GetName() || requested.Spec.BranchName != obj.Spec.ActiveBranch || !requested.DeletionTimestamp.IsZero() {
+	if !validBranchIdentity(requested) || requested.Spec.Postgres != obj.GetName() || requested.Spec.BranchName != obj.Spec.ActiveBranch || !requested.DeletionTimestamp.IsZero() ||
+		meta.IsStatusConditionTrue(requested.GetStatus().GetConditions(), recoveryFailedCondition) {
 		return PostgresPreparedData{RequestedBranch: obj.Spec.ActiveBranch}, ctrl.Result{}, nil
 	}
 

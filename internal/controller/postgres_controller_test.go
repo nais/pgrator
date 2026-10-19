@@ -54,12 +54,14 @@ func TestActivationWaitsForReadyBranch(t *testing.T) {
 		branchDeleting  bool
 		clusterDeleting bool
 		clusterReady    bool
+		recoveryFailed  bool
 		wantActive      string
 	}{
 		{name: "ready", clusterReady: true, wantActive: "restore"},
 		{name: "cluster not ready"},
 		{name: "branch deleting", clusterReady: true, branchDeleting: true},
 		{name: "cluster deleting", clusterReady: true, clusterDeleting: true},
+		{name: "terminal recovery cannot be activated", clusterReady: true, recoveryFailed: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
@@ -67,6 +69,9 @@ func TestActivationWaitsForReadyBranch(t *testing.T) {
 			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "restore"}, Status: &v1.PostgresStatus{ActiveBranch: "main"}}
 			branchName := v1.PostgresBranchObjectName("orders", "restore")
 			branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: branchName, Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
+			if tt.recoveryFailed {
+				branch.GetStatus().SetCondition(metav1.Condition{Type: recoveryFailedCondition, Status: metav1.ConditionTrue, Reason: "Unrecoverable"})
+			}
 			cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: v1.CNPGClusterName(branchName), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}}}}
 			if tt.clusterReady {
 				cluster.Status.Conditions = append(cluster.Status.Conditions, metav1.Condition{Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue})
