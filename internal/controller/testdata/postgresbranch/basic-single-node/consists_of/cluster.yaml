@@ -23,7 +23,7 @@ object:
     inheritedMetadata:
       labels:
         logs.nais.io/flow-default: "false"
-        logs.nais.io/flow-team_logs: "true"
+        logs.nais.io/flow-cnpg: "true"
     instances: 2
     imageCatalogRef:
       apiGroup: postgresql.cnpg.io

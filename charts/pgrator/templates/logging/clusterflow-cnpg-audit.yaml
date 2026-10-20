@@ -1,0 +1,36 @@
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterFlow
+metadata:
+  name: pgrator-cnpg-audit
+spec:
+  match:
+    - select:
+        labels:
+          logs.nais.io/flow-cnpg: "true"
+  filters:
+    - grep:
+        regexp:
+          - key: message
+            pattern: '/,"logger":"pgaudit",/'
+    - parser:
+        reserve_time: true
+        reserve_data: true
+        parse:
+          type: multi_format
+          patterns:
+            - format: json
+            - format: none
+    - record_modifier:
+        records:
+          - nais_app_name: "${ record.dig('kubernetes', 'labels', 'postgres.nais.io/name') }"
+            nais_service_namespace: "${ record.dig('kubernetes', 'namespace_name') }"
+    # must stay last, it removes the kubernetes keys used above
+    - record_modifier:
+        remove_keys: kubernetes,kubernetes_namespace,stream,logtag,time
+        records:
+          - google_cloud_project: "${ record.dig('kubernetes_namespace', 'labels', 'google-cloud-project') || '{{ .Values.google.projectId }}' }"
+            nais_container_name: "${ record.dig('kubernetes', 'container_name') }"
+            nais_pod_name: "${ record.dig('kubernetes', 'pod_name') }"
+            nais_namespace_name: "${ record.dig('kubernetes', 'namespace_name') }"
+  globalOutputRefs:
+    - logging-team-logs
