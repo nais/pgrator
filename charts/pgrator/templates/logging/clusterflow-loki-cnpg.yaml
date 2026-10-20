@@ -1,7 +1,7 @@
 apiVersion: logging.banzaicloud.io/v1beta1
 kind: ClusterFlow
 metadata:
-  name: {{ .Release.Name }}-loki-cnpg
+  name: pgrator-loki-cnpg
 spec:
   match:
     - select:

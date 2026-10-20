@@ -1,7 +1,7 @@
 apiVersion: logging.banzaicloud.io/v1beta1
 kind: ClusterFlow
 metadata:
-  name: {{ .Release.Name }}-cnpg-audit
+  name: pgrator-cnpg-audit
 spec:
   match:
     - select:

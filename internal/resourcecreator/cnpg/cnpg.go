@@ -55,8 +55,8 @@ const (
 	memoryLimitFactor = 4
 
 	// Log flow labels used to tell fluent-bit to send logs to team-logs.
-	logFlowDefaultLabel  = "logs.nais.io/flow-default"
-	logFlowTeamLogsLabel = "logs.nais.io/flow-team_logs"
+	logFlowDefaultLabel = "logs.nais.io/flow-default"
+	logFlowCNPGLabel    = "logs.nais.io/flow-cnpg"
 
 	// BarmanPluginName is the CNPG-I plugin that performs WAL archiving and base
 	// backups against an ObjectStore.
@@ -226,8 +226,8 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 		Spec: cnpgv1.ClusterSpec{
 			InheritedMetadata: &cnpgv1.EmbeddedObjectMetadata{
 				Labels: map[string]string{
-					logFlowDefaultLabel:  "false",
-					logFlowTeamLogsLabel: "true",
+					logFlowDefaultLabel: "false",
+					logFlowCNPGLabel:    "true",
 				},
 			},
 
