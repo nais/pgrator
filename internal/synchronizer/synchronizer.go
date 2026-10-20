@@ -2,6 +2,7 @@ package synchronizer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -137,7 +138,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		if err != nil && !s.deferredStatusUpdateIsStale(ctx, obj, err) {
 			logger.Error(err, "deferred update of status failed")
-			if returnErr == nil {
+			if returnErr == nil || errors.Is(returnErr, reconcile.TerminalError(nil)) {
 				returnErr = err
 			}
 		}

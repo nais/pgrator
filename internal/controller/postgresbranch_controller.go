@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	cnpgutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/namegen"
@@ -24,9 +25,12 @@ import (
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -89,7 +93,11 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-					return oldOK && newOK && (continuousArchivingReady(oldCluster) != continuousArchivingReady(newCluster) || recoveryComplete(oldCluster) != recoveryComplete(newCluster) || recoveryBackedUp(oldCluster) != recoveryBackedUp(newCluster))
+					return oldOK && newOK && (oldCluster.Status.Phase != newCluster.Status.Phase ||
+						oldCluster.Status.PhaseReason != newCluster.Status.PhaseReason ||
+						!equality.Semantic.DeepEqual(oldCluster.Status.Conditions, newCluster.Status.Conditions) ||
+						recoveryComplete(oldCluster) != recoveryComplete(newCluster) ||
+						recoveryBackedUp(oldCluster) != recoveryBackedUp(newCluster))
 				},
 			},
 		},
@@ -173,7 +181,75 @@ func (r *PostgresBranchReconciler) RelationshipWatches() []reconciler.Relationsh
 			Map:       r.branchesForRecoverySourceBucket,
 			Predicate: configConnectorReadinessEventFilter(),
 		},
+		{
+			Type: &batchv1.Job{},
+			Map:  r.branchesForRecoveryJob,
+			Predicate: predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+				oldJob, oldOK := e.ObjectOld.(*batchv1.Job)
+				newJob, newOK := e.ObjectNew.(*batchv1.Job)
+				return oldOK && newOK && recoveryJobFailed(oldJob) != recoveryJobFailed(newJob)
+			}},
+		},
 	}
+}
+
+const recoveryJobRoleLabel = cnpgutils.JobRoleLabelName
+const recoveryJobClusterLabel = cnpgutils.ClusterLabelName
+const recoveryJobRole = "full-recovery"
+
+func recoveryJobFailed(job *batchv1.Job) bool {
+	for _, condition := range job.Status.Conditions {
+		if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *PostgresBranchReconciler) branchesForRecoveryJob(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	job, ok := object.(*batchv1.Job)
+	if !ok || job.Labels[recoveryJobRoleLabel] != recoveryJobRole || job.Labels[recoveryJobClusterLabel] == "" {
+		return nil, nil
+	}
+	owner := metav1.GetControllerOf(job)
+	if owner == nil || owner.Kind != "Cluster" || owner.APIVersion != cnpgv1.SchemeGroupVersion.String() ||
+		job.Labels[recoveryJobClusterLabel] != owner.Name {
+		return nil, nil
+	}
+	cluster := &cnpgv1.Cluster{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: owner.Name}, cluster); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if cluster.UID != owner.UID {
+		return nil, nil
+	}
+	branchOwner := metav1.GetControllerOf(cluster)
+	if branchOwner == nil || branchOwner.Kind != "PostgresBranch" || branchOwner.APIVersion != v1.GroupVersion.String() {
+		return nil, nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: job.Namespace, Name: branchOwner.Name}}}, nil
+}
+
+func recoveryBootstrapFailed(ctx context.Context, reader client.Reader, cluster *cnpgv1.Cluster) (bool, error) {
+	if cluster.Status.Phase != cnpgv1.PhaseUnrecoverable ||
+		cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery == nil {
+		return false, nil
+	}
+	jobs := &batchv1.JobList{}
+	if err := reader.List(ctx, jobs, client.InNamespace(cluster.Namespace),
+		client.MatchingLabels{
+			recoveryJobRoleLabel:    recoveryJobRole,
+			recoveryJobClusterLabel: cluster.Name,
+		}); err != nil {
+		return false, fmt.Errorf("listing recovery jobs for Cluster %q: %w", cluster.Name, err)
+	}
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		if metav1.IsControlledBy(job, cluster) && recoveryJobFailed(job) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func recoverySourceBranchIndex(object client.Object) []string {
@@ -292,6 +368,9 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		}
 		return prepared, ctrl.Result{}, nil
 	}
+	if err := recoveryFailureError(obj); err != nil {
+		return prepared, ctrl.Result{}, err
+	}
 	if obj.Spec.Bootstrap != nil && obj.Spec.Bootstrap.Recovery != nil && !r.walArchivingEnabled() {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery requires WAL archiving")
 	}
@@ -357,10 +436,6 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 	if recovery.TargetTime.IsZero() {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time is required")
 	}
-	_, offset := recovery.TargetTime.Zone()
-	if offset != 0 {
-		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery target time must be UTC")
-	}
 	cluster := &cnpgv1.Cluster{}
 	err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: rccnpg.ClusterNameFor(obj.GetName())}, cluster)
 	if err == nil {
@@ -379,6 +454,20 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 		}
 		if recoveryFinished(obj, cluster) {
 			return prepared, ctrl.Result{}, nil
+		}
+		failed, err := recoveryBootstrapFailed(ctx, reader, cluster)
+		if err != nil {
+			return prepared, ctrl.Result{}, err
+		}
+		if failed {
+			obj.GetStatus().SetCondition(metav1.Condition{
+				Type: recoveryFailedCondition, Status: metav1.ConditionTrue,
+				Reason: "Unrecoverable", ObservedGeneration: obj.Generation,
+				Message: fmt.Sprintf("Recovery of Cluster %q (UID %s) to %s failed: %s. %s",
+					cluster.Name, cluster.UID, recovery.TargetTime.UTC().Format(time.RFC3339Nano),
+					cluster.Status.Phase, cluster.Status.PhaseReason),
+			})
+			return prepared, ctrl.Result{}, recoveryFailureError(obj)
 		}
 		if recoveryBackedUp(cluster) {
 			// Checkpoint the status before Update runs. Record the backed-up
@@ -421,13 +510,20 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 }
 
 func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if err := recoveryFailureError(obj); err != nil {
+		return nil, ctrl.Result{}, err
+	}
 	clusterKey := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
 		Name:      rccnpg.ClusterNameFor(obj.GetName()),
 		Namespace: obj.GetNamespace(),
 	}}
 	existingCluster, _ := relatedObjects.GetMatching(clusterKey).(*cnpgv1.Cluster)
 	if prepared.RecoverySource != nil {
-		if existingCluster == nil && prepared.RecoveryClusterUID != "" || existingCluster != nil && existingCluster.UID != prepared.RecoveryClusterUID {
+		var existingUID types.UID
+		if existingCluster != nil {
+			existingUID = existingCluster.UID
+		}
+		if existingUID != prepared.RecoveryClusterUID {
 			return nil, ctrl.Result{}, fmt.Errorf("recovery cluster %q changed since preparation", clusterKey.Name)
 		}
 	}
@@ -816,6 +912,20 @@ func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
 }
 
 const recoveryCompletedCondition = "RecoveryCompleted"
+const recoveryFailedCondition = "RecoveryFailed"
+
+func recoveryFailureError(branch *v1.PostgresBranch) error {
+	condition := meta.FindStatusCondition(branch.GetStatus().GetConditions(), recoveryFailedCondition)
+	if condition == nil || condition.Status != metav1.ConditionTrue {
+		return nil
+	}
+	branch.GetStatus().SetCondition(metav1.Condition{
+		Type: readyCondition, Status: metav1.ConditionFalse, Reason: recoveryFailedCondition,
+		Message: condition.Message, ObservedGeneration: branch.Generation,
+	})
+	branch.GetStatus().SetReconcilePhase("Failed")
+	return reconcile.TerminalError(errors.New(condition.Message))
+}
 
 func (r *PostgresBranchReconciler) StatusCheckpointRequired(current, original *v1.PostgresBranch) bool {
 	return completedRecoveryClusterUID(current) != completedRecoveryClusterUID(original)

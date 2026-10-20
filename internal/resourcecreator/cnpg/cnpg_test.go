@@ -138,6 +138,22 @@ func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) 
 	}
 }
 
+func TestRecoveryBootstrapPreservesInstantInUTC(t *testing.T) {
+	for _, offset := range []int{-5 * 3600, 2 * 3600} {
+		t.Run((time.Duration(offset) * time.Second).String(), func(t *testing.T) {
+			target := metav1.NewTime(time.Date(2026, time.October, 15, 19, 53, 0, 123456789, time.UTC).In(time.FixedZone("local", offset)))
+			recovery := &RecoverySource{TargetTime: target}
+			got := bootstrap(recovery).Recovery.RecoveryTarget.TargetTime
+			if want := "2026-10-15T19:53:00.123456789Z"; got != want {
+				t.Fatalf("target = %q, want %q", got, want)
+			}
+			if recovery.TargetTime != target {
+				t.Fatal("bootstrap changed the original target")
+			}
+		})
+	}
+}
+
 func TestAuditConfigurationExemptsApplicationRoles(t *testing.T) {
 	parameters := makePostgresParameters(resource.MustParse("512Mi"))
 	if got, want := parameters["pgaudit.log"], "read,write,ddl,role"; got != want {
