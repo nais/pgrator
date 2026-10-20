@@ -34,6 +34,10 @@ const (
 	ReadWriteRole = "app_readwrite"
 	// ReadWriteCreateRole additionally grants CREATE in the shared public schema.
 	ReadWriteCreateRole = "app_readwritecreate"
+	// Default system users
+	PostgresAdminRole    = "postgres"
+	StreamingReplicaRole = "streaming_replica"
+	MetricsExporterRole  = "cnpg_metrics_exporter"
 
 	// ReadWriteCreateCapableAnnotation marks a CNPG Cluster whose initdb
 	// bootstrap created ReadWriteCreateRole. postInitSQL runs exactly once at
@@ -535,7 +539,9 @@ func postInitSQL() []string {
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteCreateRole),
-		"ALTER ROLE postgres SET pgaudit.log = 'none'",
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", PostgresAdminRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", StreamingReplicaRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", MetricsExporterRole),
 	}
 }
 
