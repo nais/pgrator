@@ -35,8 +35,9 @@ const (
 	// ReadWriteCreateRole additionally grants CREATE in the shared public schema.
 	ReadWriteCreateRole = "app_readwritecreate"
 	// Default system users
-	PostgresAdminRole   = "postgres"
-	MetricsExporterRole = "cnpg_metrics_exporter"
+	PostgresAdminRole    = "postgres"
+	MetricsExporterRole  = "cnpg_metrics_exporter"
+	StreamingReplicaRole = "streaming_replica"
 
 	// ReadWriteCreateCapableAnnotation marks a CNPG Cluster whose initdb
 	// bootstrap created ReadWriteCreateRole. postInitSQL runs exactly once at
@@ -539,7 +540,6 @@ func postInitSQL() []string {
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteRole),
 		fmt.Sprintf("CREATE ROLE %s NOLOGIN", ReadWriteCreateRole),
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", PostgresAdminRole),
-		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", MetricsExporterRole),
 	}
 }
 
@@ -553,6 +553,8 @@ func postInitApplicationSQL() []string {
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadWriteRole),
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadWriteCreateRole),
 		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", ReadRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", MetricsExporterRole),
+		fmt.Sprintf("ALTER ROLE %s SET pgaudit.log = 'none'", StreamingReplicaRole),
 		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s;", DatabaseName, both),
 		fmt.Sprintf("GRANT USAGE ON SCHEMA public TO %s;", both),
 		fmt.Sprintf("GRANT SELECT ON ALL TABLES IN SCHEMA public TO %s;", ReadRole),
