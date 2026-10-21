@@ -20,6 +20,11 @@ spec:
           patterns:
             - format: json
             - format: none
+    # drop audit records from cnpg system users
+    - grep:
+        exclude:
+          - key: $.record.user_name
+            pattern: /^(cnpg_metrics_exporter|streaming_replica)$/
     - record_modifier:
         records:
           - nais_app_name: "${ record.dig('kubernetes', 'labels', 'postgres.nais.io/name') }"
