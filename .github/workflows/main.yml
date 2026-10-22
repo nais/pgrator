@@ -89,8 +89,8 @@ jobs:
       - name: Commit documentation to nais/doc
         working-directory: naisdoc
         run: |
-          cp -v ../pgrator/doc/output/nais.io/v1/postgres/reference.md docs/persistence/postgresql/reference/spec.md
-          cp -v ../pgrator/doc/output/nais.io/v1/postgres/example.md docs/persistence/postgresql/reference/example.md
+          cp -v ../pgrator/doc/output/nais.io/v1/postgres/reference.md docs/persistence/postgres/reference/spec.md
+          cp -v ../pgrator/doc/output/nais.io/v1/postgres/example.md docs/persistence/postgres/reference/example.md
           cp -v ../pgrator/doc/output/nais.io/v1/valkey/reference.md docs/persistence/valkey/reference/spec.md
           cp -v ../pgrator/doc/output/nais.io/v1/valkey/example.md docs/persistence/valkey/reference/example.md
           cp -v ../pgrator/doc/output/nais.io/v1/opensearch/reference.md docs/persistence/opensearch/reference/spec.md
