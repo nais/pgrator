@@ -24,24 +24,15 @@ type eventRecorder struct {
 }
 
 func (e *eventRecorder) RecordEvent(obj api.NaisObject, eventType string, reason string, messageFmt string, args ...any) {
-	correlationId := obj.GetCorrelationId()
-	if correlationId == "" {
-		correlationId = "no correlation id"
-	}
 	if e.recorder != nil {
-		msg := fmt.Sprintf(messageFmt, args...)
 		// TODO: Consider using related argument to link to relevant objects (sub resources)
 		// TODO: We should have separate reason and action in the events to make it easier for us to parse them later
-		e.recorder.Eventf(obj, nil, eventType, reason, reason, "[%s] %s", correlationId, msg)
+		e.recorder.Eventf(obj, nil, eventType, reason, reason, messageFmt, args...)
 	}
 }
 
 func (e *eventRecorder) RecordErrorEvent(obj api.NaisObject, phase string, err error) {
 	if e.recorder != nil {
-		correlationId := obj.GetCorrelationId()
-		if correlationId == "" {
-			correlationId = "no correlation id"
-		}
-		e.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), phase, "[%s] %s phase failed for %s/%s: %v", correlationId, phase, obj.GetNamespace(), obj.GetName(), err.Error())
+		e.recorder.Eventf(obj, nil, core_v1.EventTypeWarning, fmt.Sprintf("%sFailed", phase), phase, "%s phase failed for %s/%s: %v", phase, obj.GetNamespace(), obj.GetName(), err.Error())
 	}
 }

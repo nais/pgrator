@@ -91,7 +91,7 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 				"spec":    spec,
 			}
 			mustValidate(t, sch, manifest, true, "native manifest")
-			mustValidate(t, aggregate, manifest, gvk.Kind != unpublishedKind, "native manifest via all.json")
+			mustValidate(t, aggregate, manifest, true, "native manifest via all.json")
 
 			manifest["unknownField"] = unknownValue
 			mustValidate(t, sch, manifest, false, "unknown envelope field")
@@ -137,6 +137,43 @@ func TestPublishedSchemasValidateNativeManifests(t *testing.T) {
 	}
 }
 
+func TestPostgresManifestWithExtensionsAndResources(t *testing.T) {
+	schemaDir := generateSchemas(t)
+	for _, filename := range []string{"all.json", "editor.json"} {
+		t.Run(filename, func(t *testing.T) {
+			sch := loadSchema(t, schemaDir, filename)
+			for _, tc := range []struct {
+				name  string
+				extra string
+				valid bool
+			}{
+				{name: "valid", valid: true},
+				{name: "unknown spec field", extra: "  unknownField: true\n"},
+				{name: "unknown resource field", extra: "    unknownField: true\n"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					var manifest map[string]any
+					if err := yaml.Unmarshal([]byte(`version: v1
+type: Postgres
+name: ext
+spec:
+  extensions:
+    - name: vector
+  majorVersion: "18"
+  resources:
+    cpu: 100m
+    diskSize: 10Gi
+    memory: 512Mi
+`+tc.extra), &manifest); err != nil {
+						t.Fatal(err)
+					}
+					mustValidate(t, sch, manifest, tc.valid, tc.name)
+				})
+			}
+		})
+	}
+}
+
 func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 	schemaDir := generateSchemas(t)
 	editor := loadSchema(t, schemaDir, "editor.json")
@@ -161,7 +198,7 @@ func TestEditorSchemaValidatesNativeManifestsOnly(t *testing.T) {
 				spec["version"] = "9.1"
 			}
 			delete(manifest, "version")
-			mustValidate(t, editor, manifest, gvk.Kind == unpublishedKind, "native manifest without version")
+			mustValidate(t, editor, manifest, false, "native manifest without version")
 		})
 	}
 
@@ -462,8 +499,8 @@ func TestAllSchemaAggregatesEveryFile(t *testing.T) {
 		t.Fatalf("parsing all.json: %v", err)
 	}
 
-	if len(doc.OneOf) != len(NativeKinds)-1 {
-		t.Fatalf("all.json has %d entries, want %d advertised kinds", len(doc.OneOf), len(NativeKinds)-1)
+	if len(doc.OneOf) != len(NativeKinds) {
+		t.Fatalf("all.json has %d entries, want %d native kinds", len(doc.OneOf), len(NativeKinds))
 	}
 
 	refs := make([]string, 0, len(doc.OneOf))
@@ -472,9 +509,6 @@ func TestAllSchemaAggregatesEveryFile(t *testing.T) {
 			t.Fatalf("empty $ref in all.json")
 		}
 		refs = append(refs, entry.Ref)
-		if entry.Ref == "nais.io_v1_Postgres.json" {
-			t.Error("all.json advertises Postgres before announcement")
-		}
 
 		if _, err := os.Stat(filepath.Join(schemaDir, entry.Ref)); err != nil {
 			t.Errorf("all.json references %s, but it does not exist: %v", entry.Ref, err)
