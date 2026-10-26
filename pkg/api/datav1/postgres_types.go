@@ -37,7 +37,7 @@ type PostgresCluster struct {
 
 	// Major version of Postgres to use.
 	// +kubebuilder:validation:required
-	// +kubebuilder:validation:Enum="18";"17";"16"
+	// +kubebuilder:validation:Enum="18"
 	MajorVersion string `json:"majorVersion"`
 
 	// High availability cluster.
@@ -53,6 +53,7 @@ type PostgresCluster struct {
 type PostgresExtension struct {
 	// Name of the Postgres extension to enable.
 	// +kubebuilder:validation:required
+	// +kubebuilder:validation:Enum=tablefunc;citext;pageinspect;hstore;pg_logicalinspect;xml2;file_fdw;pgrowlocks;pg_visibility;pgstattuple;dict_int;pg_freespacemap;tcn;bloom;btree_gin;unaccent;seg;tsm_system_rows;insert_username;dict_xsyn;tsm_system_time;postgres_fdw;autoinc;earthdistance;amcheck;fuzzystrmatch;plpgsql;refint;uuid-ossp;intarray;btree_gist;pg_buffercache;pg_stat_statements;intagg;ltree;cube;pg_walinspect;dblink;pg_prewarm;sslinfo;pgcrypto;moddatetime;pg_trgm;pg_surgery;isn;lo;vector;pgaudit
 	Name string `json:"name"`
 }
 
