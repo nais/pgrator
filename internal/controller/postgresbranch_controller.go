@@ -95,6 +95,7 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
 					return oldOK && newOK && (oldCluster.Status.Phase != newCluster.Status.Phase ||
+						!equality.Semantic.DeepEqual(metav1.GetControllerOf(oldCluster), metav1.GetControllerOf(newCluster)) ||
 						oldCluster.DeletionTimestamp.IsZero() != newCluster.DeletionTimestamp.IsZero() ||
 						oldCluster.Status.PhaseReason != newCluster.Status.PhaseReason ||
 						!equality.Semantic.DeepEqual(oldCluster.Status.Conditions, newCluster.Status.Conditions) ||

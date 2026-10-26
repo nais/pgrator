@@ -188,3 +188,89 @@ func TestPostgresBranchObservesClusterTermination(t *testing.T) {
 		t.Fatal("unchanged cluster must not trigger extra reconciliation")
 	}
 }
+
+func TestPostgresBranchObservesClusterOwnershipChanges(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		change        func(*cnpgv1.Cluster)
+		wantReconcile bool
+	}{
+		{
+			name: "controller owner removed", wantReconcile: true,
+			change: func(cluster *cnpgv1.Cluster) { cluster.OwnerReferences = nil },
+		},
+		{
+			name: "controller owner reassigned", wantReconcile: true,
+			change: func(cluster *cnpgv1.Cluster) {
+				cluster.OwnerReferences[0].Name = v1.PostgresBranchObjectName("orders", "restored")
+				cluster.OwnerReferences[0].UID = "other-branch-uid"
+			},
+		},
+		{
+			name: "controller owner recreated with same name", wantReconcile: true,
+			change: func(cluster *cnpgv1.Cluster) { cluster.OwnerReferences[0].UID = "new-branch-uid" },
+		},
+		{
+			name: "controller owner demoted", wantReconcile: true,
+			change: func(cluster *cnpgv1.Cluster) { cluster.OwnerReferences[0].Controller = new(false) },
+		},
+		{name: "unchanged controller owner", change: func(*cnpgv1.Cluster) {}},
+		{
+			name: "non-controller owner added",
+			change: func(cluster *cnpgv1.Cluster) {
+				cluster.OwnerReferences = append(cluster.OwnerReferences, metav1.OwnerReference{
+					APIVersion: "v1", Kind: "ConfigMap", Name: "settings", UID: "settings-uid",
+				})
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			initscheme.InitScheme(scheme)
+			branch := &v1.PostgresBranch{
+				ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team", UID: "branch-uid"},
+				Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"},
+			}
+			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: branch.Namespace}}
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(branch.Name), Namespace: branch.Namespace, Generation: 1},
+				Spec:       cnpgv1.ClusterSpec{PostgresConfiguration: cnpgv1.PostgresConfiguration{Parameters: map[string]string{"work_mem": "8MB"}}},
+			}
+			if err := controllerutil.SetControllerReference(branch, cluster, scheme); err != nil {
+				t.Fatal(err)
+			}
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(postgres, cluster).Build()
+			r := &PostgresBranchReconciler{Config: &config.Config{}, Scheme: scheme}
+			prepare := func() {
+				t.Helper()
+				if _, _, err := r.Prepare(context.Background(), cl, branch); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prepare()
+			want := &v1.PostgresBranchConfiguration{Parameters: map[string]string{"work_mem": "8MB"}}
+			if !reflect.DeepEqual(want, branch.Status.Configuration) {
+				t.Fatal("owned cluster did not publish its configuration")
+			}
+			updated := cluster.DeepCopy()
+			tt.change(updated)
+			if updated.Generation != cluster.Generation {
+				t.Fatal("ownership-only update must preserve generation")
+			}
+			filter := r.OwnedTypes()[0].AdditionalPredicate
+			if got := filter.Update(event.UpdateEvent{ObjectOld: cluster, ObjectNew: updated}); got != tt.wantReconcile {
+				t.Fatalf("ownership change triggers reconciliation = %t, want %t", got, tt.wantReconcile)
+			}
+			if err := cl.Update(context.Background(), updated); err != nil {
+				t.Fatal(err)
+			}
+			prepare()
+			if tt.wantReconcile {
+				want = nil
+			}
+			if !reflect.DeepEqual(want, branch.Status.Configuration) {
+				t.Fatalf("configuration after ownership update = %#v, want %#v", branch.Status.Configuration, want)
+			}
+		})
+	}
+}
