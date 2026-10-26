@@ -141,16 +141,21 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 	branches := relatedObjects.GetMatchingType(&v1.PostgresBranch{})
 	actions := make([]action.Action, 0, len(branches)+1)
 	status := obj.GetStatus().(*v1.PostgresStatus)
-	if obj.Spec.ActiveBranch != "" {
+	// Bootstrap main even when explicitly requested, but never recreate it
+	// after another branch has been selected.
+	ensureMain := (obj.Spec.ActiveBranch == "" || obj.Spec.ActiveBranch == v1.DefaultBranchName) && observedActiveBranch(obj) == v1.DefaultBranchName
+	if obj.Spec.ActiveBranch != "" && !ensureMain {
 		if !prepared.RequestedReady {
 			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
 		}
 		status.ActiveBranch = obj.Spec.ActiveBranch
 	}
-	// Do not recreate main after another branch has been selected.
-	ensureMain := obj.Spec.ActiveBranch == "" && observedActiveBranch(obj) == v1.DefaultBranchName
 	if ensureMain {
+		if existing, ok := relatedObjects.GetMatching(instance).(*v1.PostgresBranch); ok &&
+			(!validBranchIdentity(existing) || existing.Spec.Postgres != obj.Name || existing.Spec.BranchName != v1.DefaultBranchName) {
+			return nil, ctrl.Result{}, fmt.Errorf("default PostgresBranch %q has invalid identity", existing.Name)
+		}
 		status.ActiveBranch = v1.DefaultBranchName
 		actions = append(actions, action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder))
 	}
