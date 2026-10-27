@@ -26,8 +26,8 @@ func TestConfigSecretContainsEveryRequestedCredential(t *testing.T) {
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin, v1.PostgresBindingCredentialReadWrite},
 	}}
 	secret, err := CreateConfigSecret(newScheme(t), binding, "mydb-instance", []byte("ca"), map[v1.PostgresBindingCredential]CredentialMaterial{
-		v1.PostgresBindingCredentialAdmin:     {Certificate: []byte("admin cert"), PrivateKey: []byte("admin key")},
-		v1.PostgresBindingCredentialReadWrite: {Certificate: []byte("readwrite cert"), PrivateKey: []byte("readwrite key")},
+		v1.PostgresBindingCredentialAdmin:     {Certificate: []byte("admin cert"), PrivateKey: []byte("admin key"), PrivateKeyPKCS8: []byte("admin DER key")},
+		v1.PostgresBindingCredentialReadWrite: {Certificate: []byte("readwrite cert"), PrivateKey: []byte("readwrite key"), PrivateKeyPKCS8: []byte("readwrite DER key")},
 	})
 	if err != nil {
 		t.Fatalf("CreateConfigSecret: %v", err)
@@ -46,7 +46,7 @@ func TestConfigSecretContainsEveryRequestedCredential(t *testing.T) {
 			t.Fatalf("keys = %v, want %v", keys, want)
 		}
 	}
-	for key, want := range map[string]string{"ca.crt": "ca", "admin.tls.crt": "admin cert", "admin.tls.key": "admin key", "readwrite.tls.crt": "readwrite cert", "readwrite.tls.key": "readwrite key"} {
+	for key, want := range map[string]string{"ca.crt": "ca", "admin.tls.crt": "admin cert", "admin.tls.key": "admin key", "admin.tls.pk8": "admin DER key", "readwrite.tls.crt": "readwrite cert", "readwrite.tls.key": "readwrite key", "readwrite.tls.pk8": "readwrite DER key"} {
 		if got := string(secret.Data[key]); got != want {
 			t.Errorf("Data[%q] = %q, want %q", key, got, want)
 		}

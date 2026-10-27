@@ -341,9 +341,9 @@ func (r *PostgresBindingReconciler) readBindingSnapshot(ctx context.Context, rea
 	return snapshot, nil
 }
 
-// validateBindingSnapshot returns a non-nil error if the material is not
-// cryptographically consistent. Callers treat validation failure as "no
-// snapshot" with an event recorded on the binding.
+// validateBindingSnapshot verifies the credential material and adds a PKCS#8 DER
+// representation of each private key to the snapshot. Callers treat validation
+// failure as "no snapshot" with an event recorded on the binding.
 func validateBindingSnapshot(binding *v1.PostgresBinding, snapshot *bindingSnapshot) error {
 	caPool, err := parseCertificatePool(snapshot.CACertificate)
 	if err != nil {
@@ -378,6 +378,12 @@ func validateBindingSnapshot(binding *v1.PostgresBinding, snapshot *bindingSnaps
 		if leaf.Subject.CommonName != wantCN {
 			return fmt.Errorf("certificate CN for %s is %q, want %q", credential, leaf.Subject.CommonName, wantCN)
 		}
+
+		material.PrivateKeyPKCS8, err = x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			return fmt.Errorf("encoding PKCS#8 private key for %s: %w", credential, err)
+		}
+		snapshot.Credentials[credential] = material
 	}
 
 	return nil
