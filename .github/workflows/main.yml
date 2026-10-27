@@ -226,7 +226,7 @@ jobs:
       - name: Install logging-operator ClusterFlow CRD
         run: |
           kubectl apply --server-side -f internal/controller/testdata/external-crds/logging.banzaicloud.io_clusterflows.yaml
-          kubectl wait --for=condition=Established --timeout=60s crd/clusterflows.logging.banzaicloud.io
+          timeout 60 sh -c 'until kubectl get clusterflows.logging.banzaicloud.io -A >/dev/null 2>&1; do sleep 1; done'
       - name: Install Helm chart for project
         run: |
           helm install my-release ./charts/pgrator --create-namespace --namespace pgrator-system
