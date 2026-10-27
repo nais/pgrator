@@ -79,15 +79,9 @@ with the client certificate. Incomplete or invalid source material does not
 replace the last complete snapshot for the same branch.
 
 Naiserator owns the workload mount paths and exposes a role-prefixed `PGJDBCURL`
-using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged. Deploy
-pgrator first and verify **every affected binding Secret** has non-empty
-`<credential>.tls.pk8` entries before deploying the corresponding naiserator
-change. A binding waiting for valid source credentials can retain an older
-snapshot without those entries; a successful controller deployment alone is not
-enough. New pods require the projected keys. Rolling pgrator back to a version
-without DER publication can remove those entries on reconciliation and break new
-pods or new JDBC connections; roll back the naiserator consumer first and account
-for pods still using the DER file. No CRD or manifest changes are required.
+using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
+
+#### Personal access
 
 `PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry removes access resources while CNPG's `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
 

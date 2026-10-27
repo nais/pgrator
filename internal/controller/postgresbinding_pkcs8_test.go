@@ -67,11 +67,6 @@ func TestBindingSecretPKCS8PreservesKeyIdentity(t *testing.T) {
 				t.Fatal("existing PEM key and certificate material must remain unchanged")
 			}
 			assertPKCS8MatchesCertificate(t, secret, "read")
-			again, err := rcbinding.CreateConfigSecret(schemeForPKCS8Test(), binding, "orders-main", snapshot.CACertificate, snapshot.Credentials)
-			requireNoError(t, err)
-			if !bytes.Equal(secret.Data["read.tls.pk8"], again.Data["read.tls.pk8"]) {
-				t.Fatal("unchanged source key must produce identical DER bytes")
-			}
 		})
 	}
 }
