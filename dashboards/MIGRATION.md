@@ -51,13 +51,13 @@ not a security sandbox for hostile dashboard authors with privileged datasource
 access. Grafana's accepted format, permissions, URL policies and datasource
 controls still apply.
 
-## Existing Postgres pilot
+## Pre-migration Postgres pilot
 
-The existing central repository identity is `nais-monitoring`, with folder
-`nais-monitoring` and title `Nais monitoring`. It reads public `nais/dashboards`,
-branch `postgres-fleet-git-sync`, path `dashboards/monitoring/`, polling every 60s,
-read-only with no webhooks/workflows. Last verified source revision before this
-migration is `dafce1a1b00417ea032e387aec5265058b6322e2`.
+The central repository identity is `nais-monitoring`, with folder
+`nais-monitoring` and title `Nais monitoring`. Before cutover it read public
+`nais/dashboards`, branch `postgres-fleet-git-sync`, path `dashboards/monitoring/`,
+polling every 60s, read-only with no webhooks/workflows. The preserved baseline
+revision is `dafce1a1b00417ea032e387aec5265058b6322e2`.
 
 The two dashboards have UIDs `nais-postgres-fleet` and `nais-postgres-adoption`.
 Their generated filenames stay `postgres-fleet.json` and `postgres-adoption.json`.
@@ -65,17 +65,28 @@ Keep both filenames relative to the sync root, UIDs, current repository identity
 and folder during migration. Do not configure a second repository to adopt the
 same UIDs or rename the existing manager/folder during the move.
 
-## Cutover gates — existing Postgres source not switched yet
+## Verified central cutover
 
-The separate Job smoke test against `monitoring.nais.io` has verified anonymous
-Git sync from an isolated pgrator test branch, create/no-op/update behavior and
-actual dashboard rendering. It did not move either Postgres dashboard. Central
-access is available again, but source publication and the live cutover still
-require explicit approval.
+With explicit approval, central `nais-monitoring` was updated in place to public
+`https://github.com/nais/pgrator.git`, branch `postgres-dashboards`, path
+`dashboards/generated/`. Exact-commit sync succeeded at migration revision
+`915545c7642406981334830701d0777a21cf78f1`. The folder/repository identities and
+both dashboard UIDs, creation timestamps and complete definitions were unchanged.
+Read-only polling every 60s, disabled webhooks and empty workflows were preserved;
+no Git token was created or remains configured.
 
-The local cleanup of `nais/dashboards` must **not** be published while Grafana
-still follows that source, because Git Sync can treat removed files as deletions.
-No automatic migration script or deploy target is provided.
+Actual read-only rendering passed Fleet NAV, All and shared dev/team filters
+(26/208/208 panels; 22/176/176 queries), and Adoption All, NAV/prod and ATIL
+(60/11/11 panels; 88/39/39 queries). Resource footers, PG major, all-engine labels
+and unknown inventory were checked. No orphan/query/page errors; dashboard
+resourceVersions remained unchanged during verification. Dashboard checks and the
+initial normal CI run passed. No main branch, datasource, permission or credential
+configuration was changed; the active ref remains the approved migration branch.
+
+Old-source cleanup is published only after those checks. The legacy exporter and
+ingress dashboards remain in `nais/dashboards`. The separate smoke-test resources
+have not been deleted. Helm automation is a subsequent change, not required for
+this completed manual source switch.
 
 ### Isolated cross-repository qualification (Grafana 13.2.2)
 
@@ -96,6 +107,12 @@ confirmed no stored Git-token reference. Before doing this centrally, verify tha
 the existing repository has no token and review the exact request. Never clear
 credentials on an authenticated repository as an implicit migration side effect.
 The reverse source change uses the same explicit anonymous-token clearing.
+
+## Migration runbook and rollback
+
+The following gates describe the sequence used above and apply to future moves.
+Never publish old-source deletion while Grafana still reads that source: Git Sync
+can treat removed files as dashboard deletions.
 
 1. **Validate locally.** Install locked dependencies and run `make -C dashboards
    check`. Compare both generated resources byte-for-byte with the published
@@ -135,8 +152,10 @@ The reverse source change uses the same explicit anonymous-token clearing.
    active source in the central configuration and project card. Do not retain
    two editable sources or two publishers indefinitely.
 
-Before old cleanup is published, rollback is the tested reverse source change on
-the same repository identity, not resource deletion. After cleanup, a rollback
-also needs restoration of the old source/ref before switching back. Keep the
-baseline commit available. If sync fails, stop and inspect status rather than
+Rollback is the tested reverse source change on the same repository identity,
+not resource deletion. After cleanup, use the intact baseline commit
+`dafce1a1b00417ea032e387aec5265058b6322e2` as the old ref, or restore the files on
+a separately approved branch before switching back. Do not select the cleaned
+`postgres-fleet-git-sync` tip as a rollback source. Keep the baseline commit
+available. If sync fails, stop and inspect status rather than
 adding a second publisher or deleting resources.

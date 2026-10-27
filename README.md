@@ -135,7 +135,7 @@ The [Postgres dashboards](dashboards/README.md) have component-owned Jsonnet sou
 generated Grafana resources and a separate, credential-free validation workflow.
 Run `make -C dashboards install check`; operator tooling and cluster access are not
 required. [Migration and the proposed access pattern](dashboards/MIGRATION.md)
-describe the separate, approved central Git Sync cutover.
+document the verified central Git Sync cutover and its separate ownership.
 
 ## CI/CD
 
