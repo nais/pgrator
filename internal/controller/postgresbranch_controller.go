@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -94,6 +95,8 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 					oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 					newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
 					return oldOK && newOK && (oldCluster.Status.Phase != newCluster.Status.Phase ||
+						!equality.Semantic.DeepEqual(metav1.GetControllerOf(oldCluster), metav1.GetControllerOf(newCluster)) ||
+						oldCluster.DeletionTimestamp.IsZero() != newCluster.DeletionTimestamp.IsZero() ||
 						oldCluster.Status.PhaseReason != newCluster.Status.PhaseReason ||
 						!equality.Semantic.DeepEqual(oldCluster.Status.Conditions, newCluster.Status.Conditions) ||
 						recoveryComplete(oldCluster) != recoveryComplete(newCluster) ||
@@ -325,6 +328,9 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "InvalidIdentity", Message: message, ObservedGeneration: obj.Generation})
 		return PostgresBranchPreparedData{}, ctrl.Result{}, errors.New(message)
 	}
+	if err := observeBranchConfiguration(ctx, reader, obj); err != nil {
+		return PostgresBranchPreparedData{}, ctrl.Result{}, err
+	}
 	postgres := &v1.Postgres{}
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
@@ -397,6 +403,29 @@ func (r *PostgresBranchReconciler) Prepare(ctx context.Context, reader client.Re
 		return prepared, ctrl.Result{}, nil
 	}
 	return r.prepareRecovery(ctx, reader, obj, prepared)
+}
+
+func observeBranchConfiguration(ctx context.Context, reader client.Reader, branch *v1.PostgresBranch) error {
+	cluster := &cnpgv1.Cluster{}
+	key := client.ObjectKey{Namespace: branch.Namespace, Name: rccnpg.ClusterNameFor(branch.Name)}
+	if err := reader.Get(ctx, key, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			branch.GetStatus()
+			branch.Status.Configuration = nil
+			return nil
+		}
+		return fmt.Errorf("observing PostgreSQL configuration for branch %q: %w", branch.Name, err)
+	}
+	branch.GetStatus()
+	branch.Status.Configuration = nil
+	if metav1.IsControlledBy(cluster, branch) && cluster.DeletionTimestamp.IsZero() {
+		parameters := maps.Clone(cluster.Spec.PostgresConfiguration.Parameters)
+		if parameters == nil {
+			parameters = map[string]string{}
+		}
+		branch.Status.Configuration = &v1.PostgresBranchConfiguration{Parameters: parameters}
+	}
+	return nil
 }
 
 func (r *PostgresBranchReconciler) blockingRecoveries(ctx context.Context, reader client.Reader, branch *v1.PostgresBranch) ([]string, error) {

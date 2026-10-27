@@ -172,6 +172,23 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configuration:
+                description: |-
+                  Configuration contains PostgreSQL settings observed on the branch's backing
+                  resource. It is absent until that resource is available. Configured values
+                  are not necessarily active in the running PostgreSQL instances yet.
+                properties:
+                  parameters:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Parameters contains the unmodified PostgreSQL parameter names and values,
+                      including units and extension prefixes. Defaults not explicitly configured
+                      on the backing resource are not included.
+                    type: object
+                required:
+                - parameters
+                type: object
               correlationID:
                 type: string
               observedGeneration:

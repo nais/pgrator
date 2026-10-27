@@ -50,6 +50,20 @@ type PostgresBranchSpec struct {
 // PostgresBranchStatus defines the observed state of a PostgresBranch.
 type PostgresBranchStatus struct {
 	api.BaseStatus `json:",inline"`
+
+	// Configuration contains PostgreSQL settings observed on the branch's backing
+	// resource. It is absent until that resource is available. Configured values
+	// are not necessarily active in the running PostgreSQL instances yet.
+	// +optional
+	Configuration *PostgresBranchConfiguration `json:"configuration,omitempty"`
+}
+
+// PostgresBranchConfiguration describes explicitly configured PostgreSQL settings.
+type PostgresBranchConfiguration struct {
+	// Parameters contains the unmodified PostgreSQL parameter names and values,
+	// including units and extension prefixes. Defaults not explicitly configured
+	// on the backing resource are not included.
+	Parameters map[string]string `json:"parameters"`
 }
 
 // +kubebuilder:object:root=true
