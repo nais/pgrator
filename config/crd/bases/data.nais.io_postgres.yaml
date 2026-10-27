@@ -99,6 +99,8 @@ spec:
                     description: Major version of Postgres to use.
                     enum:
                     - "18"
+                    - "17"
+                    - "16"
                     type: string
                   resources:
                     properties:
