@@ -120,6 +120,8 @@ spec:
                       - lo
                       - vector
                       - pgaudit
+                      - postgis
+                      - timescaledb
                       type: string
                   required:
                   - name

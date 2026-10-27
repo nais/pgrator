@@ -143,28 +143,33 @@ func TestPostgresManifestWithExtensionsAndResources(t *testing.T) {
 		t.Run(filename, func(t *testing.T) {
 			sch := loadSchema(t, schemaDir, filename)
 			for _, tc := range []struct {
-				name  string
-				extra string
-				valid bool
+				name      string
+				extension string
+				extra     string
+				valid     bool
 			}{
-				{name: "valid", valid: true},
-				{name: "unknown spec field", extra: "  unknownField: true\n"},
-				{name: "unknown resource field", extra: "    unknownField: true\n"},
+				{name: "valid", extension: "vector", valid: true},
+				{name: "PostGIS", extension: "postgis", valid: true},
+				{name: "TimescaleDB", extension: "timescaledb", valid: true},
+				{name: "catalog image name", extension: "timescaledb-oss"},
+				{name: "unknown extension", extension: "unsupported"},
+				{name: "unknown spec field", extension: "vector", extra: "  unknownField: true\n"},
+				{name: "unknown resource field", extension: "vector", extra: "    unknownField: true\n"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					var manifest map[string]any
-					if err := yaml.Unmarshal([]byte(`version: v1
+					if err := yaml.Unmarshal([]byte(fmt.Sprintf(`version: v1
 type: Postgres
 name: ext
 spec:
   extensions:
-    - name: vector
+    - name: %s
   majorVersion: "18"
   resources:
     cpu: 100m
     diskSize: 10Gi
     memory: 512Mi
-`+tc.extra), &manifest); err != nil {
+`, tc.extension)+tc.extra), &manifest); err != nil {
 						t.Fatal(err)
 					}
 					mustValidate(t, sch, manifest, tc.valid, tc.name)
