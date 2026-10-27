@@ -72,15 +72,16 @@ func groupRole(credential v1.PostgresBindingCredential) string {
 // CredentialMaterial is the certificate and private key CNPG issued for one
 // binding credential.
 type CredentialMaterial struct {
-	Certificate []byte
-	PrivateKey  []byte
+	Certificate     []byte
+	PrivateKey      []byte
+	PrivateKeyPKCS8 []byte // Unencrypted DER encoding of PrivateKey for pgJDBC.
 }
 
 // CreateConfigSecret creates the complete stable workload-facing snapshot for an
 // active instance. Callers must supply only validated material.
 func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding, instance string, caCertificate []byte, credentials map[v1.PostgresBindingCredential]CredentialMaterial) (*corev1.Secret, error) {
 	data := make(map[string]string, len(b.Spec.Credentials)*5)
-	secretData := make(map[string][]byte, 1+len(b.Spec.Credentials)*2)
+	secretData := make(map[string][]byte, 1+len(b.Spec.Credentials)*3)
 	secretData["ca.crt"] = caCertificate
 	for _, credential := range b.Spec.Credentials {
 		prefix := v1.ConnectionEnvPrefix(credential)
@@ -92,6 +93,7 @@ func CreateConfigSecret(scheme *runtime.Scheme, b *v1.PostgresBinding, instance 
 		material := credentials[credential]
 		secretData[string(credential)+".tls.crt"] = material.Certificate
 		secretData[string(credential)+".tls.key"] = material.PrivateKey
+		secretData[string(credential)+".tls.pk8"] = material.PrivateKeyPKCS8
 	}
 	secret := &corev1.Secret{TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"}, ObjectMeta: objectMeta(b, ConfigSecretName(b)), StringData: data, Data: secretData}
 	if err := controllerutil.SetControllerReference(b, secret, scheme); err != nil {

@@ -228,6 +228,7 @@ jobs:
       - name: Install logging-operator ClusterFlow CRD
         run: |
           kubectl apply --server-side -f internal/controller/testdata/external-crds/logging.banzaicloud.io_clusterflows.yaml
+          timeout 60 sh -c 'until kubectl get clusterflows.logging.banzaicloud.io -A >/dev/null 2>&1; do sleep 1; done'
       - name: Install Helm chart for project
         run: |
           helm install my-release ./charts/pgrator --create-namespace --namespace pgrator-system
@@ -309,7 +310,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: nais/fasit-deploy@v4 # ratchet:exclude
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # v4.1.1
         with:
           chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/pgrator
           version: ${{ needs.build.outputs.version }}

@@ -67,6 +67,22 @@ Branch names are local to a Postgres: `Postgres.spec.activeBranch`, `status.acti
 
 Rollout order for branch selection: publish the shared API types; install the updated pgrator `PostgresBinding` CRD/controller and liberator workload CRDs; deploy the branch-aware API; then deploy Naiserator using the new liberator dependency. For the deletion-policy change, make the warning-capable CLI available before removing reference guards in the API/controller. API clients should query `PostgresBranch.workloads` before deleting; older clients can delete without displaying the warning. Only then use `branch` in workload manifests. Older CRDs can prune the field and older Naiserator versions can ignore it, causing a workload to follow the active branch instead of the intended branch. No new Helm values or feature flags are required.
 
+#### Workload private-key formats
+
+Each `PostgresBinding` connection Secret contains `ca.crt` and, for every requested
+credential (`admin`, `read`, `readwrite`), `<credential>.tls.crt`,
+`<credential>.tls.key` (the original PEM private key), and `<credential>.tls.pk8`
+(the **same key** encoded as unencrypted PKCS#8 DER for pgJDBC). PKCS#8 is a key
+format, not a different key algorithm; EC certificates continue to use EC keys.
+Both representations are published in the same validated snapshot and rotate
+with the client certificate. Incomplete or invalid source material does not
+replace the last complete snapshot for the same branch.
+
+Naiserator owns the workload mount paths and exposes a role-prefixed `PGJDBCURL`
+using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
+
+#### Personal access
+
 `PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry removes access resources while CNPG's `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
 
 The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
