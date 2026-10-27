@@ -307,7 +307,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: nais/fasit-deploy@v4 # ratchet:exclude
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # v4.1.1
         with:
           chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/pgrator
           version: ${{ needs.build.outputs.version }}
