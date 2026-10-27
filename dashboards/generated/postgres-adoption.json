@@ -1,0 +1,1318 @@
+{
+   "apiVersion": "dashboard.grafana.app/v1",
+   "kind": "Dashboard",
+   "metadata": {
+      "name": "nais-postgres-adoption"
+   },
+   "spec": {
+      "description": "Overall reported adoption across configured tenant sources and all environments, followed by one repeated detail section per selected tenant. Controller-reported Nais Postgres resources versus Config Connector Cloud SQL instances (all engines; engine labels unavailable). Unknown is not zero. Capacity covers discovered Nais Postgres DB pods, branches and replicas, not Cloud SQL or total service cost. Historical coverage depends on metric availability; no retrospective inventory is reconstructed.",
+      "editable": false,
+      "graphTooltip": 1,
+      "panels": [
+         {
+            "collapsed": false,
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 0
+            },
+            "id": 1,
+            "panels": [ ],
+            "title": "Overview — 8 configured tenant sources · all environments",
+            "type": "row"
+         },
+         {
+            "datasource": {
+               "type": "datasource",
+               "uid": "-- Mixed --"
+            },
+            "description": "Across the explicit 8 configured tenant sources and every observed environment, independent of the detail selectors below. Reported counts only: compare inventory coverage with observed environments and configured tenants. Missing sources/inventory do not become zero; a partial sum is not complete inventory. Cloud SQL covers all engines/statuses. Teams are unique tenant + namespace across environments, not sums of dev/prod team counts. New/deleted datasource provisioning requires refreshing monitoring-sources.libsonnet. No migration percentage or event counts are inferred.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "decimals": 0,
+                  "noValue": "Unknown",
+                  "unit": "none"
+               },
+               "overrides": [
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Scope"
+                     },
+                     "properties": [
+                        {
+                           "id": "custom.width",
+                           "value": 220
+                        }
+                     ]
+                  }
+               ]
+            },
+            "gridPos": {
+               "h": 6,
+               "w": 18,
+               "x": 0,
+               "y": 1
+            },
+            "id": 2,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PF7D5629ECC453C64"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T0"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P4AC76F4007BD865C"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T1"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PD05A16FD1508C451"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T2"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73126C2103EBFC69"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T3"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PB96024D1DCA67B2B"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T4"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P91A6F0B3584B90E7"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T5"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PE607B8DC11CE4E99"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T6"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73C5E873BB8D9E47"
+                  },
+                  "expr": "label_replace(label_replace((sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Nais Postgres\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\") or label_replace(label_replace((sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Reported resources\", \"\", \"\") or label_replace(label_replace((count(group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Unique teams (reported)\", \"\", \"\") or label_replace(label_replace(((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Environments with inventory\", \"\", \"\") or label_replace(label_replace(((count(group by (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"})) or (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"})))) or vector(0))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Observed environments\", \"\", \"\") or label_replace(label_replace(((clamp_max((count((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) or vector(0)), 1))), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Tenants with inventory\", \"\", \"\") or label_replace(label_replace((vector(1)), \"product\", \"Cloud SQL (all engines)\", \"\", \"\"), \"signal\", \"Configured tenants\", \"\", \"\")",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T7"
+               }
+            ],
+            "title": "Across tenants and environments — reported inventory",
+            "transformations": [
+               {
+                  "id": "seriesToRows",
+                  "options": { }
+               },
+               {
+                  "id": "extractFields",
+                  "options": {
+                     "format": "regexp",
+                     "regExp": "/^(?<Product>[^|]+)\\|(?<Signal>.+)$/",
+                     "source": "Metric"
+                  }
+               },
+               {
+                  "id": "groupBy",
+                  "options": {
+                     "fields": {
+                        "Product": {
+                           "aggregations": [ ],
+                           "operation": "groupby"
+                        },
+                        "Signal": {
+                           "aggregations": [ ],
+                           "operation": "groupby"
+                        },
+                        "Value": {
+                           "aggregations": [
+                              "sum"
+                           ],
+                           "operation": "aggregate"
+                        }
+                     }
+                  }
+               },
+               {
+                  "id": "groupingToMatrix",
+                  "options": {
+                     "columnField": "Signal",
+                     "emptyValue": "null",
+                     "rowField": "Product",
+                     "valueField": "Value (sum)"
+                  }
+               },
+               {
+                  "id": "organize",
+                  "options": {
+                     "renameByName": {
+                        "Product\\Signal": "Scope"
+                     }
+                  }
+               },
+               {
+                  "id": "organize",
+                  "options": {
+                     "indexByName": {
+                        "Configured tenants": 6,
+                        "Environments with inventory": 3,
+                        "Observed environments": 4,
+                        "Reported resources": 1,
+                        "Scope": 0,
+                        "Tenants with inventory": 5,
+                        "Unique teams (reported)": 2
+                     },
+                     "renameByName": {
+                        "Configured tenants": "Sources",
+                        "Environments with inventory": "Known envs",
+                        "Observed environments": "Observed envs",
+                        "Tenants with inventory": "Known tenants",
+                        "Unique teams (reported)": "Unique teams"
+                     }
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "datasource": {
+               "type": "datasource",
+               "uid": "-- Mixed --"
+            },
+            "description": "Across the explicit 8 configured tenant sources and every observed environment, independent of the detail selectors below. Reported counts only: compare inventory coverage with observed environments and configured tenants. Missing sources/inventory do not become zero; a partial sum is not complete inventory. Cloud SQL covers all engines/statuses. Teams are unique tenant + namespace across environments, not sums of dev/prod team counts. New/deleted datasource provisioning requires refreshing monitoring-sources.libsonnet. No migration percentage or event counts are inferred. A team can use the two products in different environments. Partial inventories can miss teams using both.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "decimals": 0,
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 6,
+               "w": 6,
+               "x": 18,
+               "y": 1
+            },
+            "id": 3,
+            "options": {
+               "colorMode": "none",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PF7D5629ECC453C64"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T0"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P4AC76F4007BD865C"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T1"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PD05A16FD1508C451"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T2"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73126C2103EBFC69"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T3"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PB96024D1DCA67B2B"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T4"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P91A6F0B3584B90E7"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T5"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PE607B8DC11CE4E99"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T6"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73C5E873BB8D9E47"
+                  },
+                  "expr": "(count((group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1))) and on (exported_namespace) (group by (exported_namespace) ((max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}) > 0) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1))))) or (0 * sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0) * sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{product}}|{{signal}}",
+                  "range": false,
+                  "refId": "T7"
+               }
+            ],
+            "title": "Teams using both — reported",
+            "transformations": [
+               {
+                  "id": "seriesToRows",
+                  "options": { }
+               },
+               {
+                  "id": "filterFieldsByName",
+                  "options": {
+                     "include": {
+                        "names": [
+                           "Value"
+                        ]
+                     }
+                  }
+               },
+               {
+                  "id": "reduce",
+                  "options": {
+                     "reducers": [
+                        "sum"
+                     ]
+                  }
+               }
+            ],
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "datasource",
+               "uid": "-- Mixed --"
+            },
+            "description": "Across the explicit 8 configured tenant sources and every observed environment, independent of the detail selectors below. Reported counts only: compare inventory coverage with observed environments and configured tenants. Missing sources/inventory do not become zero; a partial sum is not complete inventory. Cloud SQL covers all engines/statuses. Teams are unique tenant + namespace across environments, not sums of dev/prod team counts. New/deleted datasource provisioning requires refreshing monitoring-sources.libsonnet. No migration percentage or event counts are inferred. Historical sums use the reported observations at each timestamp; coverage can change. No data from any source leaves a gap, not an asserted zero.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 7
+            },
+            "id": 4,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PF7D5629ECC453C64"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "atil-metrics",
+                  "range": true,
+                  "refId": "T0"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P4AC76F4007BD865C"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ci-nais-metrics",
+                  "range": true,
+                  "refId": "T1"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PD05A16FD1508C451"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "dev-nais-metrics",
+                  "range": true,
+                  "refId": "T2"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73126C2103EBFC69"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ldir-metrics",
+                  "range": true,
+                  "refId": "T3"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PB96024D1DCA67B2B"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "miljodir-metrics",
+                  "range": true,
+                  "refId": "T4"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P91A6F0B3584B90E7"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "nav-metrics",
+                  "range": true,
+                  "refId": "T5"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PE607B8DC11CE4E99"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ssb-metrics",
+                  "range": true,
+                  "refId": "T6"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73C5E873BB8D9E47"
+                  },
+                  "expr": "sum((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "test-nais-metrics",
+                  "range": true,
+                  "refId": "T7"
+               }
+            ],
+            "title": "Nais Postgres — reported total over time",
+            "transformations": [
+               {
+                  "id": "joinByField",
+                  "options": {
+                     "byField": "Time",
+                     "mode": "outer"
+                  }
+               },
+               {
+                  "id": "calculateField",
+                  "options": {
+                     "alias": "Reported resources",
+                     "mode": "reduceRow",
+                     "reduce": {
+                        "reducer": "sum"
+                     },
+                     "replaceFields": true
+                  }
+               }
+            ],
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "datasource",
+               "uid": "-- Mixed --"
+            },
+            "description": "Across the explicit 8 configured tenant sources and every observed environment, independent of the detail selectors below. Reported counts only: compare inventory coverage with observed environments and configured tenants. Missing sources/inventory do not become zero; a partial sum is not complete inventory. Cloud SQL covers all engines/statuses. Teams are unique tenant + namespace across environments, not sums of dev/prod team counts. New/deleted datasource provisioning requires refreshing monitoring-sources.libsonnet. No migration percentage or event counts are inferred. Historical sums use the reported observations at each timestamp; coverage can change. No data from any source leaves a gap, not an asserted zero.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 7
+            },
+            "id": 5,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PF7D5629ECC453C64"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "atil-metrics",
+                  "range": true,
+                  "refId": "T0"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P4AC76F4007BD865C"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ci-nais-metrics",
+                  "range": true,
+                  "refId": "T1"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PD05A16FD1508C451"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "dev-nais-metrics",
+                  "range": true,
+                  "refId": "T2"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73126C2103EBFC69"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ldir-metrics",
+                  "range": true,
+                  "refId": "T3"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PB96024D1DCA67B2B"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "miljodir-metrics",
+                  "range": true,
+                  "refId": "T4"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P91A6F0B3584B90E7"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "nav-metrics",
+                  "range": true,
+                  "refId": "T5"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "PE607B8DC11CE4E99"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "ssb-metrics",
+                  "range": true,
+                  "refId": "T6"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "P73C5E873BB8D9E47"
+                  },
+                  "expr": "sum((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\".*\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\".*\"}) + 1))) >= 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "test-nais-metrics",
+                  "range": true,
+                  "refId": "T7"
+               }
+            ],
+            "title": "Cloud SQL (all engines) — reported total over time",
+            "transformations": [
+               {
+                  "id": "joinByField",
+                  "options": {
+                     "byField": "Time",
+                     "mode": "outer"
+                  }
+               },
+               {
+                  "id": "calculateField",
+                  "options": {
+                     "alias": "Reported resources",
+                     "mode": "reduceRow",
+                     "reduce": {
+                        "reducer": "sum"
+                     },
+                     "replaceFields": true
+                  }
+               }
+            ],
+            "type": "timeseries"
+         },
+         {
+            "collapsed": false,
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 14
+            },
+            "id": 6,
+            "panels": [ ],
+            "repeat": "tenant",
+            "title": "Tenant details — ${tenant:text}",
+            "type": "row"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Nais Postgres: distinct logical postgres.nais.io resources reported by pgrator, not branches/pods. Cloud SQL: Config Connector SQLInstance resources, all engines and statuses, not SQL databases or HA nodes. Teams are namespaces within each environment; the same team in dev/prod appears in both rows. Unknown includes absent/empty inventories or failed sources; even a successful scrape cannot prove an empty inventory means zero. Config Connector resets/rebuilds its gauge periodically, so transient Unknown/partial counts can occur. These are reported observations, not an authoritative migration ledger.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 6,
+               "w": 24,
+               "x": 0,
+               "y": 15
+            },
+            "id": 7,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "label_replace(((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))), \"signal\", \"Nais Postgres\", \"\", \"\") or label_replace(((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))), \"signal\", \"Cloud SQL (all engines)\", \"\", \"\") or label_replace(((((count by (k8s_cluster_name) (group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}) > 0))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))), \"signal\", \"Nais Postgres teams\", \"\", \"\") or label_replace(((((count by (k8s_cluster_name) (group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}) > 0))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))), \"signal\", \"Cloud SQL teams\", \"\", \"\") or label_replace((((((count by (k8s_cluster_name) (group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"})) and on (k8s_cluster_name, exported_namespace) group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}) > 0))) or (0 * (((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1))) >= 0) and on (k8s_cluster_name) ((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1))) >= 0)))) and on (k8s_cluster_name) ((max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name) max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"})) == 1)) or (-1 * (0 * (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name) max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"})) + 1)))), \"signal\", \"Teams using both\", \"\", \"\") or label_replace(((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgresbranch.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))), \"signal\", \"Nais Postgres branches\", \"\", \"\")",
+                  "format": "table",
+                  "instant": true,
+                  "legendFormat": "",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Reported inventory by environment",
+            "transformations": [
+               {
+                  "id": "groupingToMatrix",
+                  "options": {
+                     "columnField": "signal",
+                     "emptyValue": "null",
+                     "rowField": "k8s_cluster_name",
+                     "valueField": "Value"
+                  }
+               },
+               {
+                  "id": "organize",
+                  "options": {
+                     "indexByName": {
+                        "Cloud SQL (all engines)": 2,
+                        "Cloud SQL teams": 4,
+                        "Nais Postgres": 1,
+                        "Nais Postgres branches": 6,
+                        "Nais Postgres teams": 3,
+                        "Teams using both": 5,
+                        "k8s_cluster_name\\signal": 0
+                     },
+                     "renameByName": {
+                        "k8s_cluster_name\\signal": "Environment"
+                     }
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Logical Nais Postgres resources versus KCC SQLInstance resources (all engines). Not branches/replicas, not event counters. Counts include non-ready resources reported by the controllers. Gaps are unknown; last legend value is only the latest observation in the selected range. Changes are net inventory changes, not proof of migration or counts of creates/deletes.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 21
+            },
+            "id": 8,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "((((count by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))) >= 0",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · Nais Postgres",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "((((sum by (k8s_cluster_name) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))) >= 0",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · Cloud SQL (all engines)",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Reported resources over time",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Distinct namespaces with reported resources in each environment. Teams using both appear in both series. No cross-environment unique-team total is implied. Unknown/no reported resources is not zero.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 21
+            },
+            "id": 9,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "((((count by (k8s_cluster_name) (group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, name) (pgrator_resource_info{resource_type=\"postgres.nais.io\", k8s_cluster_name=~\"${environment:regex}\"}) > 0))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))) >= 0",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · Nais Postgres",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "((((count by (k8s_cluster_name) (group by (k8s_cluster_name, exported_namespace) (max by (k8s_cluster_name, exported_namespace, status) (configconnector_applied_resources_total{group_version_kind=\"SQLInstance.sql.cnrm.cloud.google.com\", k8s_cluster_name=~\"${environment:regex}\"}) > 0))) and on (k8s_cluster_name) (max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) == 1)) or (-1 * (0 * max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"}) + 1)))) >= 0",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · Cloud SQL (all engines)",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Teams over time, per environment",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Nais Postgres database containers/data volumes only, across all discovered branches and replicas. Excludes poolers, operators, backup storage, network and logging. Missing Kubernetes/discovery data is not zero. Not Cloud SQL capacity or a billing estimate. CPU requested is Kubernetes container requests, not allocated node vCPU or a guarantee of CPU availability.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "cores"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 8,
+               "x": 0,
+               "y": 28
+            },
+            "id": 10,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"cpu\"})) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"}))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · requested",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) ((max by (k8s_cluster_name, namespace, pod) (rate(container_cpu_usage_seconds_total{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}[$__rate_interval]))) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"}))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · used",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Nais Postgres · CPU requested / used",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Nais Postgres database containers/data volumes only, across all discovered branches and replicas. Excludes poolers, operators, backup storage, network and logging. Missing Kubernetes/discovery data is not zero. Not Cloud SQL capacity or a billing estimate. Usage is container working set, not a database cache-efficiency measure.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "bytes"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 8,
+               "x": 8,
+               "y": 28
+            },
+            "id": 11,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"memory\"})) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"}))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · requested",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) ((max by (k8s_cluster_name, namespace, pod) (container_memory_working_set_bytes{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"})) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"}))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · working set",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Nais Postgres · memory requested / used",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "Nais Postgres database containers/data volumes only, across all discovered branches and replicas. Excludes poolers, operators, backup storage, network and logging. Missing Kubernetes/discovery data is not zero. Not Cloud SQL capacity or a billing estimate. Each pgdata PVC is counted once; filesystem usage includes WAL and overhead, not just SQL table data.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "bytes"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 8,
+               "x": 16,
+               "y": 28
+            },
+            "id": 12,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) (max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group by (k8s_cluster_name, namespace, persistentvolumeclaim) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left() group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"})))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · PVC requested",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "sum by (k8s_cluster_name) (max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group by (k8s_cluster_name, namespace, persistentvolumeclaim) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left() group by (k8s_cluster_name, namespace, pod) (up{job=\"nais-system/cloudnative-pg-postgres\", postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"})))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · filesystem used",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Nais Postgres · data storage requested / used",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${tenant}"
+            },
+            "description": "1 = at least one endpoint successfully scraped; 0 = discovered but failed; a missing series is not healthy. Scrape success alone does not establish a complete, synced controller cache or valid inventory. This view does not use cumulative API watcher add/remove event counters as current resource counts.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 0,
+                     "lineInterpolation": "stepAfter",
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 24,
+               "x": 0,
+               "y": 35
+            },
+            "id": 13,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "max by (k8s_cluster_name) (up{job=\"pgrator-metrics-service\", k8s_cluster_name=~\"${environment:regex}\"})",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · pgrator",
+                  "range": true,
+                  "refId": "A"
+               },
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${tenant}"
+                  },
+                  "expr": "max by (k8s_cluster_name) (up{job=\"cnrm-resource-stats-recorder-service\", k8s_cluster_name=~\"${environment:regex}\"})",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} · Config Connector recorder",
+                  "range": true,
+                  "refId": "B"
+               }
+            ],
+            "title": "Inventory source scrape status",
+            "type": "timeseries"
+         }
+      ],
+      "refresh": "5m",
+      "schemaVersion": 39,
+      "tags": [
+         "nais",
+         "postgres",
+         "adoption",
+         "capacity"
+      ],
+      "templating": {
+         "list": [
+            {
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "description": "All currently provisioned tenant metrics datasources, including platform/test tenants. Each selected tenant gets its own section; no cross-datasource totals are calculated.",
+               "includeAll": true,
+               "label": "Tenants",
+               "multi": true,
+               "name": "tenant",
+               "options": [ ],
+               "query": "prometheus",
+               "refresh": 1,
+               "regex": "/.*-metrics$/",
+               "type": "datasource"
+            },
+            {
+               "allValue": ".*",
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "description": "All matches every environment, including future names. Named choices reflect the environments verified during implementation. Counts remain separated by environment.",
+               "includeAll": true,
+               "label": "Environments",
+               "multi": true,
+               "name": "environment",
+               "options": [ ],
+               "query": "prod,dev,non-prod,test,sandbox,ci",
+               "type": "custom"
+            }
+         ]
+      },
+      "time": {
+         "from": "now-30d",
+         "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Postgres – Adoption & Capacity",
+      "uid": "nais-postgres-adoption"
+   }
+}

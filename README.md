@@ -113,11 +113,19 @@ Implementation entry points:
 - [`CreateDatabaseRole`](internal/resourcecreator/access/access.go) defines the
   personal user's memberships.
 
+## Dashboards
+
+The [Postgres dashboards](dashboards/README.md) have component-owned Jsonnet sources,
+generated Grafana resources and a separate, credential-free validation workflow.
+Run `make -C dashboards install check`; operator tooling and cluster access are not
+required. [Migration and the proposed access pattern](dashboards/MIGRATION.md)
+describe the separate, approved central Git Sync cutover.
+
 ## CI/CD
 
-GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`.
+GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`. Changes confined to `dashboards/**`, its workflow and existing ignored Markdown paths skip this pipeline and use `Dashboard checks` instead.
 
-Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task.
+Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task. The same dashboard-only exclusion applies; mixed operator/dashboard changes still run E2E.
 
 ## Contributing
 

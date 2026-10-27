@@ -4,6 +4,8 @@ on:
   pull_request:
     paths-ignore:
       - '*.md'
+      - 'dashboards/**'
+      - '.github/workflows/dashboards.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

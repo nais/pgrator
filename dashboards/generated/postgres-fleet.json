@@ -1,0 +1,2344 @@
+{
+   "apiVersion": "dashboard.grafana.app/v1",
+   "kind": "Dashboard",
+   "metadata": {
+      "name": "nais-postgres-fleet"
+   },
+   "spec": {
+      "description": "Provider operations for Nais Postgres (CNPG): one, several or all tenant datasources, with separate repeated sections and branch-level CPU/memory/PVC resources with tenant totals. Observed primaries, replication, Barman backups, WAL and storage; not complete inventory, end-to-end availability or a restore guarantee.",
+      "editable": false,
+      "graphTooltip": 1,
+      "panels": [
+         {
+            "collapsed": false,
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 0
+            },
+            "id": 1,
+            "panels": [ ],
+            "repeat": "datasource",
+            "title": "${datasource:text}",
+            "type": "row"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "fixedColor": "blue",
+                     "mode": "fixed"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "red",
+                           "value": 1
+                        }
+                     ]
+                  },
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 3,
+               "w": 4,
+               "x": 0,
+               "y": 1
+            },
+            "id": 2,
+            "options": {
+               "colorMode": "value",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               },
+               "textMode": "auto"
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "count(group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Observed branches",
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "fixedColor": "blue",
+                     "mode": "thresholds"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "red",
+                           "value": 1
+                        }
+                     ]
+                  },
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 3,
+               "w": 5,
+               "x": 4,
+               "y": 1
+            },
+            "id": 3,
+            "options": {
+               "colorMode": "value",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               },
+               "textMode": "auto"
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "count((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) or (0 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) != 1) or (0 * count(group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Primary count ≠ 1",
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "fixedColor": "blue",
+                     "mode": "thresholds"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "red",
+                           "value": 1
+                        }
+                     ]
+                  },
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 3,
+               "w": 5,
+               "x": 9,
+               "y": 1
+            },
+            "id": 4,
+            "options": {
+               "colorMode": "value",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               },
+               "textMode": "auto"
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "count(((max by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_streaming_replicas{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == 1))) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) < 1) or (0 * count(group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Replica absent / unknown",
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "fixedColor": "blue",
+                     "mode": "thresholds"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "red",
+                           "value": 1
+                        }
+                     ]
+                  },
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 3,
+               "w": 5,
+               "x": 14,
+               "y": 1
+            },
+            "id": 5,
+            "options": {
+               "colorMode": "value",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               },
+               "textMode": "auto"
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "count(((time() - (max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0)) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) < 0 or (((time() - (max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0)) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) > 129600) or (0 * count(group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Backup old / unknown",
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "fixedColor": "blue",
+                     "mode": "thresholds"
+                  },
+                  "decimals": 0,
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "green",
+                           "value": null
+                        },
+                        {
+                           "color": "red",
+                           "value": 1
+                        }
+                     ]
+                  },
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 3,
+               "w": 5,
+               "x": 19,
+               "y": 1
+            },
+            "id": 6,
+            "options": {
+               "colorMode": "value",
+               "graphMode": "none",
+               "reduceOptions": {
+                  "calcs": [
+                     "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+               },
+               "textMode": "auto"
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "count(100 * sum by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) / count by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) < 100) or (0 * count(group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Scrape failures",
+            "type": "stat"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Current observations, including replicas and inactive branches. Major version requires a positive CNPG version from every discovered pod with agreement across pods; otherwise Unknown. It is not the desired version from the parent Postgres resource. CPU is requested cores and observed CPU rate; memory is requested bytes and working set; PVC is requested size, actual filesystem capacity and bytes used. Each pgdata claim is counted once per branch. Resource footers sum this tenant and the selected filters, not all tenants. Missing/partial measurements make the affected branch cell and resource total Unknown, never zero or a silently partial footprint. Missing pod discovery remains outside this inventory. Excludes poolers, operators, backup objects, network and logging. Exactly one observed primary is expected; streaming replicas are actual connections, not desired HA count. Colour thresholds are triage hints, not alert policies.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "thresholds"
+                  },
+                  "custom": {
+                     "cellOptions": {
+                        "type": "color-text"
+                     },
+                     "filterable": true,
+                     "minWidth": 70,
+                     "width": 85,
+                     "wrapHeaderText": true
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Environment / Team / Postgres / Branch"
+                     },
+                     "properties": [
+                        {
+                           "id": "custom.width",
+                           "value": 260
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Major version"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "PG major"
+                        },
+                        {
+                           "id": "unit",
+                           "value": "none"
+                        },
+                        {
+                           "id": "decimals",
+                           "value": 0
+                        },
+                        {
+                           "id": "custom.width",
+                           "value": 75
+                        },
+                        {
+                           "id": "custom.cellOptions",
+                           "value": {
+                              "type": "auto"
+                           }
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byNames",
+                        "options": {
+                           "mode": "include",
+                           "names": [
+                              "CPU requested",
+                              "CPU used",
+                              "Memory requested",
+                              "Memory used",
+                              "PVC requested",
+                              "PVC capacity",
+                              "PVC used"
+                           ]
+                        }
+                     },
+                     "properties": [
+                        {
+                           "id": "custom.footer.reducers",
+                           "value": [
+                              "sum"
+                           ]
+                        },
+                        {
+                           "id": "custom.cellOptions",
+                           "value": {
+                              "type": "auto"
+                           }
+                        },
+                        {
+                           "id": "unit",
+                           "value": "bytes"
+                        },
+                        {
+                           "id": "decimals",
+                           "value": 2
+                        },
+                        {
+                           "id": "custom.width",
+                           "value": 95
+                        },
+                        {
+                           "id": "mappings",
+                           "value": [
+                              {
+                                 "options": {
+                                    "result": {
+                                       "color": "gray",
+                                       "text": "Unknown"
+                                    },
+                                    "to": -1
+                                 },
+                                 "type": "range"
+                              }
+                           ]
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byNames",
+                        "options": {
+                           "mode": "include",
+                           "names": [
+                              "CPU requested",
+                              "CPU used"
+                           ]
+                        }
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "cores"
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Observed primaries"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "Primary"
+                        },
+                        {
+                           "id": "custom.width",
+                           "value": 90
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "red",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "green",
+                                    "value": 1
+                                 },
+                                 {
+                                    "color": "red",
+                                    "value": 2
+                                 }
+                              ]
+                           }
+                        },
+                        {
+                           "id": "decimals",
+                           "value": 0
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Streaming replicas"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "Replicas"
+                        },
+                        {
+                           "id": "custom.width",
+                           "value": 90
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "gray",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "yellow",
+                                    "value": 0
+                                 },
+                                 {
+                                    "color": "green",
+                                    "value": 1
+                                 }
+                              ]
+                           }
+                        },
+                        {
+                           "id": "decimals",
+                           "value": 0
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Scrapes OK"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "percent"
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "red",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "green",
+                                    "value": 100
+                                 }
+                              ]
+                           }
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Missing SQL telemetry"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "SQL gaps"
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "green",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "red",
+                                    "value": 1
+                                 }
+                              ]
+                           }
+                        },
+                        {
+                           "id": "decimals",
+                           "value": 0
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Backup age"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "s"
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "gray",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "green",
+                                    "value": 0
+                                 },
+                                 {
+                                    "color": "yellow",
+                                    "value": 129600
+                                 },
+                                 {
+                                    "color": "red",
+                                    "value": 172800
+                                 }
+                              ]
+                           }
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Disk used"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "percent"
+                        },
+                        {
+                           "id": "thresholds",
+                           "value": {
+                              "mode": "absolute",
+                              "steps": [
+                                 {
+                                    "color": "gray",
+                                    "value": null
+                                 },
+                                 {
+                                    "color": "green",
+                                    "value": 0
+                                 },
+                                 {
+                                    "color": "yellow",
+                                    "value": 80
+                                 },
+                                 {
+                                    "color": "red",
+                                    "value": 90
+                                 }
+                              ]
+                           }
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "CPU requested"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "CPU req."
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Memory requested"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "Memory req."
+                        }
+                     ]
+                  },
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "PVC requested"
+                     },
+                     "properties": [
+                        {
+                           "id": "displayName",
+                           "value": "PVC req."
+                        }
+                     ]
+                  }
+               ]
+            },
+            "gridPos": {
+               "h": 12,
+               "w": 24,
+               "x": 0,
+               "y": 4
+            },
+            "id": 7,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "label_replace(label_join((((max by (k8s_cluster_name, namespace, team, postgres, branch) ((floor(cnpg_collector_postgres_version{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) and on (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch) ((floor(cnpg_collector_postgres_version{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) == on (k8s_cluster_name, namespace, team, postgres, branch) min by (k8s_cluster_name, namespace, team, postgres, branch) ((floor(cnpg_collector_postgres_version{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) ((floor(cnpg_collector_postgres_version{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Major version\", \"\", \"\") or label_replace(label_join(((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) or (0 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Observed primaries\", \"\", \"\") or label_replace(label_join((((max by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_streaming_replicas{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == 1))) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Streaming replicas\", \"\", \"\") or label_replace(label_join((100 * sum by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) / count by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Scrapes OK\", \"\", \"\") or label_replace(label_join((sum by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) unless on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) or (0 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Missing SQL telemetry\", \"\", \"\") or label_replace(label_join((((time() - (max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0)) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Backup age\", \"\", \"\") or label_replace(label_join((((max by (k8s_cluster_name, namespace, team, postgres, branch) ((100 * max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{k8s_cluster_name=~\"${environment:regex}\"}) / on (k8s_cluster_name, namespace, persistentvolumeclaim) max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{k8s_cluster_name=~\"${environment:regex}\"})) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Disk used\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"cpu\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"cpu\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"CPU requested\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (rate(container_cpu_usage_seconds_total{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}[$__rate_interval])) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (rate(container_cpu_usage_seconds_total{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}[$__rate_interval])) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"CPU used\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"memory\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_requests{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\", resource=\"memory\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Memory requested\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (container_memory_working_set_bytes{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (container_memory_working_set_bytes{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group by (k8s_cluster_name, namespace, pod) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"Memory used\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"PVC requested\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"PVC capacity\", \"\", \"\") or label_replace(label_join((((sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, team, postgres, branch) (count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) and on (k8s_cluster_name, namespace, persistentvolumeclaim) (count by (k8s_cluster_name, namespace, persistentvolumeclaim) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))) == 1)) == on (k8s_cluster_name, namespace, team, postgres, branch) count by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, persistentvolumeclaim, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))))) / 1) or (-1e30 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))), \"resource\", \" / \", \"k8s_cluster_name\", \"team\", \"postgres\", \"branch\"), \"signal\", \"PVC used\", \"\", \"\")",
+                  "format": "table",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Fleet — environment / team / Postgres / branch",
+            "transformations": [
+               {
+                  "id": "groupingToMatrix",
+                  "options": {
+                     "columnField": "signal",
+                     "emptyValue": "null",
+                     "rowField": "resource",
+                     "valueField": "Value"
+                  }
+               },
+               {
+                  "id": "organize",
+                  "options": {
+                     "indexByName": {
+                        "Backup age": 6,
+                        "CPU requested": 8,
+                        "CPU used": 9,
+                        "Disk used": 7,
+                        "Major version": 1,
+                        "Memory requested": 10,
+                        "Memory used": 11,
+                        "Missing SQL telemetry": 5,
+                        "Observed primaries": 2,
+                        "PVC capacity": 13,
+                        "PVC requested": 12,
+                        "PVC used": 14,
+                        "Scrapes OK": 4,
+                        "Streaming replicas": 3,
+                        "resource\\signal": 0
+                     },
+                     "renameByName": {
+                        "resource\\signal": "Environment / Team / Postgres / Branch"
+                     }
+                  }
+               },
+               {
+                  "id": "sortBy",
+                  "options": {
+                     "sort": [
+                        {
+                           "field": "Environment / Team / Postgres / Branch"
+                        }
+                     ]
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 16
+            },
+            "id": 8,
+            "options": {
+               "content": "",
+               "mode": "markdown"
+            },
+            "title": "Availability and replication — observations, not an end-to-end probe",
+            "transparent": true,
+            "type": "text"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Zero includes missing SQL telemetry. Does not test SQL read/write, pooler, network or credentials.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 17
+            },
+            "id": 9,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "(sum by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) or (0 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Observed primary count",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Actual streaming connections. Desired replica count is not exported here; one connection does not prove the configured HA topology is satisfied.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 17
+            },
+            "id": 10,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "((max by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_streaming_replicas{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) and on (k8s_cluster_name, namespace, team, postgres, branch, pod) ((max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == bool 0) * on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == 1))) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Streaming replicas at primary",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Maximum observed replica lag per branch. Missing replicas produce missing data, not zero lag.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "s"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 24
+            },
+            "id": 11,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "max by (k8s_cluster_name, namespace, team, postgres, branch) (cnpg_pg_replication_lag{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"} and on (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_pg_replication_in_recovery{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) == 1))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Replica replay lag",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Targets without cnpg_collector_up. Healthy branches have no matching series in this panel; consult the fleet table for explicit counts.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 24
+            },
+            "id": 12,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum by (k8s_cluster_name, namespace, team, postgres, branch) (group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) unless on (k8s_cluster_name, namespace, team, postgres, branch, pod) max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (cnpg_collector_up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) or (0 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))) > 0",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Missing SQL telemetry / discovered targets",
+            "type": "timeseries"
+         },
+         {
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 31
+            },
+            "id": 13,
+            "options": {
+               "content": "",
+               "mode": "markdown"
+            },
+            "title": "Backups and WAL — investigate unknowns; verify recovery with restore drills",
+            "transparent": true,
+            "type": "text"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Barman-plugin timestamp; -1 means no positive timestamp reported. Daily backups: >36h is a triage hint, not an agreed SLO.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "gray",
+                           "value": null
+                        },
+                        {
+                           "color": "green",
+                           "value": 0
+                        },
+                        {
+                           "color": "yellow",
+                           "value": 129600
+                        },
+                        {
+                           "color": "red",
+                           "value": 172800
+                        }
+                     ]
+                  },
+                  "unit": "s"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 32
+            },
+            "id": 14,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "((time() - (max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0)) or (-1 * group by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}))))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Age of latest available basebackup",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Barman archive metadata, not a proof of WAL continuity. Missing/zero timestamps are omitted; do not infer a 30-day restore guarantee.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "First recoverability point (reported)"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "dateTimeAsIso"
+                        }
+                     ]
+                  }
+               ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 32
+            },
+            "id": 15,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "(max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_first_recoverability_point{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) * 1000",
+                  "format": "table",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "First recoverability point (reported)",
+            "transformations": [
+               {
+                  "id": "organize",
+                  "options": {
+                     "excludeByName": {
+                        "Time": true,
+                        "namespace": true
+                     },
+                     "renameByName": {
+                        "Value": "First recoverability point (reported)",
+                        "branch": "Branch",
+                        "k8s_cluster_name": "Environment",
+                        "postgres": "Postgres",
+                        "team": "Team"
+                     }
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Maximum ready-to-archive files on any observed pod in a branch. Persistent or growing backlog warrants investigation.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 39
+            },
+            "id": 16,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "max by (k8s_cluster_name, namespace, team, postgres, branch) (cnpg_collector_pg_wal_archive_status{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\", value=\"ready\"})",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "WAL files waiting for archive",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Increase in failed archive attempts over $__rate_interval. Retries can occur; inspect backlog and successful progress together.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 39
+            },
+            "id": 17,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum by (k8s_cluster_name, namespace, team, postgres, branch) (increase(cnpg_pg_stat_archiver_failed_count{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}[$__rate_interval]))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "WAL archive failures",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Informational only. Idle databases may not generate new WAL; age alone is not an archive-stalled alarm. Only positive archive timestamps are shown.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "s"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 46
+            },
+            "id": 18,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "time() - (max by (k8s_cluster_name, namespace, team, postgres, branch) (cnpg_pg_stat_archiver_last_archived_time{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Time since last successful WAL archive",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Historical failures can remain after a successful backup. Compare with latest available backup; an empty table is not proof of working backups.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Last failed backup (reported)"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "dateTimeAsIso"
+                        }
+                     ]
+                  }
+               ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 46
+            },
+            "id": 19,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "(max by (k8s_cluster_name, namespace, team, postgres, branch) (barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"}) > 0) * 1000",
+                  "format": "table",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Last failed backup (reported)",
+            "transformations": [
+               {
+                  "id": "organize",
+                  "options": {
+                     "excludeByName": {
+                        "Time": true,
+                        "namespace": true
+                     },
+                     "renameByName": {
+                        "Value": "Last failed backup (reported)",
+                        "branch": "Branch",
+                        "k8s_cluster_name": "Environment",
+                        "postgres": "Postgres",
+                        "team": "Team"
+                     }
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 53
+            },
+            "id": 20,
+            "options": {
+               "content": "",
+               "mode": "markdown"
+            },
+            "title": "Capacity — worst-pod observations",
+            "transparent": true,
+            "type": "text"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Highest pgdata filesystem usage per branch, joined via the pod/PVC relationship. Uses actual filesystem capacity, not requested disk size.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "thresholds": {
+                     "mode": "absolute",
+                     "steps": [
+                        {
+                           "color": "gray",
+                           "value": null
+                        },
+                        {
+                           "color": "green",
+                           "value": 0
+                        },
+                        {
+                           "color": "yellow",
+                           "value": 80
+                        },
+                        {
+                           "color": "red",
+                           "value": 90
+                        }
+                     ]
+                  },
+                  "unit": "percent"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 54
+            },
+            "id": 21,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "max by (k8s_cluster_name, namespace, team, postgres, branch) ((100 * max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{k8s_cluster_name=~\"${environment:regex}\"}) / on (k8s_cluster_name, namespace, persistentvolumeclaim) max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{k8s_cluster_name=~\"${environment:regex}\"})) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Data volume used",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Lowest available pgdata filesystem space per branch. Missing kubelet/PVC metrics are unknown, not zero usage.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "bytes"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 54
+            },
+            "id": 22,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "min by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, persistentvolumeclaim) (kubelet_volume_stats_available_bytes{k8s_cluster_name=~\"${environment:regex}\"})) * on (k8s_cluster_name, namespace, persistentvolumeclaim) group_right() max by (k8s_cluster_name, namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{volume=\"pgdata\", k8s_cluster_name=~\"${environment:regex}\"}) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Least free data volume space",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Highest container working set / positive memory limit per branch. No limit or missing metrics yields no observation; this does not diagnose memory pressure by itself.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "percent"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 61
+            },
+            "id": 23,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "max by (k8s_cluster_name, namespace, team, postgres, branch) ((max by (k8s_cluster_name, namespace, pod) (container_memory_working_set_bytes{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}) / on (k8s_cluster_name, namespace, pod) max by (k8s_cluster_name, namespace, pod) (kube_pod_container_resource_limits{container=\"postgres\", resource=\"memory\", k8s_cluster_name=~\"${environment:regex}\"} > 0)) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})) * 100)",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Postgres memory / limit",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Sum of container restarts for currently discovered database pods. Deleted/replaced pods are not a complete incident history.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [
+                  {
+                     "matcher": {
+                        "id": "byName",
+                        "options": "Postgres restarts in selected time range"
+                     },
+                     "properties": [
+                        {
+                           "id": "unit",
+                           "value": "short"
+                        }
+                     ]
+                  }
+               ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 61
+            },
+            "id": 24,
+            "options": {
+               "cellHeight": "sm",
+               "showHeader": true
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum by (k8s_cluster_name, namespace, team, postgres, branch) (max by (k8s_cluster_name, namespace, pod) (increase(kube_pod_container_status_restarts_total{container=\"postgres\", k8s_cluster_name=~\"${environment:regex}\"}[$__range])) * on (k8s_cluster_name, namespace, pod) group_left(team, postgres, branch) group by (k8s_cluster_name, namespace, team, postgres, branch, pod) (max by (k8s_cluster_name, namespace, team, postgres, branch, pod) (up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})))",
+                  "format": "table",
+                  "instant": true,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": false,
+                  "refId": "A"
+               }
+            ],
+            "title": "Postgres restarts in selected time range",
+            "transformations": [
+               {
+                  "id": "organize",
+                  "options": {
+                     "excludeByName": {
+                        "Time": true,
+                        "namespace": true
+                     },
+                     "renameByName": {
+                        "Value": "Postgres restarts in selected time range",
+                        "branch": "Branch",
+                        "k8s_cluster_name": "Environment",
+                        "postgres": "Postgres",
+                        "team": "Team"
+                     }
+                  }
+               }
+            ],
+            "type": "table"
+         },
+         {
+            "gridPos": {
+               "h": 1,
+               "w": 24,
+               "x": 0,
+               "y": 68
+            },
+            "id": 25,
+            "options": {
+               "content": "",
+               "mode": "markdown"
+            },
+            "title": "Control plane — environment scope only, unaffected by team/Postgres/branch filters",
+            "transparent": true,
+            "type": "text"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "All Postgres controllers in the selected environments. Reconciliation errors are not an inventory of stalled database creation.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "ops"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 0,
+               "y": 69
+            },
+            "id": 26,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum by (k8s_cluster_name, controller) (rate(controller_runtime_reconcile_errors_total{k8s_cluster_name=~\"${environment:regex}\", namespace=\"nais-system\", controller=~\"postgres.*[.]nais[.]io\"}[$__rate_interval]))",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{controller}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "Pgrator reconciliation errors / second",
+            "type": "timeseries"
+         },
+         {
+            "datasource": {
+               "type": "prometheus",
+               "uid": "${datasource}"
+            },
+            "description": "Maximum last-collection-error flag per branch. Missing telemetry is separately visible in the fleet table.",
+            "fieldConfig": {
+               "defaults": {
+                  "color": {
+                     "mode": "palette-classic"
+                  },
+                  "custom": {
+                     "drawStyle": "line",
+                     "fillOpacity": 5,
+                     "lineWidth": 1,
+                     "showPoints": "never",
+                     "spanNulls": false
+                  },
+                  "mappings": [
+                     {
+                        "options": {
+                           "-1": {
+                              "color": "gray",
+                              "text": "Unknown"
+                           }
+                        },
+                        "type": "value"
+                     }
+                  ],
+                  "noValue": "Unknown",
+                  "unit": "short"
+               },
+               "overrides": [ ]
+            },
+            "gridPos": {
+               "h": 7,
+               "w": 12,
+               "x": 12,
+               "y": 69
+            },
+            "id": 27,
+            "options": {
+               "legend": {
+                  "calcs": [
+                     "lastNotNull",
+                     "max"
+                  ],
+                  "displayMode": "table",
+                  "placement": "bottom"
+               },
+               "tooltip": {
+                  "mode": "multi",
+                  "sort": "desc"
+               }
+            },
+            "targets": [
+               {
+                  "datasource": {
+                     "type": "prometheus",
+                     "uid": "${datasource}"
+                  },
+                  "editorMode": "code",
+                  "expr": "max by (k8s_cluster_name, namespace, team, postgres, branch) (cnpg_collector_last_collection_error{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\", branch=~\"${branch:regex}\"})",
+                  "format": "time_series",
+                  "instant": false,
+                  "legendFormat": "{{k8s_cluster_name}} / {{team}} / {{postgres}} / {{branch}}",
+                  "range": true,
+                  "refId": "A"
+               }
+            ],
+            "title": "CNPG SQL metric collection errors",
+            "type": "timeseries"
+         }
+      ],
+      "refresh": "5m",
+      "schemaVersion": 39,
+      "tags": [
+         "nais",
+         "postgres",
+         "cnpg",
+         "operations"
+      ],
+      "templating": {
+         "list": [
+            {
+               "current": {
+                  "text": [
+                     "nav-metrics"
+                  ],
+                  "value": [
+                     "P91A6F0B3584B90E7"
+                  ]
+               },
+               "description": "One, several or all provisioned tenant metrics datasources. NAV is the single-tenant default. Each selected tenant gets its own section; All can be expensive.",
+               "includeAll": true,
+               "label": "Tenants",
+               "multi": true,
+               "name": "datasource",
+               "options": [ ],
+               "query": "prometheus",
+               "refresh": 1,
+               "regex": "/.*-metrics$/",
+               "type": "datasource"
+            },
+            {
+               "allValue": ".+",
+               "allowCustomValue": true,
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+               },
+               "description": "Suggestions come from the first selected tenant. All matches across every selected tenant; type additional exact values when another tenant has different names.",
+               "includeAll": true,
+               "label": "Environment",
+               "multi": true,
+               "name": "environment",
+               "options": [ ],
+               "query": "label_values(up{postgres!=\"\", job!=\"\"}, k8s_cluster_name)",
+               "refresh": 2,
+               "sort": 1,
+               "type": "query"
+            },
+            {
+               "allValue": ".+",
+               "allowCustomValue": true,
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+               },
+               "description": "Suggestions come from the first selected tenant. All matches across every selected tenant; type additional exact values when another tenant has different names.",
+               "includeAll": true,
+               "label": "Team",
+               "multi": true,
+               "name": "team",
+               "options": [ ],
+               "query": "label_values(up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\"}, team)",
+               "refresh": 2,
+               "sort": 1,
+               "type": "query"
+            },
+            {
+               "allValue": ".+",
+               "allowCustomValue": true,
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+               },
+               "description": "Suggestions come from the first selected tenant. All matches across every selected tenant; type additional exact values when another tenant has different names.",
+               "includeAll": true,
+               "label": "Postgres",
+               "multi": true,
+               "name": "postgres",
+               "options": [ ],
+               "query": "label_values(up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\"}, postgres)",
+               "refresh": 2,
+               "sort": 1,
+               "type": "query"
+            },
+            {
+               "allValue": ".+",
+               "allowCustomValue": true,
+               "current": {
+                  "text": "All",
+                  "value": "$__all"
+               },
+               "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+               },
+               "description": "Suggestions come from the first selected tenant. All matches across every selected tenant; type additional exact values when another tenant has different names.",
+               "includeAll": true,
+               "label": "Branch",
+               "multi": true,
+               "name": "branch",
+               "options": [ ],
+               "query": "label_values(up{postgres!=\"\", k8s_cluster_name=~\"${environment:regex}\", team=~\"${team:regex}\", postgres=~\"${postgres:regex}\"}, branch)",
+               "refresh": 2,
+               "sort": 1,
+               "type": "query"
+            }
+         ]
+      },
+      "time": {
+         "from": "now-6h",
+         "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Nais Postgres – Fleet",
+      "uid": "nais-postgres-fleet"
+   }
+}

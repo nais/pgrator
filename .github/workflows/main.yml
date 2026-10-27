@@ -8,6 +8,8 @@ on:
   push:
     paths-ignore:
       - "*.md"
+      - 'dashboards/**'
+      - '.github/workflows/dashboards.yml'
 
 env:
   GOOGLE_REGISTRY: "europe-north1-docker.pkg.dev"
