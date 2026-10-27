@@ -1,0 +1,28 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "nais-pgrator-git-sync-job-test"
+  },
+  "spec": {
+    "uid": "nais-pgrator-git-sync-job-test",
+    "title": "Pgrator Git Sync Job test",
+    "schemaVersion": 41,
+    "editable": false,
+    "tags": ["git-sync-test"],
+    "timezone": "browser",
+    "time": {"from": "now-1h", "to": "now"},
+    "panels": [
+      {
+        "id": 1,
+        "type": "text",
+        "title": "Isolated provisioning smoke test",
+        "gridPos": {"x": 0, "y": 0, "w": 24, "h": 5},
+        "options": {
+          "mode": "markdown",
+          "content": "## Git Sync from nais/pgrator\n\nRevision 1. This isolated dashboard verifies Kubernetes Job → Grafana Repository → anonymous Git sync. No datasource queries or production dashboard changes."
+        }
+      }
+    ]
+  }
+}
