@@ -8,10 +8,11 @@ Component-owned sources for the provider dashboards on `monitoring.nais.io`:
 | [Postgres – Adoption & Capacity](https://monitoring.nais.io/d/nais-postgres-adoption/) | `nais-postgres-adoption` | Reported Nais Postgres/Cloud SQL inventory, teams and trends |
 
 These are separate from Console metrics and the legacy postgres_exporter dashboard.
-The migration copies the published definitions from `nais/dashboards` commit
+The definitions were moved from `nais/dashboards` commit
 `dafce1a1b00417ea032e387aec5265058b6322e2` without changing their contents or UIDs.
-See [MIGRATION.md](MIGRATION.md) for cutover and the proposed access pattern.
-Local files are not proof that Grafana has switched repositories.
+The central Git Sync connection is managed manually and reads `main` under
+`dashboards/generated/`; see [setup and source changes](MIGRATION.md).
+No provisioning Job, Helm release or component deployment is needed.
 
 ## Develop and validate
 
