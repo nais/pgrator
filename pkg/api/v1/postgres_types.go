@@ -24,9 +24,9 @@ type PostgresResources struct {
 }
 
 type PostgresExtension struct {
-	// Name of the Postgres extension to enable.
+	// Name of the extension image to mount from the configured CNPG image catalog.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=tablefunc;citext;pageinspect;hstore;pg_logicalinspect;xml2;file_fdw;pgrowlocks;pg_visibility;pgstattuple;dict_int;pg_freespacemap;tcn;bloom;btree_gin;unaccent;seg;tsm_system_rows;insert_username;dict_xsyn;tsm_system_time;postgres_fdw;autoinc;earthdistance;amcheck;fuzzystrmatch;plpgsql;refint;uuid-ossp;intarray;btree_gist;pg_buffercache;pg_stat_statements;intagg;ltree;cube;pg_walinspect;dblink;pg_prewarm;sslinfo;pgcrypto;moddatetime;pg_trgm;pg_surgery;isn;lo;vector;pgaudit;postgis;timescaledb
+	// +kubebuilder:validation:Enum=postgis;timescaledb-oss
 	Name string `json:"name"`
 }
 
@@ -50,7 +50,9 @@ type PostgresSpec struct {
 	// +optional
 	HighAvailability bool `json:"highAvailability,omitempty"`
 
-	// Extensions to enable in the Postgres database.
+	// Extensions mounts additional extension images from the configured CNPG image catalog.
+	// Extensions bundled with the Postgres image do not need to be listed here.
+	// Mounting an extension does not activate it in a database; use CREATE EXTENSION separately.
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
 

@@ -148,13 +148,16 @@ func TestPostgresManifestWithExtensionsAndResources(t *testing.T) {
 				extra     string
 				valid     bool
 			}{
-				{name: "valid", extension: "vector", valid: true},
 				{name: "PostGIS", extension: "postgis", valid: true},
-				{name: "TimescaleDB", extension: "timescaledb", valid: true},
-				{name: "catalog image name", extension: "timescaledb-oss"},
+				{name: "TimescaleDB OSS", extension: "timescaledb-oss", valid: true},
+				{name: "SQL extension name", extension: "timescaledb"},
+				{name: "vector without catalog image", extension: "vector"},
+				{name: "bundled pg_trgm", extension: "pg_trgm"},
+				{name: "bundled dblink", extension: "dblink"},
+				{name: "bundled sslinfo", extension: "sslinfo"},
 				{name: "unknown extension", extension: "unsupported"},
-				{name: "unknown spec field", extension: "vector", extra: "  unknownField: true\n"},
-				{name: "unknown resource field", extension: "vector", extra: "    unknownField: true\n"},
+				{name: "unknown spec field", extension: "postgis", extra: "  unknownField: true\n"},
+				{name: "unknown resource field", extension: "postgis", extra: "    unknownField: true\n"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					var manifest map[string]any

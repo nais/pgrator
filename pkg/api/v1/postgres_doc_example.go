@@ -30,7 +30,7 @@ func ExamplePostgresForDocumentation() api.NaisObject {
 			ActiveBranch:     "main",
 			Extensions: []PostgresExtension{
 				{
-					Name: "pg_trgm",
+					Name: "postgis",
 				},
 			},
 		},

@@ -38,12 +38,12 @@ func acceptMissingFromExpected(path cmp.Path) bool {
 }
 
 func stringRegexEqual(a, b string) bool {
-	if strings.HasPrefix(a, RegexpMarker) {
-		pattern := regexp.MustCompile(strings.TrimSpace(strings.TrimPrefix(a, RegexpMarker)))
+	if after, ok := strings.CutPrefix(a, RegexpMarker); ok {
+		pattern := regexp.MustCompile(strings.TrimSpace(after))
 		return pattern.MatchString(b)
 	}
-	if strings.HasPrefix(b, RegexpMarker) {
-		pattern := regexp.MustCompile(strings.TrimSpace(strings.TrimPrefix(b, RegexpMarker)))
+	if after, ok := strings.CutPrefix(b, RegexpMarker); ok {
+		pattern := regexp.MustCompile(strings.TrimSpace(after))
 		return pattern.MatchString(a)
 	}
 	return a == b
