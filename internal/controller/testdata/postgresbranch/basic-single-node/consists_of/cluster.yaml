@@ -24,6 +24,7 @@ object:
       labels:
         logs.nais.io/flow-default: "false"
         logs.nais.io/flow-cnpg: "true"
+        kyverno.policy.exclusion.nais.io/restrict-volume-types: "true"
     instances: 2
     imageCatalogRef:
       apiGroup: postgresql.cnpg.io

@@ -60,6 +60,9 @@ const (
 	logFlowDefaultLabel = "logs.nais.io/flow-default"
 	logFlowCNPGLabel    = "logs.nais.io/flow-cnpg"
 
+	// Excludes the pods from the Kyverno restrict-volume-types policy.
+	kyvernoRestrictVolumeTypesExclusionLabel = "kyverno.policy.exclusion.nais.io/restrict-volume-types"
+
 	// BarmanPluginName is the CNPG-I plugin that performs WAL archiving and base
 	// backups against an ObjectStore.
 	BarmanPluginName = "barman-cloud.cloudnative-pg.io"
@@ -230,6 +233,8 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 				Labels: map[string]string{
 					logFlowDefaultLabel: "false",
 					logFlowCNPGLabel:    "true",
+
+					kyvernoRestrictVolumeTypesExclusionLabel: "true",
 				},
 			},
 

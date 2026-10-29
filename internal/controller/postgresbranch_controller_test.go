@@ -74,7 +74,7 @@ func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 	}
 }
 
-func TestPostgresBranchInheritsIdentityLabelsOnCNPGPods(t *testing.T) {
+func TestPostgresBranchSetsInheritedLabelsOnCNPGPods(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
 	reconciler := &PostgresBranchReconciler{
@@ -101,6 +101,9 @@ func TestPostgresBranchInheritsIdentityLabelsOnCNPGPods(t *testing.T) {
 		labels := cluster.Spec.InheritedMetadata.Labels
 		if labels["postgres.nais.io/name"] != "orders" || labels["postgres.nais.io/branch"] != "main" {
 			t.Errorf("inherited Postgres identity labels = %v", labels)
+		}
+		if labels["kyverno.policy.exclusion.nais.io/restrict-volume-types"] != "true" {
+			t.Errorf("inherited labels = %v, want restrict-volume-types Kyverno exclusion", labels)
 		}
 		return
 	}
