@@ -197,14 +197,30 @@ func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1
 	if !ok {
 		return nil
 	}
-	phase := cluster.Status.Phase
-	return []meta_v1.Condition{{
+	condition := meta_v1.Condition{
 		Type:               fmt.Sprintf("%s/%s", typePrefix(obj, scheme), "ObservedState"),
-		Status:             makeCondition(phase != ""),
+		Status:             meta_v1.ConditionUnknown,
 		ObservedGeneration: obj.GetGeneration(),
-		Reason:             "Reconciled",
-		Message:            fmt.Sprintf("Cluster is in phase: %s", phase),
-	}}
+		Reason:             "Unknown",
+		Message:            "No readiness status available on source resource",
+	}
+	if ready := meta.FindStatusCondition(cluster.Status.Conditions, string(cnpgv1.ConditionClusterReady)); ready != nil {
+		condition.Status = ready.Status
+		condition.Reason = ready.Reason
+		if condition.Reason == "" {
+			condition.Reason = "Reconciled"
+		}
+		if ready.Message != "" {
+			condition.Message = ready.Message
+		}
+	}
+	if cluster.Status.Phase != "" {
+		condition.Message = fmt.Sprintf("Cluster is in phase: %s", cluster.Status.Phase)
+	}
+	if cluster.Status.PhaseReason != "" {
+		condition.Message = fmt.Sprintf("%s: %s", condition.Message, cluster.Status.PhaseReason)
+	}
+	return []meta_v1.Condition{condition}
 }
 
 // cnrmConditionsGetter maps Config Connector's status conditions onto the
