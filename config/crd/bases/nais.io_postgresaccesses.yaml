@@ -53,13 +53,14 @@ spec:
             properties:
               accessLevel:
                 description: |-
-                  AccessLevel is the requested personal database access level. The dba level
-                  grants pg_monitor and pg_maintain without application data or owner privileges.
+                  AccessLevel is the requested personal access level. The maintain level grants
+                  instance monitoring and maintenance through pg_monitor and pg_maintain without
+                  application data privileges or database ownership.
                 enum:
                 - read
                 - readwrite
                 - readwritecreate
-                - dba
+                - maintain
                 type: string
                 x-kubernetes-validations:
                 - message: accessLevel is immutable
