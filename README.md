@@ -87,15 +87,18 @@ using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
 
 The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
 
-`spec.accessLevel` supports `read`, `readwrite`, `readwritecreate` and `dba`.
-The personal-only `dba` level grants direct membership in PostgreSQL's
+`spec.accessLevel` supports `read`, `readwrite`, `readwritecreate` and `maintain`.
+The personal-only `maintain` level grants direct membership in PostgreSQL's
 `pg_monitor` and `pg_maintain` roles, without application data privileges,
 database ownership or superuser privileges. It allows server-wide monitoring
 and maintenance across databases in the selected PostgreSQL cluster, not just
 the application schema. Monitoring can expose sensitive query text, and
 maintenance can acquire locks that affect availability. `pg_maintain` requires
 PostgreSQL 17 or newer. This level is not available to applications through
-`PostgresBinding`; their `admin` credential is unchanged.
+`PostgresBinding`; their `admin` credential is unchanged. `admin` is the
+application database owner, while `maintain` grants monitoring and maintenance
+of the PostgreSQL instance. The personal access API does not expose an `admin`
+level.
 
 #### Why every branch has a `-personal-access` DatabaseRole
 
@@ -112,7 +115,7 @@ DatabaseRole and grants membership in:
   through the Cluster's `pg_hba` rule; and
 - the selected privilege group (`app_read`, `app_readwrite` or
   `app_readwritecreate`), or directly in `pg_monitor` and `pg_maintain` for
-  `dba`, determining what the user may do in the database.
+  `maintain`, determining what the user may do in the database or instance.
 
 The authentication group must be unique per branch because recovery copies
 SQL roles, memberships and passwords from the source. The restored cluster's

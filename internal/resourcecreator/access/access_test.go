@@ -109,7 +109,7 @@ func TestPersonalAccessMemberships(t *testing.T) {
 		{name: "read", level: v1.PostgresAccessLevelRead, roles: []string{rccnpg.ReadRole}},
 		{name: "readwrite", level: v1.PostgresAccessLevelReadWrite, roles: []string{rccnpg.ReadWriteRole}},
 		{name: "readwritecreate", level: v1.PostgresAccessLevelReadWriteCreate, roles: []string{rccnpg.ReadWriteCreateRole}},
-		{name: "dba", level: v1.PostgresAccessLevelDBA, roles: []string{"pg_monitor", "pg_maintain"}},
+		{name: "maintain", level: v1.PostgresAccessLevelMaintain, roles: []string{"pg_monitor", "pg_maintain"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -145,11 +145,11 @@ func TestPersonalAccessMemberships(t *testing.T) {
 	}
 }
 
-func TestPersonalAccessDowngradeFromDBA(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "dba-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: v1.PostgresAccessLevelDBA,
+func TestPersonalAccessDowngradeFromMaintain(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "maintain-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: v1.PostgresAccessLevelMaintain,
 	}}
-	dba, err := CreateDatabaseRole(testScheme(t), access, true)
+	maintain, err := CreateDatabaseRole(testScheme(t), access, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestPersonalAccessDowngradeFromDBA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.Name != dba.Name || read.Spec.Name != dba.Spec.Name {
+	if read.Name != maintain.Name || read.Spec.Name != maintain.Spec.Name {
 		t.Error("a later access must reuse the durable personal identity")
 	}
 	want := []string{rccnpg.ReadRole, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
@@ -170,7 +170,7 @@ func TestPersonalAccessDowngradeFromDBA(t *testing.T) {
 }
 
 func TestPersonalAccessRejectsUnsupportedLevels(t *testing.T) {
-	for _, level := range []v1.PostgresAccessLevel{"", "admin", "unknown"} {
+	for _, level := range []v1.PostgresAccessLevel{"", "admin", "dba", "unknown"} {
 		t.Run(string(level), func(t *testing.T) {
 			access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{
 				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: level,

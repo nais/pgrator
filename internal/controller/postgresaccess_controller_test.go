@@ -88,9 +88,9 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 	}
 }
 
-func TestPostgresAccessDBAUsesBuiltinRoles(t *testing.T) {
+func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
 	a, branch, postgres, cluster := accessFixture()
-	a.Spec.AccessLevel = v1.PostgresAccessLevelDBA
+	a.Spec.AccessLevel = v1.PostgresAccessLevelMaintain
 	// Built-in roles do not require initdb-created application privilege groups.
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
 	r := makePostgresAccessReconciler()
@@ -105,11 +105,11 @@ func TestPostgresAccessDBAUsesBuiltinRoles(t *testing.T) {
 		}
 		want := []string{"pg_monitor", "pg_maintain", rccnpg.PersonalAccessRole(branch.Name)}
 		if !reflect.DeepEqual(role.Spec.InRoles, want) {
-			t.Errorf("DBA memberships = %v, want %v", role.Spec.InRoles, want)
+			t.Errorf("maintain memberships = %v, want %v", role.Spec.InRoles, want)
 		}
 		return
 	}
-	t.Fatal("DBA access must produce a DatabaseRole action")
+	t.Fatal("maintain access must produce a DatabaseRole action")
 }
 
 func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
