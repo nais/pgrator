@@ -138,9 +138,13 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 		BypassRLS:   false,
 	}
 	if active {
+		roles, err := privilegeRoles(access.Spec.AccessLevel)
+		if err != nil {
+			return nil, err
+		}
 		configuration.PasswordSecret = &cnpgv1.LocalObjectReference{Name: CredentialSecretName(access)}
 		configuration.ValidUntil = &access.Spec.ExpiresAt
-		configuration.InRoles = []string{groupRole(access.Spec.AccessLevel), rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
+		configuration.InRoles = append(roles, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch))
 	} else {
 		configuration.DisablePassword = true
 	}
@@ -162,13 +166,17 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 	return role, nil
 }
 
-func groupRole(level v1.PostgresAccessLevel) string {
+func privilegeRoles(level v1.PostgresAccessLevel) ([]string, error) {
 	switch level {
 	case v1.PostgresAccessLevelRead:
-		return rccnpg.ReadRole
+		return []string{rccnpg.ReadRole}, nil
 	case v1.PostgresAccessLevelReadWrite:
-		return rccnpg.ReadWriteRole
+		return []string{rccnpg.ReadWriteRole}, nil
+	case v1.PostgresAccessLevelReadWriteCreate:
+		return []string{rccnpg.ReadWriteCreateRole}, nil
+	case v1.PostgresAccessLevelDBA:
+		return []string{"pg_monitor", "pg_maintain"}, nil
 	default:
-		return rccnpg.ReadWriteCreateRole
+		return nil, fmt.Errorf("unsupported personal access level %q", level)
 	}
 }

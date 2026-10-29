@@ -9,6 +9,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	rcaccess "github.com/nais/pgrator/internal/resourcecreator/access"
+	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
@@ -85,6 +86,30 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 	if a.Status.ServerCASecret != "pg-db-main-78dbba05-ca" {
 		t.Errorf("server CA Secret = %q, want CNPG default", a.Status.ServerCASecret)
 	}
+}
+
+func TestPostgresAccessDBAUsesBuiltinRoles(t *testing.T) {
+	a, branch, postgres, cluster := accessFixture()
+	a.Spec.AccessLevel = v1.PostgresAccessLevelDBA
+	// Built-in roles do not require initdb-created application privilege groups.
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
+	r := makePostgresAccessReconciler()
+	prepared, _, err := r.Prepare(t.Context(), reader, a)
+	requireNoError(t, err)
+	actions, _, err := r.Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+	requireNoError(t, err)
+	for _, a := range actions {
+		role, ok := a.GetObject().(*cnpgv1.DatabaseRole)
+		if !ok {
+			continue
+		}
+		want := []string{"pg_monitor", "pg_maintain", rccnpg.PersonalAccessRole(branch.Name)}
+		if !reflect.DeepEqual(role.Spec.InRoles, want) {
+			t.Errorf("DBA memberships = %v, want %v", role.Spec.InRoles, want)
+		}
+		return
+	}
+	t.Fatal("DBA access must produce a DatabaseRole action")
 }
 
 func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
