@@ -40,7 +40,7 @@ func TestClusterConditionGetter(t *testing.T) {
 			wantMessage: `Cluster is in phase: Cluster has incomplete or invalid image catalog: extension "dblink" found in the Cluster Spec but no ImageVolumeSource.Reference is defined`,
 		},
 		{
-			name: "unknown readiness",
+			name:       "unknown readiness",
 			ready:      &metav1.Condition{Status: metav1.ConditionUnknown, Reason: "Checking", Message: "Checking cluster readiness"},
 			wantStatus: metav1.ConditionUnknown, wantReason: "Checking", wantMessage: "Checking cluster readiness",
 		},
@@ -49,7 +49,7 @@ func TestClusterConditionGetter(t *testing.T) {
 			wantStatus: metav1.ConditionUnknown, wantReason: "Unknown", wantMessage: "Cluster is in phase: Setting up primary",
 		},
 		{
-			name: "missing status",
+			name:       "missing status",
 			wantStatus: metav1.ConditionUnknown, wantReason: "Unknown", wantMessage: "No readiness status available on source resource",
 		},
 	} {
