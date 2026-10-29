@@ -12,6 +12,8 @@ const (
 	PostgresAccessLevelRead            PostgresAccessLevel = "read"
 	PostgresAccessLevelReadWrite       PostgresAccessLevel = "readwrite"
 	PostgresAccessLevelReadWriteCreate PostgresAccessLevel = "readwritecreate"
+	// PostgresAccessLevelDBA grants personal monitoring and maintenance access.
+	PostgresAccessLevelDBA PostgresAccessLevel = "dba"
 )
 
 // PostgresAccessSpec defines one immutable, time-limited personal access request.
@@ -26,8 +28,9 @@ type PostgresAccessSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="username is immutable"
 	Username string `json:"username"`
 
-	// AccessLevel is the requested database access level.
-	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate
+	// AccessLevel is the requested personal database access level. The dba level
+	// grants pg_monitor and pg_maintain without application data or owner privileges.
+	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate;dba
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accessLevel is immutable"
 	AccessLevel PostgresAccessLevel `json:"accessLevel"`
 

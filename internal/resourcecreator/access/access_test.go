@@ -1,10 +1,13 @@
 package access
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -94,6 +97,88 @@ func TestCredentialSecretUsesPostgreSQLIdentity(t *testing.T) {
 	}
 	if got := secret.StringData["username"]; got != access.Spec.Username {
 		t.Errorf("credential username = %q, want %q", got, access.Spec.Username)
+	}
+}
+
+func TestPersonalAccessMemberships(t *testing.T) {
+	tests := []struct {
+		name  string
+		level v1.PostgresAccessLevel
+		roles []string
+	}{
+		{name: "read", level: v1.PostgresAccessLevelRead, roles: []string{rccnpg.ReadRole}},
+		{name: "readwrite", level: v1.PostgresAccessLevelReadWrite, roles: []string{rccnpg.ReadWriteRole}},
+		{name: "readwritecreate", level: v1.PostgresAccessLevelReadWriteCreate, roles: []string{rccnpg.ReadWriteCreateRole}},
+		{name: "dba", level: v1.PostgresAccessLevelDBA, roles: []string{"pg_monitor", "pg_maintain"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: tt.level,
+				ExpiresAt: metav1.NewTime(time.Now().Add(time.Hour)),
+			}}
+			role, err := CreateDatabaseRole(testScheme(t), access, true)
+			if err != nil {
+				t.Fatalf("CreateDatabaseRole() error = %v", err)
+			}
+			want := append(slices.Clone(tt.roles), rccnpg.PersonalAccessRole(access.Spec.PostgresBranch))
+			if !slices.Equal(role.Spec.InRoles, want) {
+				t.Errorf("memberships = %v, want %v", role.Spec.InRoles, want)
+			}
+			if !role.Spec.Login || role.Spec.PasswordSecret == nil || role.Spec.PasswordSecret.Name != CredentialSecretName(access) || role.Spec.ValidUntil == nil || !role.Spec.ValidUntil.Equal(&access.Spec.ExpiresAt) {
+				t.Error("active personal access must have login, its password Secret and expiry")
+			}
+			if role.Spec.Superuser || role.Spec.CreateDB || role.Spec.CreateRole || role.Spec.Replication || role.Spec.BypassRLS {
+				t.Error("personal access must not enable privileged role attributes")
+			}
+			inactive, err := CreateDatabaseRole(testScheme(t), access, false)
+			if err != nil {
+				t.Fatalf("CreateDatabaseRole(inactive) error = %v", err)
+			}
+			if inactive.Spec.Name != role.Spec.Name || inactive.Name != role.Name {
+				t.Error("deactivation must preserve the personal identity")
+			}
+			if inactive.Spec.Login || !inactive.Spec.DisablePassword || inactive.Spec.PasswordSecret != nil || len(inactive.Spec.InRoles) != 0 {
+				t.Error("inactive personal access must disable login and password without retaining memberships")
+			}
+		})
+	}
+}
+
+func TestPersonalAccessDowngradeFromDBA(t *testing.T) {
+	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "dba-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+		Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: v1.PostgresAccessLevelDBA,
+	}}
+	dba, err := CreateDatabaseRole(testScheme(t), access, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Access requests are immutable: a later request reuses the durable identity.
+	access.Name = "read-access"
+	access.Spec.AccessLevel = v1.PostgresAccessLevelRead
+	read, err := CreateDatabaseRole(testScheme(t), access, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Name != dba.Name || read.Spec.Name != dba.Spec.Name {
+		t.Error("a later access must reuse the durable personal identity")
+	}
+	want := []string{rccnpg.ReadRole, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
+	if !slices.Equal(read.Spec.InRoles, want) {
+		t.Errorf("downgraded memberships = %v, want %v", read.Spec.InRoles, want)
+	}
+}
+
+func TestPersonalAccessRejectsUnsupportedLevels(t *testing.T) {
+	for _, level := range []v1.PostgresAccessLevel{"", "admin", "unknown"} {
+		t.Run(string(level), func(t *testing.T) {
+			access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{
+				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: level,
+			}}
+			if _, err := CreateDatabaseRole(testScheme(t), access, true); err == nil {
+				t.Fatal("unsupported access level must not grant privileges")
+			}
+		})
 	}
 }
 

@@ -52,11 +52,14 @@ spec:
               description: PostgresAccessSpec defines one immutable, time-limited personal access request.
               properties:
                 accessLevel:
-                  description: AccessLevel is the requested database access level.
+                  description: |-
+                    AccessLevel is the requested personal database access level. The dba level
+                    grants pg_monitor and pg_maintain without application data or owner privileges.
                   enum:
                     - read
                     - readwrite
                     - readwritecreate
+                    - dba
                   type: string
                   x-kubernetes-validations:
                     - message: accessLevel is immutable
