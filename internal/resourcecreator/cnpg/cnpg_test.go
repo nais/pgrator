@@ -171,10 +171,8 @@ func TestReadWriteCreateRoleHasExplicitCreatePrivilege(t *testing.T) {
 
 func assertSQLContains(t *testing.T, statements []string, want string) {
 	t.Helper()
-	for _, statement := range statements {
-		if statement == want {
-			return
-		}
+	if slices.Contains(statements, want) {
+		return
 	}
 	t.Errorf("SQL statements = %#v, want %q", statements, want)
 }

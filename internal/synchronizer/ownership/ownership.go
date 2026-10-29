@@ -2,6 +2,7 @@ package ownership
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -30,12 +31,7 @@ func makeOwnerAnnotation(obj client.Object) string {
 
 func (o *ownerManager) HasOwnerAnnotation(obj, owner client.Object) bool {
 	ownerAnnotation := makeOwnerAnnotation(owner)
-	for _, ownerReference := range o.GetOwnerAnnotations(obj) {
-		if ownerReference == ownerAnnotation {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(o.GetOwnerAnnotations(obj), ownerAnnotation)
 }
 
 func (o *ownerManager) AddOwnerAnnotation(obj client.Object, owner client.Object) {

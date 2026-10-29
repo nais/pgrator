@@ -598,10 +598,8 @@ func isNil(value any) bool {
 
 func requireSliceContains(t *testing.T, values []string, want string) {
 	t.Helper()
-	for _, v := range values {
-		if v == want {
-			return
-		}
+	if slices.Contains(values, want) {
+		return
 	}
 	t.Fatalf("expected slice %v to contain %q", values, want)
 }

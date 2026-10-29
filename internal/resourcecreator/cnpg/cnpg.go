@@ -571,10 +571,7 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 	sharedBuffers := memBytes / sharedBuffersFraction
 	effectiveCacheSize := memBytes * 3 / effectiveCacheSizeFraction
 	workMem := memBytes / workMemFraction
-	maintenanceWorkMem := memBytes / maintenanceWorkMemFraction
-	if maintenanceWorkMem > maxMaintenanceWorkMemBytes {
-		maintenanceWorkMem = maxMaintenanceWorkMemBytes
-	}
+	maintenanceWorkMem := min(memBytes/maintenanceWorkMemFraction, maxMaintenanceWorkMemBytes)
 
 	mb := func(b int64) string { return fmt.Sprintf("%dMB", b/(1024*1024)) }
 
