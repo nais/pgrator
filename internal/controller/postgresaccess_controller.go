@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -285,7 +286,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	return prep, ctrl.Result{}, nil
 }
 
-func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared PostgresAccessPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	if prepared.Expired {
 		status := access.GetStatus().(*v1.PostgresAccessStatus)
 		status.RelayAccess = ""
@@ -294,7 +295,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		status.ServerName = ""
 		status.ServerCASecret = ""
 		status.SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "Expired", Message: "access has expired"})
-		return nil, ctrl.Result{}, nil
+		return r.revokeAccess(access, related)
 	}
 	if access.Spec.AccessLevel == v1.PostgresAccessLevelReadWriteCreate && !rccnpg.ReadWriteCreateCapable(prepared.Cluster) {
 		// The instance's cluster was initialized without the app_readwritecreate
@@ -317,7 +318,11 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	role, err := rcaccess.CreateDatabaseRole(r.Scheme, access, true)
+	// The synchronizer persists its finalizer after successful actions. Do not
+	// grant SQL access until that cleanup responsibility is durable: a partial
+	// first reconcile followed by deletion must not leave retained privileges.
+	active := controllerutil.ContainsFinalizer(access, r.Name())
+	role, err := rcaccess.CreateDatabaseRole(r.Scheme, access, active)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 	}
@@ -372,18 +377,64 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		prepared.Role.Spec.Login && prepared.Role.Spec.ValidUntil != nil &&
 		prepared.Role.Spec.ValidUntil.Time.Truncate(time.Second).Equal(access.Spec.ExpiresAt.Truncate(time.Second)) &&
 		reflect.DeepEqual(prepared.Role.Spec.InRoles, role.Spec.InRoles)
-	setPostgresAccessReadyCondition(status, roleReady && prepared.TokenPersisted && status.RelayEndpoint != "")
+	setPostgresAccessReadyCondition(status, active && roleReady && prepared.TokenPersisted && status.RelayEndpoint != "")
+	requeueAfter := time.Until(access.Spec.ExpiresAt.Time)
+	if !active {
+		requeueAfter = time.Second
+	}
 	return []action.Action{
 		action.ExclusiveCreateOrUpdate(secret, access, existsConditionGetter, r.Recorder),
 		action.CreateOrUpdate(role, access, databaseRoleConditionGetter, r.Recorder),
 		action.ExclusiveCreateOrUpdate(tokenSecret, access, existsConditionGetter, r.Recorder),
 		relayAction,
 		action.ExclusiveCreateOrUpdate(netpol, access, existsConditionGetter, r.Recorder),
-	}, ctrl.Result{RequeueAfter: time.Until(access.Spec.ExpiresAt.Time)}, nil
+	}, ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
-func (r *PostgresAccessReconciler) Delete(*v1.PostgresAccess, PostgresAccessPreparedData, reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	return nil, ctrl.Result{}, nil
+func (r *PostgresAccessReconciler) Delete(access *v1.PostgresAccess, _ PostgresAccessPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	return r.revokeAccess(access, related)
+}
+
+func (r *PostgresAccessReconciler) revokeAccess(access *v1.PostgresAccess, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	actions, result, err := r.revokeRole(access, related)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	// Close the transport and remove credentials even while CNPG is unavailable.
+	// Related objects include other accesses; delete only this access's children.
+	for _, objectType := range []client.Object{&corev1.Secret{}, relayAccessObject(), &networkingv1.NetworkPolicy{}} {
+		for _, object := range related.GetMatchingType(objectType) {
+			if metav1.IsControlledBy(object, access) {
+				actions = append(actions, action.DeleteIfExists(object, access, existsConditionGetter, r.Recorder))
+			}
+		}
+	}
+	return actions, result, nil
+}
+
+// revokeRole preserves the personal SQL identity and owned objects, but waits
+// for CNPG to remove credentials and memberships before deleting its Retain CR.
+func (r *PostgresAccessReconciler) revokeRole(access *v1.PostgresAccess, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	key := &cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{
+		Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch), Namespace: access.Namespace,
+	}}
+	object := related.GetMatching(key)
+	if object == nil {
+		return nil, ctrl.Result{}, nil
+	}
+	role := object.(*cnpgv1.DatabaseRole)
+	if !metav1.IsControlledBy(role, access) || role.Spec.Name != access.Spec.Username {
+		return nil, ctrl.Result{}, fmt.Errorf("personal DatabaseRole identity or owner does not match PostgresAccess")
+	}
+	if databaseRoleIsReady(role) && !role.Spec.Login && role.Spec.DisablePassword &&
+		role.Spec.PasswordSecret == nil && len(role.Spec.InRoles) == 0 {
+		return nil, ctrl.Result{}, nil
+	}
+	disabled, err := rcaccess.CreateDatabaseRole(r.Scheme, access, false)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	return []action.Action{action.CreateOrUpdate(disabled, access, databaseRoleConditionGetter, r.Recorder)}, ctrl.Result{RequeueAfter: time.Second}, nil
 }
 
 func databaseRoleConditionGetter(object client.Object, _ *runtime.Scheme) []metav1.Condition {

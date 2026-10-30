@@ -109,6 +109,7 @@ func TestPersonalAccessMemberships(t *testing.T) {
 		{name: "read", level: v1.PostgresAccessLevelRead, roles: []string{rccnpg.ReadRole}},
 		{name: "readwrite", level: v1.PostgresAccessLevelReadWrite, roles: []string{rccnpg.ReadWriteRole}},
 		{name: "readwritecreate", level: v1.PostgresAccessLevelReadWriteCreate, roles: []string{rccnpg.ReadWriteCreateRole}},
+		{name: "admin", level: v1.PostgresAccessLevelAdmin, roles: []string{rccnpg.OwnerRole}},
 		{name: "maintain", level: v1.PostgresAccessLevelMaintain, roles: []string{"pg_monitor", "pg_maintain"}},
 	}
 	for _, tt := range tests {
@@ -170,7 +171,7 @@ func TestPersonalAccessDowngradeFromMaintain(t *testing.T) {
 }
 
 func TestPersonalAccessRejectsUnsupportedLevels(t *testing.T) {
-	for _, level := range []v1.PostgresAccessLevel{"", "admin", "dba", "unknown"} {
+	for _, level := range []v1.PostgresAccessLevel{"", "dba", "unknown"} {
 		t.Run(string(level), func(t *testing.T) {
 			access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{
 				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: level,

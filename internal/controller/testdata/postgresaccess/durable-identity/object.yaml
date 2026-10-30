@@ -4,6 +4,8 @@ kind: PostgresAccess
 metadata:
   name: frode-orders-access
   namespace: myteam
+  finalizers:
+    - postgresaccess.nais.io
 spec:
   postgresBranch: orders-restore-15aaddee
   username: frode.sundby@nav.no
