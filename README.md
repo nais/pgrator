@@ -83,11 +83,26 @@ using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
 
 #### Personal access
 
-`PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry removes access resources while CNPG's `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
+`PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry and deletion remove transport resources and credentials, disable SQL login and the password, and remove role memberships. Pgrator waits for CNPG to apply the inactive role configuration before deleting its `DatabaseRole` resource. `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Cleanup can remain pending while CNPG is unavailable; this is not a hard cutoff for existing SQL sessions. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
 
 The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
 
-`spec.accessLevel` supports `read`, `readwrite`, `readwritecreate` and `maintain`.
+`spec.accessLevel` supports `read`, `readwrite`, `admin` and `maintain`, plus
+the deprecated `readwritecreate` level for compatibility. Personal `admin` grants
+membership in the existing `app` owner role: the same database privileges as the
+workload admin credential, including creating schemas and managing app-owned
+objects, without PostgreSQL superuser privileges. The login remains the person's
+email. This works with existing and recovered clusters without a bootstrap migration.
+
+Objects created as the personal role remain personally owned. For workload-owned
+objects and the `app` role's default privileges, use `SET ROLE app` before DDL;
+`session_user` still identifies the person, while `current_user` becomes `app`.
+Membership does not apply the owner's default privileges to personally created objects.
+
+`readwritecreate` keeps its original privileges (read/write and CREATE in `public`),
+not database ownership. Existing access is not upgraded automatically, and the
+`app_readwritecreate` SQL role and existing objects are not removed.
+
 The personal-only `maintain` level grants direct membership in PostgreSQL's
 `pg_monitor` and `pg_maintain` roles, without application data privileges,
 database ownership or superuser privileges. It allows server-wide monitoring
@@ -97,8 +112,7 @@ maintenance can acquire locks that affect availability. `pg_maintain` requires
 PostgreSQL 17 or newer. This level is not available to applications through
 `PostgresBinding`; their `admin` credential is unchanged. `admin` is the
 application database owner, while `maintain` grants monitoring and maintenance
-of the PostgreSQL instance. The personal access API does not expose an `admin`
-level.
+of the PostgreSQL instance.
 
 #### Why every branch has a `-personal-access` DatabaseRole
 
@@ -113,9 +127,10 @@ DatabaseRole and grants membership in:
 
 - the branch's authentication group, allowing TLS/SCRAM password authentication
   through the Cluster's `pg_hba` rule; and
-- the selected privilege group (`app_read`, `app_readwrite` or
-  `app_readwritecreate`), or directly in `pg_monitor` and `pg_maintain` for
-  `maintain`, determining what the user may do in the database or instance.
+- the selected privilege group (`app_read`, `app_readwrite` or the legacy
+  `app_readwritecreate`), the `app` owner role for `admin`, or directly
+  `pg_monitor` and `pg_maintain` for `maintain`, determining what the user may
+  do in the database or instance.
 
 The authentication group must be unique per branch because recovery copies
 SQL roles, memberships and passwords from the source. The restored cluster's

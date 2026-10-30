@@ -9,7 +9,12 @@ relay-backed access. ADR 0007 renames physical instances to `PostgresBranch`.
 Since then, the PostgreSQL role name has changed to the authenticated email
 (verbatim, with a 63-byte limit); the branch-specific Kubernetes DatabaseRole
 object name remains hashed. Existing SQL roles are not migrated automatically.
-For the current contract see the [README](../../README.md) and the API types.
+Personal `admin` now grants membership in the existing `app` owner role;
+`readwritecreate` is retained only for compatibility. Expiry and deletion now
+wait for CNPG to disable login/password and remove memberships before removing
+the retained role's Kubernetes resource. This supersedes the no-wait cleanup
+behavior described below. For the current contract see the
+[README](../../README.md) and the API types.
 
 Personal access crosses separate transport and database boundaries. A WireGuard
 tunnel provides a private path, but it is not a PostgreSQL identity.

@@ -90,6 +90,7 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 
 func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
 	a, branch, postgres, cluster := accessFixture()
+	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	a.Spec.AccessLevel = v1.PostgresAccessLevelMaintain
 	// Built-in roles do not require initdb-created application privilege groups.
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
@@ -185,6 +186,7 @@ func TestPostgresAccessPreservesTokenAcrossReconcile(t *testing.T) {
 
 func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T) {
 	a, i, p, c := accessFixture()
+	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	r := makePostgresAccessReconciler()
 	tokenText, err := rcaccess.NewToken()
 	requireNoError(t, err)
@@ -417,6 +419,7 @@ func TestPostgresAccessMappingSurvivesAPIServerRoundTrip(t *testing.T) {
 
 func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 	a, i, p, c := accessFixture()
+	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(3 * time.Second))
 	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, a, true)
 	requireNoError(t, err)
@@ -479,11 +482,11 @@ func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
 	}
 }
 
-func TestPostgresAccessDeletionLetsGarbageCollectionRemoveOwnedResources(t *testing.T) {
+func TestPostgresAccessDeletionWithoutResourcesCompletesImmediately(t *testing.T) {
 	actions, result, err := makePostgresAccessReconciler().Delete(&v1.PostgresAccess{}, PostgresAccessPreparedData{}, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
 	requireNoError(t, err)
 	if len(actions) != 0 || !result.IsZero() {
-		t.Error("deletion must leave owned resources to garbage collection")
+		t.Error("deletion without owned resources must complete without waiting")
 	}
 }
 
