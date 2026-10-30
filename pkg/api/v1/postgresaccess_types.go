@@ -32,11 +32,7 @@ type PostgresAccessSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="username is immutable"
 	Username string `json:"username"`
 
-	// AccessLevel is the requested personal access level. Admin grants the same database
-	// privileges as the workload admin through membership in the app owner role, without
-	// superuser privileges. Readwritecreate is deprecated and only grants CREATE in public.
-	// Maintain grants instance monitoring and maintenance through pg_monitor and pg_maintain
-	// without application data privileges or database ownership.
+	// AccessLevel is the requested personal database access level.
 	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate;admin;maintain
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accessLevel is immutable"
 	AccessLevel PostgresAccessLevel `json:"accessLevel"`

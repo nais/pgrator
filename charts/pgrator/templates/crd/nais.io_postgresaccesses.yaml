@@ -52,12 +52,7 @@ spec:
               description: PostgresAccessSpec defines one immutable, time-limited personal access request.
               properties:
                 accessLevel:
-                  description: |-
-                    AccessLevel is the requested personal access level. Admin grants the same database
-                    privileges as the workload admin through membership in the app owner role, without
-                    superuser privileges. Readwritecreate is deprecated and only grants CREATE in public.
-                    Maintain grants instance monitoring and maintenance through pg_monitor and pg_maintain
-                    without application data privileges or database ownership.
+                  description: AccessLevel is the requested personal database access level.
                   enum:
                     - read
                     - readwrite

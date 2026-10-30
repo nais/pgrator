@@ -423,8 +423,13 @@ func (r *PostgresAccessReconciler) revokeRole(access *v1.PostgresAccess, related
 		return nil, ctrl.Result{}, nil
 	}
 	role := object.(*cnpgv1.DatabaseRole)
-	if !metav1.IsControlledBy(role, access) || role.Spec.Name != access.Spec.Username {
-		return nil, ctrl.Result{}, fmt.Errorf("personal DatabaseRole identity or owner does not match PostgresAccess")
+	// A newer access can reuse this role name after the old access expires.
+	// Its role is not part of this access's cleanup.
+	if !metav1.IsControlledBy(role, access) {
+		return nil, ctrl.Result{}, nil
+	}
+	if role.Spec.Name != access.Spec.Username {
+		return nil, ctrl.Result{}, fmt.Errorf("personal DatabaseRole identity does not match PostgresAccess")
 	}
 	if databaseRoleIsReady(role) && !role.Spec.Login && role.Spec.DisablePassword &&
 		role.Spec.PasswordSecret == nil && len(role.Spec.InRoles) == 0 {
