@@ -12,18 +12,22 @@ import (
 
 const postgresAccessValidationNamespace = "default"
 
-func TestPostgresAccessMaintainAdmission(t *testing.T) {
-	access, _, _, _ := accessFixture()
-	access.Name = "maintain-access-validation"
-	access.Namespace = postgresAccessValidationNamespace
-	access.UID = ""
-	access.Spec.AccessLevel = v1.PostgresAccessLevelMaintain
-	requireNoError(t, k8sClient.Create(t.Context(), access))
-	t.Cleanup(func() { requireNoError(t, client.IgnoreNotFound(k8sClient.Delete(context.Background(), access))) })
+func TestPostgresAccessPrivilegedLevelAdmission(t *testing.T) {
+	for _, level := range []v1.PostgresAccessLevel{v1.PostgresAccessLevelMaintain, v1.PostgresAccessLevelAdmin} {
+		t.Run(string(level), func(t *testing.T) {
+			access, _, _, _ := accessFixture()
+			access.Name = string(level) + "-access-validation"
+			access.Namespace = postgresAccessValidationNamespace
+			access.UID = ""
+			access.Spec.AccessLevel = level
+			requireNoError(t, k8sClient.Create(t.Context(), access))
+			t.Cleanup(func() { requireNoError(t, client.IgnoreNotFound(k8sClient.Delete(context.Background(), access))) })
 
-	access.Spec.AccessLevel = v1.PostgresAccessLevelRead
-	if err := k8sClient.Update(t.Context(), access); !apierrors.IsInvalid(err) {
-		t.Fatalf("changing maintain access level must be rejected as immutable, got %v", err)
+			access.Spec.AccessLevel = v1.PostgresAccessLevelRead
+			if err := k8sClient.Update(t.Context(), access); !apierrors.IsInvalid(err) {
+				t.Fatalf("changing access level must be rejected as immutable, got %v", err)
+			}
+		})
 	}
 }
 

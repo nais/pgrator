@@ -87,7 +87,27 @@ using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
 
 The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
 
-`spec.accessLevel` supports `read`, `readwrite`, `readwritecreate` and `maintain`.
+`spec.accessLevel` supports `read`, `readwrite`, `readwritecreate`, `admin` and
+`maintain`. Personal `admin` grants membership in `app`, the same database owner
+used by workload admin credentials, while retaining the person's email as the
+login role. It can create schemas and alter or drop existing app-owned objects.
+It does not grant `pg_monitor`, `pg_maintain`, superuser or role-creation privileges.
+This is destructive access: database-owner privileges also allow changing grants
+and dropping the application database.
+
+New objects are owned by the personal role unless the session uses `SET ROLE app`.
+Use `SET ROLE app` for migrations that must create app-owned objects with the app
+role's default privileges. `session_user` remains the personal identity, while
+`current_user` becomes `app`; role-specific login settings are not applied by
+`SET ROLE`. Admin membership does not automatically grant application workloads
+access to objects created under the personal role. Existing sessions and durable
+changes made by an admin are not undone at access expiry.
+
+`readwritecreate` remains a separate, narrower level: read/write plus object
+creation inside `public`, without membership in `app` or permission to create
+schemas. Admin uses the existing owner role and does not require the bootstrap
+capability marker used for `readwritecreate`.
+
 The personal-only `maintain` level grants direct membership in PostgreSQL's
 `pg_monitor` and `pg_maintain` roles, without application data privileges,
 database ownership or superuser privileges. It allows server-wide monitoring
@@ -97,8 +117,7 @@ maintenance can acquire locks that affect availability. `pg_maintain` requires
 PostgreSQL 17 or newer. This level is not available to applications through
 `PostgresBinding`; their `admin` credential is unchanged. `admin` is the
 application database owner, while `maintain` grants monitoring and maintenance
-of the PostgreSQL instance. The personal access API does not expose an `admin`
-level.
+of the PostgreSQL instance.
 
 #### Why every branch has a `-personal-access` DatabaseRole
 
@@ -114,7 +133,8 @@ DatabaseRole and grants membership in:
 - the branch's authentication group, allowing TLS/SCRAM password authentication
   through the Cluster's `pg_hba` rule; and
 - the selected privilege group (`app_read`, `app_readwrite` or
-  `app_readwritecreate`), or directly in `pg_monitor` and `pg_maintain` for
+  `app_readwritecreate`), the owner role `app` for `admin`, or directly in
+  `pg_monitor` and `pg_maintain` for
   `maintain`, determining what the user may do in the database or instance.
 
 The authentication group must be unique per branch because recovery copies

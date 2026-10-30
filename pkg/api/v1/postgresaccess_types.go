@@ -12,6 +12,8 @@ const (
 	PostgresAccessLevelRead            PostgresAccessLevel = "read"
 	PostgresAccessLevelReadWrite       PostgresAccessLevel = "readwrite"
 	PostgresAccessLevelReadWriteCreate PostgresAccessLevel = "readwritecreate"
+	// PostgresAccessLevelAdmin grants membership in the application database owner role.
+	PostgresAccessLevelAdmin PostgresAccessLevel = "admin"
 	// PostgresAccessLevelMaintain grants personal instance monitoring and maintenance access.
 	PostgresAccessLevelMaintain PostgresAccessLevel = "maintain"
 )
@@ -28,10 +30,12 @@ type PostgresAccessSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="username is immutable"
 	Username string `json:"username"`
 
-	// AccessLevel is the requested personal access level. The maintain level grants
+	// AccessLevel is the requested personal access level. Admin grants membership
+	// in the application database owner role. Readwritecreate only grants object
+	// creation in public, not database ownership. The maintain level grants
 	// instance monitoring and maintenance through pg_monitor and pg_maintain without
 	// application data privileges or database ownership.
-	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate;maintain
+	// +kubebuilder:validation:Enum=read;readwrite;readwritecreate;admin;maintain
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accessLevel is immutable"
 	AccessLevel PostgresAccessLevel `json:"accessLevel"`
 

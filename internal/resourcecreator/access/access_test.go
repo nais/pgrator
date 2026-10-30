@@ -109,6 +109,7 @@ func TestPersonalAccessMemberships(t *testing.T) {
 		{name: "read", level: v1.PostgresAccessLevelRead, roles: []string{rccnpg.ReadRole}},
 		{name: "readwrite", level: v1.PostgresAccessLevelReadWrite, roles: []string{rccnpg.ReadWriteRole}},
 		{name: "readwritecreate", level: v1.PostgresAccessLevelReadWriteCreate, roles: []string{rccnpg.ReadWriteCreateRole}},
+		{name: "admin", level: v1.PostgresAccessLevelAdmin, roles: []string{rccnpg.OwnerRole}},
 		{name: "maintain", level: v1.PostgresAccessLevelMaintain, roles: []string{"pg_monitor", "pg_maintain"}},
 	}
 	for _, tt := range tests {
@@ -145,32 +146,36 @@ func TestPersonalAccessMemberships(t *testing.T) {
 	}
 }
 
-func TestPersonalAccessDowngradeFromMaintain(t *testing.T) {
-	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "maintain-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
-		Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: v1.PostgresAccessLevelMaintain,
-	}}
-	maintain, err := CreateDatabaseRole(testScheme(t), access, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Access requests are immutable: a later request reuses the durable identity.
-	access.Name = "read-access"
-	access.Spec.AccessLevel = v1.PostgresAccessLevelRead
-	read, err := CreateDatabaseRole(testScheme(t), access, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if read.Name != maintain.Name || read.Spec.Name != maintain.Spec.Name {
-		t.Error("a later access must reuse the durable personal identity")
-	}
-	want := []string{rccnpg.ReadRole, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
-	if !slices.Equal(read.Spec.InRoles, want) {
-		t.Errorf("downgraded memberships = %v, want %v", read.Spec.InRoles, want)
+func TestPersonalAccessDowngrade(t *testing.T) {
+	for _, level := range []v1.PostgresAccessLevel{v1.PostgresAccessLevelMaintain, v1.PostgresAccessLevelAdmin} {
+		t.Run(string(level), func(t *testing.T) {
+			access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "privileged-access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{
+				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: level,
+			}}
+			privileged, err := CreateDatabaseRole(testScheme(t), access, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Access requests are immutable: a later request reuses the durable identity.
+			access.Name = "read-access"
+			access.Spec.AccessLevel = v1.PostgresAccessLevelRead
+			read, err := CreateDatabaseRole(testScheme(t), access, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read.Name != privileged.Name || read.Spec.Name != privileged.Spec.Name {
+				t.Error("a later access must reuse the durable personal identity")
+			}
+			want := []string{rccnpg.ReadRole, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch)}
+			if !slices.Equal(read.Spec.InRoles, want) {
+				t.Errorf("downgraded memberships = %v, want %v", read.Spec.InRoles, want)
+			}
+		})
 	}
 }
 
 func TestPersonalAccessRejectsUnsupportedLevels(t *testing.T) {
-	for _, level := range []v1.PostgresAccessLevel{"", "admin", "dba", "unknown"} {
+	for _, level := range []v1.PostgresAccessLevel{"", "dba", "unknown"} {
 		t.Run(string(level), func(t *testing.T) {
 			access := &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{
 				Username: "frode@nav.no", PostgresBranch: "orders-main", AccessLevel: level,

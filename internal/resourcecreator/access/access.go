@@ -174,6 +174,8 @@ func privilegeRoles(level v1.PostgresAccessLevel) ([]string, error) {
 		return []string{rccnpg.ReadWriteRole}, nil
 	case v1.PostgresAccessLevelReadWriteCreate:
 		return []string{rccnpg.ReadWriteCreateRole}, nil
+	case v1.PostgresAccessLevelAdmin:
+		return []string{rccnpg.OwnerRole}, nil
 	case v1.PostgresAccessLevelMaintain:
 		return []string{"pg_monitor", "pg_maintain"}, nil
 	default:

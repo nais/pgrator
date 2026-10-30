@@ -53,13 +53,16 @@ spec:
             properties:
               accessLevel:
                 description: |-
-                  AccessLevel is the requested personal access level. The maintain level grants
+                  AccessLevel is the requested personal access level. Admin grants membership
+                  in the application database owner role. Readwritecreate only grants object
+                  creation in public, not database ownership. The maintain level grants
                   instance monitoring and maintenance through pg_monitor and pg_maintain without
                   application data privileges or database ownership.
                 enum:
                 - read
                 - readwrite
                 - readwritecreate
+                - admin
                 - maintain
                 type: string
                 x-kubernetes-validations:
