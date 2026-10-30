@@ -1,0 +1,87 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: postgresaccess-admin
+spec:
+  description: >-
+    Personal admin access is reconciled through CNPG into effective database-owner
+    privileges. SET ROLE preserves the personal session identity. Replacing the
+    access with readwritecreate revokes owner membership on a new SQL connection.
+    Relay transport is out of scope: tests authenticate over TLS on the primary's
+    loopback interface using the issued personal password, not a superuser session.
+  steps:
+    - name: Create a real PostgreSQL cluster
+      try:
+        - apply:
+            resource:
+              apiVersion: nais.io/v1
+              kind: Postgres
+              metadata:
+                name: mydb
+              spec:
+                majorVersion: "18"
+        - script:
+            timeout: 360s
+            content: |
+              set -eu
+              kubectl wait -n "$NAMESPACE" --for=create cluster/pg-mydb-main-6bc4781b --timeout=60s
+              kubectl wait -n "$NAMESPACE" --for=condition=Ready cluster/pg-mydb-main-6bc4781b --timeout=300s
+              primary=$(kubectl get cluster pg-mydb-main-6bc4781b -n "$NAMESPACE" -o jsonpath='{.status.currentPrimary}')
+              kubectl exec -i -n "$NAMESPACE" "$primary" -c postgres -- \
+                psql -X -v ON_ERROR_STOP=1 -U postgres -d app < bootstrap.sql
+
+    - name: Request personal admin access
+      try:
+        - script:
+            content: |
+              sh request-access.sh admin-access admin
+        - assert:
+            timeout: 120s
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              spec:
+                name: e2e-admin@example.com
+              status:
+                applied: true
+
+    - name: New personal connection can administer the database
+      try:
+        - script:
+            timeout: 60s
+            content: |
+              sh connect.sh admin-access admin.sql
+
+    - name: Withdraw the immutable admin request before requesting a lower level
+      try:
+        - script:
+            timeout: 120s
+            content: |
+              set -eu
+              role=$(kubectl get databaseroles -n "$NAMESPACE" -o jsonpath='{.items[?(@.spec.name=="e2e-admin@example.com")].metadata.name}')
+              test -n "$role"
+              kubectl delete postgresaccess admin-access -n "$NAMESPACE" --wait=true --timeout=30s
+              kubectl wait --for=delete "databaserole/$role" -n "$NAMESPACE" --timeout=60s
+              kubectl wait --for=delete secret/admin-access-credentials -n "$NAMESPACE" --timeout=60s
+        - script:
+            content: |
+              sh request-access.sh create-access readwritecreate
+        - assert:
+            timeout: 120s
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: DatabaseRole
+              spec:
+                name: e2e-admin@example.com
+                inRoles:
+                  - app_readwritecreate
+                  - nais_pa_91d946cd13884246
+              status:
+                applied: true
+
+    - name: New connection retains personal identity but no database-owner authority
+      try:
+        - script:
+            timeout: 60s
+            content: |
+              sh connect.sh create-access downgraded.sql

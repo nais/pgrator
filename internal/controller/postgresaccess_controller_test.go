@@ -88,28 +88,41 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 	}
 }
 
-func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
-	a, branch, postgres, cluster := accessFixture()
-	a.Spec.AccessLevel = v1.PostgresAccessLevelMaintain
-	// Built-in roles do not require initdb-created application privilege groups.
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
-	r := makePostgresAccessReconciler()
-	prepared, _, err := r.Prepare(t.Context(), reader, a)
-	requireNoError(t, err)
-	actions, _, err := r.Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
-	requireNoError(t, err)
-	for _, a := range actions {
-		role, ok := a.GetObject().(*cnpgv1.DatabaseRole)
-		if !ok {
-			continue
-		}
-		want := []string{"pg_monitor", "pg_maintain", rccnpg.PersonalAccessRole(branch.Name)}
-		if !reflect.DeepEqual(role.Spec.InRoles, want) {
-			t.Errorf("maintain memberships = %v, want %v", role.Spec.InRoles, want)
-		}
-		return
+func TestPostgresAccessWithoutBootstrapPrivilegeGroups(t *testing.T) {
+	for _, tt := range []struct {
+		level v1.PostgresAccessLevel
+		roles []string
+	}{
+		{level: v1.PostgresAccessLevelMaintain, roles: []string{"pg_monitor", "pg_maintain"}},
+		{level: v1.PostgresAccessLevelAdmin, roles: []string{rccnpg.OwnerRole}},
+	} {
+		t.Run(string(tt.level), func(t *testing.T) {
+			a, branch, postgres, cluster := accessFixture()
+			a.Spec.AccessLevel = tt.level
+			// These roles do not depend on initdb-created privilege groups.
+			reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
+			r := makePostgresAccessReconciler()
+			prepared, _, err := r.Prepare(t.Context(), reader, a)
+			requireNoError(t, err)
+			actions, _, err := r.Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
+			requireNoError(t, err)
+			for _, entry := range actions {
+				role, ok := entry.GetObject().(*cnpgv1.DatabaseRole)
+				if !ok {
+					continue
+				}
+				want := append(tt.roles, rccnpg.PersonalAccessRole(branch.Name))
+				if !reflect.DeepEqual(role.Spec.InRoles, want) {
+					t.Errorf("memberships = %v, want %v", role.Spec.InRoles, want)
+				}
+				if role.Spec.Name != a.Spec.Username {
+					t.Errorf("login role = %q, want personal identity", role.Spec.Name)
+				}
+				return
+			}
+			t.Fatal("personal access must produce a DatabaseRole action")
+		})
 	}
-	t.Fatal("maintain access must produce a DatabaseRole action")
 }
 
 func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
