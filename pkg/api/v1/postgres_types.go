@@ -30,6 +30,26 @@ type PostgresExtension struct {
 	Name string `json:"name"`
 }
 
+// +kubebuilder:validation:XValidation:rule="self.name != 'pg_stat_statements' && self.name != 'pgaudit'",message="pg_stat_statements and pgaudit are managed by the platform"
+type PostgresDatabaseExtension struct {
+	// Name of the extension to activate with CREATE EXTENSION in the application database.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z_][a-z0-9_-]*$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+}
+
+// PostgresDatabase configures the application database.
+type PostgresDatabase struct {
+	// Extensions to activate in the application database. The extensions must be available
+	// in the Postgres image or be mounted through spec.extensions. Removing an entry
+	// does not drop the extension.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Extensions []PostgresDatabaseExtension `json:"extensions,omitempty"`
+}
+
 // PostgresSpec defines the desired state of Postgres
 type PostgresSpec struct {
 	// Resources configures compute and disk for the Postgres cluster.
@@ -55,6 +75,10 @@ type PostgresSpec struct {
 	// Mounting an extension does not activate it in a database; use CREATE EXTENSION separately.
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
+
+	// Database configures the application database.
+	// +optional
+	Database *PostgresDatabase `json:"database,omitempty"`
 
 	// ActiveBranch selects the local branch name within this Postgres for normal workloads.
 	// When omitted, pgrator retains the current active branch.

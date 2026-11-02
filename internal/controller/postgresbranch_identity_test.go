@@ -31,6 +31,7 @@ func TestDerivedBranchResourceNamesFitLimits(t *testing.T) {
 		{"cluster", rccnpg.ClusterNameFor(name), 63},
 		{"pooler", rccnpg.PoolerNameFor(name), 63},
 		{"rw service", rccnpg.ClusterNameFor(name) + "-rw", 63},
+		{"application database", rccnpg.DatabaseResourceName(&v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: name}}), 63},
 		{"personal group role", rccnpg.PersonalAccessRole(name), 63},
 		{"durable owner role", rccnpg.ClusterNameFor(name) + "-app", 63},
 		{"personal access role", rcaccess.DatabaseRoleName("frode.sundby@nav.no", name), 63},

@@ -105,6 +105,7 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 			},
 		},
 		{Type: &cnpgv1.DatabaseRole{}},
+		{Type: &cnpgv1.Database{}},
 		{Type: &cnpgv1.Pooler{}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
@@ -584,6 +585,12 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 	actions = append(actions, action.CreateOrUpdate(ownerRole, obj, existsConditionGetter, r.Recorder))
 
+	databaseAction, err := r.databaseAction(obj, specSource)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, databaseAction)
+
 	pooler, err := rccnpg.CreatePooler(r.Scheme, specSource)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)
@@ -653,6 +660,17 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresBranchReconciler) databaseAction(obj *v1.PostgresBranch, specSource *v1.Postgres) (action.Action, error) {
+	database, err := rccnpg.CreateDatabase(r.Scheme, specSource)
+	if err != nil {
+		return nil, fmt.Errorf("creating Database spec: %w", err)
+	}
+	if err := transferControllerOwnership(obj, database, r.Scheme); err != nil {
+		return nil, err
+	}
+	return action.CreateOrUpdate(database, obj, existsConditionGetter, r.Recorder), nil
 }
 
 func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error) {

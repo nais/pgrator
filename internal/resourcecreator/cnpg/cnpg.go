@@ -523,6 +523,48 @@ func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler
 	return pooler, nil
 }
 
+// DatabaseResourceName returns the CNPG Database object name for the application database.
+func DatabaseResourceName(postgres *v1.Postgres) string {
+	return ClusterName(postgres) + "-" + DatabaseName
+}
+
+// CreateDatabase declares the application database created by bootstrap so CNPG can
+// activate extensions in it. Retain keeps the PostgreSQL database if this object is
+// deleted, and only name, owner and requested extensions are declared so adoption of
+// an existing or recovered database changes nothing else.
+func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Database, error) {
+	database := &cnpgv1.Database{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Database",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: objectMeta(postgres, DatabaseResourceName(postgres)),
+		Spec: cnpgv1.DatabaseSpec{
+			ClusterRef:    corev1.LocalObjectReference{Name: ClusterName(postgres)},
+			Name:          DatabaseName,
+			Owner:         OwnerRole,
+			Ensure:        cnpgv1.EnsurePresent,
+			ReclaimPolicy: cnpgv1.DatabaseReclaimRetain,
+			Extensions:    makeDatabaseExtensions(postgres.Spec.Database),
+		},
+	}
+	if err := controllerutil.SetControllerReference(postgres, database, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Database: %w", err)
+	}
+	return database, nil
+}
+
+func makeDatabaseExtensions(database *v1.PostgresDatabase) []cnpgv1.ExtensionSpec {
+	if database == nil {
+		return nil
+	}
+	res := make([]cnpgv1.ExtensionSpec, 0, len(database.Extensions))
+	for _, e := range database.Extensions {
+		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: e.Name, Ensure: cnpgv1.EnsurePresent}})
+	}
+	return res
+}
+
 func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
 	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
 	for _, e := range extensions {

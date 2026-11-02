@@ -67,6 +67,10 @@ Branch names are local to a Postgres: `Postgres.spec.activeBranch`, `status.acti
 
 Rollout order for branch selection: publish the shared API types; install the updated pgrator `PostgresBinding` CRD/controller and liberator workload CRDs; deploy the branch-aware API; then deploy Naiserator using the new liberator dependency. For the deletion-policy change, make the warning-capable CLI available before removing reference guards in the API/controller. API clients should query `PostgresBranch.workloads` before deleting; older clients can delete without displaying the warning. Only then use `branch` in workload manifests. Older CRDs can prune the field and older Naiserator versions can ignore it, causing a workload to follow the active branch instead of the intended branch. No new Helm values or feature flags are required.
 
+#### Application database and extensions
+
+Every branch gets a CNPG `Database` named `<cluster-name>-app` that declares the `app` database created at bootstrap (owner `app`, `databaseReclaimPolicy: retain`). Only name, owner and requested extensions are declared, so adopting existing or recovered databases changes nothing else. `spec.database.extensions` lists extensions to activate with `CREATE EXTENSION` in `app`; they must be bundled in the Postgres image or mounted through `spec.extensions`. Removing an entry does not drop the extension. `pg_stat_statements` and `pgaudit` are rejected because CNPG already manages them. Multiple databases are not supported.
+
 #### Workload private-key formats
 
 Each `PostgresBinding` connection Secret contains `ca.crt` and, for every requested

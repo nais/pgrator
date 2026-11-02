@@ -41,7 +41,7 @@ rules:
   resources: [jobs]
   verbs: [get, list, watch]
 - apiGroups: [postgresql.cnpg.io]
-  resources: [clusters, databaseroles, scheduledbackups, poolers]
+  resources: [clusters, databases, databaseroles, scheduledbackups, poolers]
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [barmancloud.cnpg.io]
   resources: [objectstores]

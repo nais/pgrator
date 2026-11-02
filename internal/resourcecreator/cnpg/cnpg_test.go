@@ -176,3 +176,45 @@ func assertSQLContains(t *testing.T, statements []string, want string) {
 	}
 	t.Errorf("SQL statements = %#v, want %q", statements, want)
 }
+
+func TestCreateDatabaseDeclaresApplicationDatabaseSafely(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding Postgres scheme: %v", err)
+	}
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "mydb-main-6bc4781b", Namespace: "myteam"},
+		Spec:       v1.PostgresSpec{Database: &v1.PostgresDatabase{Extensions: []v1.PostgresDatabaseExtension{{Name: "pg_trgm"}}}},
+	}
+
+	database, err := CreateDatabase(scheme, postgres)
+	if err != nil {
+		t.Fatalf("CreateDatabase() error = %v", err)
+	}
+
+	spec := database.Spec
+	if spec.Name != "app" || spec.Owner != "app" || spec.ClusterRef.Name != ClusterName(postgres) {
+		t.Errorf("Database identity = %q/%q on %q, want app/app on %q", spec.Name, spec.Owner, spec.ClusterRef.Name, ClusterName(postgres))
+	}
+	if spec.ReclaimPolicy != "retain" || spec.Ensure != "present" {
+		t.Errorf("Database policy = reclaim %q ensure %q, want retain/present", spec.ReclaimPolicy, spec.Ensure)
+	}
+	if len(spec.Extensions) != 1 || spec.Extensions[0].Name != "pg_trgm" || spec.Extensions[0].Ensure != "present" {
+		t.Errorf("Database extensions = %+v, want pg_trgm present", spec.Extensions)
+	}
+}
+
+func TestCreateDatabaseWithoutRequestedExtensionsDeclaresNone(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding Postgres scheme: %v", err)
+	}
+
+	database, err := CreateDatabase(scheme, &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "myteam"}})
+	if err != nil {
+		t.Fatalf("CreateDatabase() error = %v", err)
+	}
+	if len(database.Spec.Extensions) != 0 {
+		t.Errorf("Database extensions = %+v, want none", database.Spec.Extensions)
+	}
+}
