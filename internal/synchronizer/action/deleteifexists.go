@@ -22,7 +22,13 @@ func (a *deleteIfExists) Do(ctx context.Context, c client.Client, scheme *runtim
 	log := logf.FromContext(ctx)
 	log.Info(fmt.Sprintf("DeleteIfExists %s", typeName(a.obj)))
 
-	err := c.Delete(ctx, a.obj)
+	var opts []client.DeleteOption
+	if uid := a.obj.GetUID(); uid != "" {
+		// A cached object may have been replaced at the same name since the
+		// deletion was planned. Never delete that replacement.
+		opts = append(opts, client.Preconditions{UID: &uid})
+	}
+	err := c.Delete(ctx, a.obj, opts...)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}

@@ -3,15 +3,21 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
+	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func TestClusterConditionGetter(t *testing.T) {
@@ -75,6 +81,81 @@ func TestClusterConditionGetter(t *testing.T) {
 				t.Errorf("got condition %+v, want status %q, reason %q, message %q", condition, testcase.wantStatus, testcase.wantReason, testcase.wantMessage)
 			}
 		})
+	}
+}
+
+func TestPostgresClaimsFailedBranchBeforeActivation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	initscheme.InitScheme(scheme)
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team", UID: "postgres-uid"},
+		Spec:       v1.PostgresSpec{ActiveBranch: "restore"},
+		Status:     &v1.PostgresStatus{ActiveBranch: "main"},
+	}
+	branch := &v1.PostgresBranch{
+		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team", UID: "branch-uid"},
+		Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"},
+	}
+	branch.GetStatus().SetCondition(metav1.Condition{Type: recoveryFailedCondition, Status: metav1.ConditionTrue, Reason: "Unrecoverable"})
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1.Postgres{}, &v1.PostgresBranch{}).WithObjects(postgres, branch).Build()
+	r := &PostgresReconciler{Scheme: scheme, Recorder: recorder}
+	s := synchronizer.NewSynchronizer(c, scheme, r, recorder)
+	request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(postgres)}
+	watch := r.RelationshipWatches()[0]
+	if !watch.Predicate.Create(event.CreateEvent{Object: branch}) {
+		t.Fatal("ownerless branch creation does not trigger reconciliation")
+	}
+	requests, err := watch.Map(t.Context(), c, branch)
+	requireNoError(t, err)
+	if len(requests) != 1 || requests[0] != request {
+		t.Fatalf("ownerless branch enqueued %v, want %v", requests, request)
+	}
+	result, err := s.Reconcile(t.Context(), request)
+	requireNoError(t, err)
+	if result.IsZero() {
+		t.Fatal("ownership registration did not schedule activation reconciliation")
+	}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(branch), branch))
+	if !metav1.IsControlledBy(branch, postgres) || !s.GetOwnerManager().HasOwnerAnnotation(branch, postgres) {
+		t.Fatalf("failed branch ownership was not persisted: %+v", branch.ObjectMeta)
+	}
+	_, err = s.Reconcile(t.Context(), request)
+	if err == nil {
+		t.Fatal("failed branch was allowed to activate")
+	}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(postgres), postgres))
+	if postgres.Status.ActiveBranch != v1.DefaultBranchName {
+		t.Fatalf("failed branch became active: %q", postgres.Status.ActiveBranch)
+	}
+}
+
+func TestPostgresRefusesToAdoptBranchFromPreviousPostgres(t *testing.T) {
+	for _, branchName := range []string{v1.DefaultBranchName, "restore"} {
+		for _, state := range []string{"previous owner UID", "older ownerless branch"} {
+			t.Run(branchName+"/"+state, func(t *testing.T) {
+				scheme := runtime.NewScheme()
+				initscheme.InitScheme(scheme)
+				postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team", UID: "current-uid", CreationTimestamp: metav1.Now()}}
+				branch := &v1.PostgresBranch{
+					ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", branchName), Namespace: "team", UID: "branch-uid"},
+					Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: branchName},
+				}
+				if state == "previous owner UID" {
+					previous := postgres.DeepCopy()
+					previous.UID = "previous-uid"
+					requireNoError(t, controllerutil.SetControllerReference(previous, branch, scheme))
+				} else {
+					branch.CreationTimestamp = metav1.NewTime(postgres.CreationTimestamp.Add(-time.Hour))
+				}
+				related := relatedobjectsmap.NewRelatedObjectsMap(scheme)
+				related.Insert(branch)
+				r := &PostgresReconciler{Scheme: scheme, Recorder: recorder}
+				actions, _, err := r.Update(postgres, PostgresPreparedData{}, related)
+				if err == nil || len(actions) != 0 {
+					t.Fatalf("Update() = %d actions, %v; want refusal without mutations", len(actions), err)
+				}
+			})
+		}
 	}
 }
 

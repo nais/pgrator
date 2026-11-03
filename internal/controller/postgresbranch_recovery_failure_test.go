@@ -13,6 +13,8 @@ import (
 	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
+	iamcnrm "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
+	gkenetworking "github.com/nais/pgrator/internal/thirdparty/google/networking/v1alpha3"
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -224,6 +226,11 @@ func TestFailedRecoveryPersistsAndPreservesResources(t *testing.T) {
 	requireNoError(t, k8sClient.Delete(ctx, first))
 	result, err := s.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(branch)})
 	requireNoError(t, err)
+	if result.IsZero() {
+		t.Fatal("failed branch deletion did not wait for owned resources to disappear")
+	}
+	result, err = s.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(branch)})
+	requireNoError(t, err)
 	if !result.IsZero() {
 		t.Fatalf("failed branch deletion was blocked: %v", result)
 	}
@@ -234,6 +241,95 @@ func TestFailedRecoveryPersistsAndPreservesResources(t *testing.T) {
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj); !apierrors.IsNotFound(err) {
 			t.Fatalf("owned diagnostic resource was not cleaned up: %T: %v", obj, err)
 		}
+	}
+}
+
+func TestFailedRecoveryDeletionWithoutRecoveryInputs(t *testing.T) {
+	for _, parentState := range []string{"deleting", "missing"} {
+		t.Run(parentState, func(t *testing.T) {
+			ctx := t.Context()
+			r, branch, cluster, k8sClient := newRecoveryFailureTest(t)
+			s := synchronizer.NewSynchronizer(k8sClient, r.Scheme, r, recorder)
+			request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(branch)}
+			requireNoError(t, k8sClient.Create(ctx, failedRecoveryJob(t, r.Scheme, cluster)))
+			_, err := s.Reconcile(ctx, request)
+			if !errors.Is(err, reconcile.TerminalError(nil)) {
+				t.Fatalf("expected persisted recovery failure before deletion, got %v", err)
+			}
+			requireNoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(branch), branch))
+			if !meta.IsStatusConditionTrue(branch.Status.Conditions, recoveryFailedCondition) {
+				t.Fatal("RecoveryFailed condition was not persisted")
+			}
+
+			// Match an orphaned failed recovery: neither its Postgres nor its
+			// source branch needs to survive for finalization to work.
+			parent := &v1.Postgres{}
+			requireNoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: branch.Namespace, Name: branch.Spec.Postgres}, parent))
+			if parentState == "deleting" {
+				parent.Finalizers = []string{"postgres.nais.io"}
+				requireNoError(t, k8sClient.Update(ctx, parent))
+			}
+			requireNoError(t, k8sClient.Delete(ctx, parent))
+			source := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{
+				Name: v1.PostgresBranchObjectName(branch.Spec.Postgres, branch.Spec.Bootstrap.Recovery.SourceBranch), Namespace: branch.Namespace,
+			}}
+			requireNoError(t, k8sClient.Delete(ctx, source))
+
+			children := []client.Object{
+				cluster,
+				&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: "app-role"}},
+				&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: "personal-role"}},
+				&cnpgv1.Pooler{ObjectMeta: metav1.ObjectMeta{Name: "pooler"}},
+				&networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "network-policy"}},
+				&barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: "failed-archive"}},
+				&gkenetworking.FQDNNetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "wal-policy"}},
+				&iamcnrm.IAMServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "service-account", Finalizers: []string{"test/cleanup"}}},
+				&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: "recovery-source-access", Finalizers: []string{"test/cleanup"}}},
+				&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: "wal-access", Finalizers: []string{"test/cleanup"}}},
+				&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: "wal-viewer", Finalizers: []string{"test/cleanup"}}},
+				&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: "workload-identity", Finalizers: []string{"test/cleanup"}}},
+				&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: "failed-archive", Finalizers: []string{"test/cleanup"}}},
+			}
+			for _, child := range children[1:] {
+				child.SetNamespace(branch.Namespace)
+				s.GetOwnerManager().AddOwnerAnnotation(child, branch)
+				requireNoError(t, controllerutil.SetControllerReference(branch, child, r.Scheme))
+				requireNoError(t, k8sClient.Create(ctx, child))
+			}
+			requireNoError(t, k8sClient.Delete(ctx, branch))
+			for range 2 {
+				result, err := s.Reconcile(ctx, request)
+				requireNoError(t, err)
+				if result.IsZero() {
+					t.Fatal("branch did not wait for Config Connector cleanup")
+				}
+				requireNoError(t, k8sClient.Get(ctx, request.NamespacedName, &v1.PostgresBranch{}))
+			}
+			for _, child := range children {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(child), child)
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				requireNoError(t, err)
+				if child.GetDeletionTimestamp().IsZero() {
+					t.Fatalf("owned resource %T %q was not scheduled for deletion", child, child.GetName())
+				}
+				child.SetFinalizers(nil)
+				requireNoError(t, k8sClient.Update(ctx, child))
+			}
+			result, err := s.Reconcile(ctx, request)
+			requireNoError(t, err)
+			if !result.IsZero() {
+				t.Fatalf("branch deletion is still blocked after cleanup: %v", result)
+			}
+			for _, obj := range append(children, branch) {
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj); !apierrors.IsNotFound(err) {
+					t.Errorf("resource %T %q remains after cleanup: %v", obj, obj.GetName(), err)
+				}
+			}
+			// Source-archive resources are not owned by the failed branch.
+			requireNoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: branch.Namespace, Name: "source-archive"}, &storagecnrm.StorageBucket{}))
+		})
 	}
 }
 

@@ -1,4 +1,4 @@
-action: createOrUpdate
+action: exclusiveCreateOrUpdate
 matcher: Subset
 object:
   apiVersion: nais.io/v1
