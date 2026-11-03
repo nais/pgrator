@@ -106,7 +106,18 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 			},
 		},
 		{Type: &cnpgv1.DatabaseRole{}},
-		{Type: &cnpgv1.Database{}},
+		{
+			Type: &cnpgv1.Database{},
+			AdditionalPredicate: predicate.Funcs{
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldDatabase, oldOK := e.ObjectOld.(*cnpgv1.Database)
+					newDatabase, newOK := e.ObjectNew.(*cnpgv1.Database)
+					return oldOK && newOK && (oldDatabase.Status.ObservedGeneration != newDatabase.Status.ObservedGeneration ||
+						!equality.Semantic.DeepEqual(oldDatabase.Status.Applied, newDatabase.Status.Applied) ||
+						oldDatabase.Status.Message != newDatabase.Status.Message)
+				},
+			},
+		},
 		{Type: &cnpgv1.Pooler{}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
@@ -671,7 +682,40 @@ func (r *PostgresBranchReconciler) databaseAction(obj *v1.PostgresBranch, specSo
 	if err := transferControllerOwnership(obj, database, r.Scheme); err != nil {
 		return nil, err
 	}
-	return action.CreateOrUpdate(database, obj, existsConditionGetter, r.Recorder), nil
+	return action.CreateOrUpdate(database, obj, databaseConditionGetter, r.Recorder), nil
+}
+
+func databaseConditionGetter(obj client.Object, scheme *runtime.Scheme) []metav1.Condition {
+	database, ok := obj.(*cnpgv1.Database)
+	if !ok {
+		return nil
+	}
+	condition := metav1.Condition{
+		Type:               fmt.Sprintf("%s/Available", typePrefix(obj, scheme)),
+		Status:             metav1.ConditionUnknown,
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             "Pending",
+		Message:            "Waiting for CloudNativePG to reconcile the Database",
+	}
+	if database.Status.Applied == nil || database.Status.ObservedGeneration < database.GetGeneration() {
+		if database.Status.Message != "" {
+			condition.Message = database.Status.Message
+		}
+		return []metav1.Condition{condition}
+	}
+	if *database.Status.Applied {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "Applied"
+		condition.Message = "Database reconciled by CloudNativePG"
+	} else {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "ReconciliationFailed"
+		condition.Message = "CloudNativePG failed to reconcile the Database"
+	}
+	if database.Status.Message != "" {
+		condition.Message = database.Status.Message
+	}
+	return []metav1.Condition{condition}
 }
 
 func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error) {
