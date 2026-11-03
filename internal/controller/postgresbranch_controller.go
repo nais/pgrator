@@ -20,6 +20,7 @@ import (
 	rcstorage "github.com/nais/pgrator/internal/resourcecreator/storage"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iamcnrm "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	gkenetworking "github.com/nais/pgrator/internal/thirdparty/google/networking/v1alpha3"
@@ -1089,7 +1090,7 @@ func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner *v1.
 	return action.Recreate(desired, owner, cnrmConditionsGetter, r.Recorder), nil
 }
 
-func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresBranchPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	if (obj.Spec.BranchName == prep.ActiveBranch || obj.Spec.BranchName == prep.RequestedBranch) && !prep.PostgresDeleting {
 		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: branch is the active PostgresBranch")
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -1101,6 +1102,28 @@ func (r *PostgresBranchReconciler) Delete(obj *v1.PostgresBranch, prep PostgresB
 	if len(prep.BlockingRecoveries) > 0 {
 		r.Recorder.RecordEvent(obj, corev1.EventTypeWarning, "DeleteBlocked", "deletion blocked: recovery branches still depend on this branch's archive: %v", prep.BlockingRecoveries)
 		return nil, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	// Keep the branch (and hence its Postgres) until asynchronous child
+	// cleanup has completed, not merely until delete requests were accepted.
+	if relatedObjects != nil {
+		ownerManager := ownership.NewOwnerManager(r.Name() + "/owner")
+		var actions []action.Action
+		pending := false
+		for _, ownedType := range r.OwnedTypes() {
+			for _, child := range relatedObjects.GetMatchingType(ownedType.Type) {
+				if !ownerManager.HasOwnerAnnotation(child, obj) &&
+					(child.GetNamespace() != obj.Namespace || !metav1.IsControlledBy(child, obj)) {
+					continue
+				}
+				pending = true
+				if child.GetDeletionTimestamp().IsZero() {
+					actions = append(actions, action.Unclaim(child, obj, existsConditionGetter, r.Recorder))
+				}
+			}
+		}
+		if pending {
+			return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
 	}
 	return nil, ctrl.Result{}, nil
 }
