@@ -23,31 +23,16 @@ type PostgresResources struct {
 	Memory resource.Quantity `json:"memory,omitempty"`
 }
 
-type PostgresExtension struct {
-	// Name of the extension image to mount from the configured CNPG image catalog.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=postgis;timescaledb-oss
-	Name string `json:"name"`
-}
-
+// PostgresExtension is an extension requested for the application database.
 // +kubebuilder:validation:XValidation:rule="self.name != 'pg_stat_statements' && self.name != 'pgaudit'",message="pg_stat_statements and pgaudit are managed by the platform"
-type PostgresDatabaseExtension struct {
-	// Name of the extension to activate with CREATE EXTENSION in the application database.
+type PostgresExtension struct {
+	// Name of the extension. postgis and timescaledb-oss are mounted from the configured CNPG
+	// image catalog (timescaledb-oss is also preloaded); any other name must be bundled with the
+	// Postgres image. All are activated with CREATE EXTENSION in the application database.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^[a-z_][a-z0-9_-]*$`
 	// +kubebuilder:validation:MaxLength=63
 	Name string `json:"name"`
-}
-
-// PostgresDatabase configures the application database.
-type PostgresDatabase struct {
-	// Extensions to activate in the application database. The extensions must be available
-	// in the Postgres image or be mounted through spec.extensions. Removing an entry
-	// does not drop the extension.
-	// +listType=map
-	// +listMapKey=name
-	// +optional
-	Extensions []PostgresDatabaseExtension `json:"extensions,omitempty"`
 }
 
 // PostgresSpec defines the desired state of Postgres
@@ -70,15 +55,13 @@ type PostgresSpec struct {
 	// +optional
 	HighAvailability bool `json:"highAvailability,omitempty"`
 
-	// Extensions mounts additional extension images from the configured CNPG image catalog.
-	// Extensions bundled with the Postgres image do not need to be listed here.
-	// Mounting an extension does not activate it in a database; use CREATE EXTENSION separately.
+	// Extensions to activate in the application database. Removing an entry does not drop the
+	// extension; drop it first, as removing timescaledb-oss while it is installed breaks the
+	// database because its library is no longer preloaded.
+	// +listType=map
+	// +listMapKey=name
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
-
-	// Database configures the application database.
-	// +optional
-	Database *PostgresDatabase `json:"database,omitempty"`
 
 	// ActiveBranch selects the local branch name within this Postgres for normal workloads.
 	// When omitted, pgrator retains the current active branch.

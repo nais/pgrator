@@ -13,6 +13,7 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 		extension string
 		wantErr   string
 	}{
+		{name: "image extension", extension: "postgis"},
 		{name: "plain extension", extension: "pg_trgm"},
 		{name: "hyphenated extension", extension: "uuid-ossp"},
 		{name: "platform managed pg_stat_statements", extension: "pg_stat_statements", wantErr: "managed by the platform"},
@@ -24,7 +25,7 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "dbext-", Namespace: "default"},
 				Spec: v1.PostgresSpec{
 					MajorVersion: "18",
-					Database:     &v1.PostgresDatabase{Extensions: []v1.PostgresDatabaseExtension{{Name: tc.extension}}},
+					Extensions:   []v1.PostgresExtension{{Name: tc.extension}},
 				},
 			}
 			err := k8sClient.Create(ctx, postgres)

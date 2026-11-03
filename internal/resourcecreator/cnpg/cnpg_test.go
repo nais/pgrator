@@ -184,7 +184,7 @@ func TestCreateDatabaseDeclaresApplicationDatabaseSafely(t *testing.T) {
 	}
 	postgres := &v1.Postgres{
 		ObjectMeta: metav1.ObjectMeta{Name: "mydb-main-6bc4781b", Namespace: "myteam"},
-		Spec:       v1.PostgresSpec{Database: &v1.PostgresDatabase{Extensions: []v1.PostgresDatabaseExtension{{Name: "pg_trgm"}}}},
+		Spec:       v1.PostgresSpec{Extensions: []v1.PostgresExtension{{Name: "postgis"}, {Name: "pg_trgm"}}},
 	}
 
 	database, err := CreateDatabase(scheme, postgres)
@@ -199,8 +199,8 @@ func TestCreateDatabaseDeclaresApplicationDatabaseSafely(t *testing.T) {
 	if spec.ReclaimPolicy != "retain" || spec.Ensure != "present" {
 		t.Errorf("Database policy = reclaim %q ensure %q, want retain/present", spec.ReclaimPolicy, spec.Ensure)
 	}
-	if len(spec.Extensions) != 1 || spec.Extensions[0].Name != "pg_trgm" || spec.Extensions[0].Ensure != "present" {
-		t.Errorf("Database extensions = %+v, want pg_trgm present", spec.Extensions)
+	if len(spec.Extensions) != 2 || spec.Extensions[0].Name != "postgis" || spec.Extensions[1].Name != "pg_trgm" || spec.Extensions[1].Ensure != "present" {
+		t.Errorf("Database extensions = %+v, want postgis and pg_trgm present", spec.Extensions)
 	}
 }
 
@@ -216,5 +216,27 @@ func TestCreateDatabaseWithoutRequestedExtensionsDeclaresNone(t *testing.T) {
 	}
 	if len(database.Spec.Extensions) != 0 {
 		t.Errorf("Database extensions = %+v, want none", database.Spec.Extensions)
+	}
+}
+
+func TestExtensionsAreMountedPreloadedAndActivated(t *testing.T) {
+	extensions := []v1.PostgresExtension{{Name: "postgis"}, {Name: "pg_trgm"}, {Name: "timescaledb-oss"}}
+
+	mounted := makeExtensions(extensions)
+	if len(mounted) != 2 || mounted[0].Name != "postgis" || mounted[1].Name != "timescaledb-oss" {
+		t.Errorf("mounted extensions = %+v, want postgis and timescaledb-oss only", mounted)
+	}
+	activated := make([]string, 0, len(extensions))
+	for _, e := range makeDatabaseExtensions(extensions) {
+		activated = append(activated, e.Name)
+	}
+	if want := []string{"postgis", "pg_trgm", "timescaledb"}; !slices.Equal(activated, want) {
+		t.Errorf("activated extensions = %v, want %v (catalog names mapped to SQL names)", activated, want)
+	}
+	if preload := makePreloadLibraries(extensions); !slices.Equal(preload, []string{"timescaledb"}) {
+		t.Errorf("preload libraries = %v, want [timescaledb]", preload)
+	}
+	if preload := makePreloadLibraries(extensions[:2]); len(preload) != 0 {
+		t.Errorf("preload libraries without timescaledb-oss = %v, want none", preload)
 	}
 }

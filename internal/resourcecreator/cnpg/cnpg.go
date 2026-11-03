@@ -79,6 +79,19 @@ const (
 	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024
 )
 
+// imageExtension describes an extension mounted from the image catalog. The catalog
+// name differs from the SQL name for some extensions, and modules like timescaledb
+// must also be loaded at server start.
+type imageExtension struct {
+	sqlName        string
+	preloadLibrary string
+}
+
+var imageExtensions = map[string]imageExtension{
+	"postgis":         {sqlName: "postgis"},
+	"timescaledb-oss": {sqlName: "timescaledb", preloadLibrary: "timescaledb"},
+}
+
 var dedicatedPostgresToleration = corev1.Toleration{
 	Key:      "dedicated",
 	Operator: "Equal",
@@ -254,6 +267,8 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			PostgresConfiguration: cnpgv1.PostgresConfiguration{
 				Parameters: makePostgresParameters(memory),
 				Extensions: makeExtensions(postgres.Spec.Extensions),
+
+				AdditionalLibraries: makePreloadLibraries(postgres.Spec.Extensions),
 
 				// Rules are evaluated top to bottom, first match wins.
 				PgHBA: []string{
@@ -545,7 +560,7 @@ func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Data
 			Owner:         OwnerRole,
 			Ensure:        cnpgv1.EnsurePresent,
 			ReclaimPolicy: cnpgv1.DatabaseReclaimRetain,
-			Extensions:    makeDatabaseExtensions(postgres.Spec.Database),
+			Extensions:    makeDatabaseExtensions(postgres.Spec.Extensions),
 		},
 	}
 	if err := controllerutil.SetControllerReference(postgres, database, scheme); err != nil {
@@ -554,13 +569,26 @@ func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Data
 	return database, nil
 }
 
-func makeDatabaseExtensions(database *v1.PostgresDatabase) []cnpgv1.ExtensionSpec {
-	if database == nil {
-		return nil
+func makeDatabaseExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionSpec {
+	res := make([]cnpgv1.ExtensionSpec, 0, len(extensions))
+	for _, e := range extensions {
+		name := e.Name
+		if image, ok := imageExtensions[e.Name]; ok {
+			name = image.sqlName
+		}
+		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: name, Ensure: cnpgv1.EnsurePresent}})
 	}
-	res := make([]cnpgv1.ExtensionSpec, 0, len(database.Extensions))
-	for _, e := range database.Extensions {
-		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: e.Name, Ensure: cnpgv1.EnsurePresent}})
+	return res
+}
+
+// makePreloadLibraries lists the libraries image extensions need loaded at server start.
+// CNPG places these before the libraries it manages itself, as timescaledb requires.
+func makePreloadLibraries(extensions []v1.PostgresExtension) []string {
+	res := make([]string, 0, len(extensions))
+	for _, e := range extensions {
+		if library := imageExtensions[e.Name].preloadLibrary; library != "" {
+			res = append(res, library)
+		}
 	}
 	return res
 }
@@ -568,7 +596,9 @@ func makeDatabaseExtensions(database *v1.PostgresDatabase) []cnpgv1.ExtensionSpe
 func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
 	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
 	for _, e := range extensions {
-		res = append(res, cnpgv1.ExtensionConfiguration{Name: e.Name})
+		if _, ok := imageExtensions[e.Name]; ok {
+			res = append(res, cnpgv1.ExtensionConfiguration{Name: e.Name})
+		}
 	}
 	return res
 }

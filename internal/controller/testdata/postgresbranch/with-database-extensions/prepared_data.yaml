@@ -6,7 +6,8 @@ postgresSpec:
     diskSize: 10Gi
     cpu: 100m
     memory: 512Mi
-  database:
-    extensions:
-      - name: pg_trgm
-      - name: uuid-ossp
+  extensions:
+    - name: postgis
+    - name: pg_trgm
+    - name: uuid-ossp
+    - name: timescaledb-oss

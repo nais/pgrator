@@ -15,7 +15,11 @@ object:
     ensure: present
     databaseReclaimPolicy: retain
     extensions:
+      - name: postgis
+        ensure: present
       - name: pg_trgm
         ensure: present
       - name: uuid-ossp
+        ensure: present
+      - name: timescaledb
         ensure: present
