@@ -597,11 +597,11 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 	actions = append(actions, action.CreateOrUpdate(ownerRole, obj, existsConditionGetter, r.Recorder))
 
-	databaseAction, err := r.databaseAction(obj, specSource)
+	database, err := r.database(obj, specSource, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	actions = append(actions, databaseAction)
+	actions = append(actions, action.CreateOrUpdate(database, obj, databaseConditionGetter, r.Recorder))
 
 	pooler, err := rccnpg.CreatePooler(r.Scheme, specSource)
 	if err != nil {
@@ -638,7 +638,7 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 			// Once recovered, replicas and backups use this branch's own archive.
 			recoverySource = nil
 		}
-		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, recoverySource)
+		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, recoverySource, database)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
 		}
@@ -674,15 +674,19 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	return actions, ctrl.Result{}, nil
 }
 
-func (r *PostgresBranchReconciler) databaseAction(obj *v1.PostgresBranch, specSource *v1.Postgres) (action.Action, error) {
-	database, err := rccnpg.CreateDatabase(r.Scheme, specSource)
+func (r *PostgresBranchReconciler) database(obj *v1.PostgresBranch, specSource *v1.Postgres, relatedObjects reconciler.RelatedObjects) (*cnpgv1.Database, error) {
+	existing, _ := relatedObjects.GetMatching(&cnpgv1.Database{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.DatabaseResourceName(specSource),
+		Namespace: obj.GetNamespace(),
+	}}).(*cnpgv1.Database)
+	database, err := rccnpg.CreateDatabase(r.Scheme, specSource, existing)
 	if err != nil {
 		return nil, fmt.Errorf("creating Database spec: %w", err)
 	}
 	if err := transferControllerOwnership(obj, database, r.Scheme); err != nil {
 		return nil, err
 	}
-	return action.CreateOrUpdate(database, obj, databaseConditionGetter, r.Recorder), nil
+	return database, nil
 }
 
 func databaseConditionGetter(obj client.Object, scheme *runtime.Scheme) []metav1.Condition {

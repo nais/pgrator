@@ -61,7 +61,7 @@ func TestPersonalAdminSQL(t *testing.T) {
 	mustQuery("postgres", "postgres", "CREATE DATABASE app OWNER app")
 	cluster, err := rccnpg.CreateCluster(testScheme(t), &v1.Postgres{
 		ObjectMeta: metav1.ObjectMeta{Name: "orders-main", Namespace: "team"}, Spec: v1.PostgresSpec{MajorVersion: "18"},
-	}, &config.Config{}, rccnpg.WALArchive{}, nil)
+	}, &config.Config{}, rccnpg.WALArchive{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

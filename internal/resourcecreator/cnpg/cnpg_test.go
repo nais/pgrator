@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -81,7 +82,7 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 		BucketName: "orders-primary-archive",
 		ServerName: "pg-orders-primary",
 		TargetTime: targetTime,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("CreateCluster() error = %v", err)
 	}
@@ -126,7 +127,7 @@ func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) 
 		BucketName: "orders-primary-archive",
 		ServerName: "pg-orders-primary",
 		TargetTime: targetTime,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("CreateCluster() error = %v", err)
 	}
@@ -187,7 +188,7 @@ func TestCreateDatabaseDeclaresApplicationDatabaseSafely(t *testing.T) {
 		Spec:       v1.PostgresSpec{Extensions: []v1.PostgresExtension{{Name: "postgis"}, {Name: "pg_trgm"}}},
 	}
 
-	database, err := CreateDatabase(scheme, postgres)
+	database, err := CreateDatabase(scheme, postgres, nil)
 	if err != nil {
 		t.Fatalf("CreateDatabase() error = %v", err)
 	}
@@ -210,7 +211,7 @@ func TestCreateDatabaseWithoutRequestedExtensionsDeclaresNone(t *testing.T) {
 		t.Fatalf("adding Postgres scheme: %v", err)
 	}
 
-	database, err := CreateDatabase(scheme, &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "myteam"}})
+	database, err := CreateDatabase(scheme, &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "myteam"}}, nil)
 	if err != nil {
 		t.Fatalf("CreateDatabase() error = %v", err)
 	}
@@ -227,7 +228,7 @@ func TestExtensionsAreMountedPreloadedAndActivated(t *testing.T) {
 		t.Errorf("mounted extensions = %+v, want postgis and timescaledb-oss only", mounted)
 	}
 	activated := make([]string, 0, len(extensions))
-	for _, e := range makeDatabaseExtensions(extensions) {
+	for _, e := range makeDatabaseExtensions(extensions, nil) {
 		activated = append(activated, e.Name)
 	}
 	if want := []string{"postgis", "pg_trgm", "timescaledb"}; !slices.Equal(activated, want) {
@@ -238,5 +239,107 @@ func TestExtensionsAreMountedPreloadedAndActivated(t *testing.T) {
 	}
 	if preload := makePreloadLibraries(extensions[:2]); len(preload) != 0 {
 		t.Errorf("preload libraries without timescaledb-oss = %v, want none", preload)
+	}
+}
+
+func TestRemovedExtensionIsDroppedBeforeImageAndPreloadAreRemoved(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding Postgres scheme: %v", err)
+	}
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "mydb-main-6bc4781b", Namespace: "myteam"},
+		Spec:       v1.PostgresSpec{MajorVersion: "18", Extensions: []v1.PostgresExtension{{Name: "postgis"}}},
+	}
+	present := func(name string) cnpgv1.ExtensionSpec {
+		return cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: name, Ensure: cnpgv1.EnsurePresent}}
+	}
+	absent := func(name string) cnpgv1.ExtensionSpec {
+		return cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: name, Ensure: cnpgv1.EnsureAbsent}}
+	}
+
+	for _, tt := range []struct {
+		name         string
+		existing     *cnpgv1.Database
+		wantDatabase []cnpgv1.ExtensionSpec
+		wantMounted  []string
+		wantPreload  []string
+	}{
+		{
+			name: "removed entry is dropped while image and library are retained",
+			existing: &cnpgv1.Database{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       cnpgv1.DatabaseSpec{Extensions: []cnpgv1.ExtensionSpec{present("postgis"), present("timescaledb")}},
+				Status: cnpgv1.DatabaseStatus{ObservedGeneration: 1, Applied: new(true), Extensions: []cnpgv1.DatabaseObjectStatus{
+					{Name: "postgis", Applied: true}, {Name: "timescaledb", Applied: true},
+				}},
+			},
+			wantDatabase: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")},
+			wantMounted:  []string{"postgis", "timescaledb-oss"},
+			wantPreload:  []string{"timescaledb"},
+		},
+		{
+			name: "drop not yet applied keeps image and library",
+			existing: &cnpgv1.Database{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       cnpgv1.DatabaseSpec{Extensions: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")}},
+				Status: cnpgv1.DatabaseStatus{ObservedGeneration: 1, Applied: new(true), Extensions: []cnpgv1.DatabaseObjectStatus{
+					{Name: "postgis", Applied: true}, {Name: "timescaledb", Applied: true},
+				}},
+			},
+			wantDatabase: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")},
+			wantMounted:  []string{"postgis", "timescaledb-oss"},
+			wantPreload:  []string{"timescaledb"},
+		},
+		{
+			name: "failed drop keeps image and library",
+			existing: &cnpgv1.Database{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       cnpgv1.DatabaseSpec{Extensions: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")}},
+				Status: cnpgv1.DatabaseStatus{ObservedGeneration: 1, Applied: new(false), Extensions: []cnpgv1.DatabaseObjectStatus{
+					{Name: "postgis", Applied: true}, {Name: "timescaledb", Applied: false, Message: "cannot drop extension"},
+				}},
+			},
+			wantDatabase: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")},
+			wantMounted:  []string{"postgis", "timescaledb-oss"},
+			wantPreload:  []string{"timescaledb"},
+		},
+		{
+			name: "confirmed drop removes entry, image and library",
+			existing: &cnpgv1.Database{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       cnpgv1.DatabaseSpec{Extensions: []cnpgv1.ExtensionSpec{present("postgis"), absent("timescaledb")}},
+				Status: cnpgv1.DatabaseStatus{ObservedGeneration: 2, Applied: new(true), Extensions: []cnpgv1.DatabaseObjectStatus{
+					{Name: "postgis", Applied: true}, {Name: "timescaledb", Applied: true},
+				}},
+			},
+			wantDatabase: []cnpgv1.ExtensionSpec{present("postgis")},
+			wantMounted:  []string{"postgis"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			database, err := CreateDatabase(scheme, postgres, tt.existing)
+			if err != nil {
+				t.Fatalf("CreateDatabase() error = %v", err)
+			}
+			if !slices.Equal(database.Spec.Extensions, tt.wantDatabase) {
+				t.Errorf("Database extensions = %+v, want %+v", database.Spec.Extensions, tt.wantDatabase)
+			}
+
+			cluster, err := CreateCluster(scheme, postgres, &config.Config{}, WALArchive{}, nil, database)
+			if err != nil {
+				t.Fatalf("CreateCluster() error = %v", err)
+			}
+			mounted := make([]string, 0, len(cluster.Spec.PostgresConfiguration.Extensions))
+			for _, e := range cluster.Spec.PostgresConfiguration.Extensions {
+				mounted = append(mounted, e.Name)
+			}
+			if !slices.Equal(mounted, tt.wantMounted) {
+				t.Errorf("mounted extensions = %v, want %v", mounted, tt.wantMounted)
+			}
+			if preload := cluster.Spec.PostgresConfiguration.AdditionalLibraries; !slices.Equal(preload, tt.wantPreload) {
+				t.Errorf("preload libraries = %v, want %v", preload, tt.wantPreload)
+			}
+		})
 	}
 }

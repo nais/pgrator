@@ -68,9 +68,9 @@ spec:
                   type: string
                 extensions:
                   description: |-
-                    Extensions to activate in the application database. Removing an entry does not drop the
-                    extension; drop it first, as removing timescaledb-oss while it is installed breaks the
-                    database because its library is no longer preloaded.
+                    Extensions to activate in the application database. Removing an entry drops the extension
+                    (without CASCADE); postgis and timescaledb-oss stay mounted and preloaded until the drop
+                    succeeds. The drop fails, and is retried, while other objects depend on the extension.
                   items:
                     description: PostgresExtension is an extension requested for the application database.
                     properties:
