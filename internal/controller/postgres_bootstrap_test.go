@@ -17,14 +17,16 @@ import (
 
 func TestPostgresBootstrapMain(t *testing.T) {
 	for _, tt := range []struct {
-		name   string
-		spec   string
-		status string
+		name         string
+		spec         string
+		status       string
+		existingMain bool
 	}{
 		{name: "implicit main"},
 		{name: "explicit main", spec: v1.DefaultBranchName},
 		{name: "implicit main still provisioning", status: v1.DefaultBranchName},
 		{name: "explicit main still provisioning", spec: v1.DefaultBranchName, status: v1.DefaultBranchName},
+		{name: "existing ownerless main", existingMain: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
@@ -35,6 +37,12 @@ func TestPostgresBootstrapMain(t *testing.T) {
 				Status:     &v1.PostgresStatus{ActiveBranch: tt.status},
 			}
 			reader := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(postgres).WithObjects(postgres).Build()
+			if tt.existingMain {
+				requireNoError(t, reader.Create(t.Context(), &v1.PostgresBranch{
+					ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName(postgres.Name, v1.DefaultBranchName), Namespace: postgres.Namespace, UID: "branch-uid"},
+					Spec:       v1.PostgresBranchSpec{Postgres: postgres.Name, BranchName: v1.DefaultBranchName},
+				}))
+			}
 			r := &PostgresReconciler{Scheme: scheme, Recorder: recorder}
 			sync := synchronizer.NewSynchronizer(reader, scheme, r, recorder)
 			for range 2 {
@@ -99,6 +107,14 @@ func TestPostgresSwitchBackToMain(t *testing.T) {
 			}
 			r := &PostgresReconciler{Scheme: scheme, Recorder: recorder}
 			sync := synchronizer.NewSynchronizer(reader, scheme, r, recorder)
+			if tt.branchExists {
+				// An existing ownerless branch is claimed before activation is evaluated.
+				result, err := sync.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(postgres)})
+				requireNoError(t, err)
+				if result.IsZero() {
+					t.Fatal("ownership registration did not schedule activation reconciliation")
+				}
+			}
 			_, err := sync.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(postgres)})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Reconcile() error = %v, wantErr %v", err, tt.wantErr)

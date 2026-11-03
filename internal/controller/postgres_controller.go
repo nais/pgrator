@@ -6,12 +6,14 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	iam_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	storage_cnrm_cloud_google_com_v1beta1 "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
@@ -24,6 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -63,6 +67,10 @@ func (r *PostgresReconciler) New() *v1.Postgres {
 }
 
 func (r *PostgresReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.Postgres) (PostgresPreparedData, ctrl.Result, error) {
+	// Deletion must not depend on the identity or readiness of the active branch.
+	if !obj.DeletionTimestamp.IsZero() {
+		return PostgresPreparedData{}, ctrl.Result{}, nil
+	}
 	if obj.Spec.ActiveBranch == "" {
 		branch := &v1.PostgresBranch{}
 		key := client.ObjectKey{Namespace: obj.Namespace, Name: v1.PostgresBranchObjectName(obj.Name, v1.DefaultBranchName)}
@@ -117,6 +125,22 @@ func (r *PostgresReconciler) AdditionalTypes() []client.Object {
 	return nil
 }
 
+func (r *PostgresReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
+	return []reconciler.RelationshipWatch{{
+		Type:      &v1.PostgresBranch{},
+		Predicate: predicate.GenerationChangedPredicate{},
+		Map: func(_ context.Context, _ client.Reader, object client.Object) ([]reconcile.Request, error) {
+			branch, ok := object.(*v1.PostgresBranch)
+			if !ok || !validBranchIdentity(branch) {
+				return nil, nil
+			}
+			// A newly created branch has no owner reference yet, so Owns alone
+			// cannot trigger the reconciliation that registers its ownership.
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: branch.Namespace, Name: branch.Spec.Postgres}}}, nil
+		},
+	}}
+}
+
 func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 	ha := "false"
 	if obj.Spec.HighAvailability {
@@ -141,23 +165,31 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 	branches := relatedObjects.GetMatchingType(&v1.PostgresBranch{})
 	actions := make([]action.Action, 0, len(branches)+1)
 	status := obj.GetStatus().(*v1.PostgresStatus)
+	ownerManager := ownership.NewOwnerManager(r.Name() + "/owner")
+	ownershipPending := false
 	// Bootstrap main even when explicitly requested, but never recreate it
 	// after another branch has been selected.
 	ensureMain := (obj.Spec.ActiveBranch == "" || obj.Spec.ActiveBranch == v1.DefaultBranchName) && observedActiveBranch(obj) == v1.DefaultBranchName
-	if obj.Spec.ActiveBranch != "" && !ensureMain {
-		if !prepared.RequestedReady {
-			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
-			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
-		}
-		status.ActiveBranch = obj.Spec.ActiveBranch
-	}
 	if ensureMain {
-		if existing, ok := relatedObjects.GetMatching(instance).(*v1.PostgresBranch); ok &&
-			(!validBranchIdentity(existing) || existing.Spec.Postgres != obj.Name || existing.Spec.BranchName != v1.DefaultBranchName) {
-			return nil, ctrl.Result{}, fmt.Errorf("default PostgresBranch %q has invalid identity", existing.Name)
+		var mainAction action.Action
+		if existing, ok := relatedObjects.GetMatching(instance).(*v1.PostgresBranch); ok {
+			if !validBranchIdentity(existing) || existing.Spec.Postgres != obj.Name || existing.Spec.BranchName != v1.DefaultBranchName {
+				return nil, ctrl.Result{}, fmt.Errorf("default PostgresBranch %q has invalid identity", existing.Name)
+			}
+			owned := postgresBranchOwnedBy(existing, obj)
+			if err := setPostgresBranchOwner(existing, obj, r.Scheme); err != nil {
+				return nil, ctrl.Result{}, err
+			}
+			if !owned {
+				mainAction = action.Claim(existing, obj, existsConditionGetter, r.Recorder)
+				ownershipPending = true
+			}
 		}
 		status.ActiveBranch = v1.DefaultBranchName
-		actions = append(actions, action.CreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder))
+		if mainAction == nil {
+			mainAction = action.ExclusiveCreateOrUpdate(instance, obj, existsConditionGetter, r.Recorder)
+		}
+		actions = append(actions, mainAction)
 	}
 	// Branches have their own lifecycle. Removing the activation request must
 	// not prune previously claimed branches, including workload-pinned ones.
@@ -169,10 +201,24 @@ func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedD
 		if ensureMain && branch.Name == instance.Name {
 			continue // The default branch already has a create/update action.
 		}
-		if err := controllerutil.SetControllerReference(obj, branch, r.Scheme); err != nil {
-			return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)
+		if !postgresBranchOwnedBy(branch, obj) || !ownerManager.HasOwnerAnnotation(branch, obj) {
+			ownershipPending = true
+		}
+		if err := setPostgresBranchOwner(branch, obj, r.Scheme); err != nil {
+			return nil, ctrl.Result{}, err
 		}
 		actions = append(actions, action.Claim(branch, obj, existsConditionGetter, r.Recorder))
+	}
+	// Persist ownership in its own pass before activation validation can fail.
+	if ownershipPending {
+		return actions, ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	if obj.Spec.ActiveBranch != "" && !ensureMain {
+		if !prepared.RequestedReady {
+			r.Recorder.RecordEvent(obj, core_v1.EventTypeWarning, "ActivationFailed", "requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
+			return nil, ctrl.Result{}, fmt.Errorf("requested PostgresBranch %q is not ready", obj.Spec.ActiveBranch)
+		}
+		status.ActiveBranch = obj.Spec.ActiveBranch
 	}
 	return actions, ctrl.Result{}, nil
 }
@@ -188,7 +234,51 @@ func validBranchIdentity(branch *v1.PostgresBranch) bool {
 	return branch.Name == v1.PostgresBranchObjectName(branch.Spec.Postgres, branch.Spec.BranchName)
 }
 
-func (r *PostgresReconciler) Delete(_ *v1.Postgres, _ PostgresPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func setPostgresBranchOwner(branch *v1.PostgresBranch, postgres *v1.Postgres, scheme *runtime.Scheme) error {
+	if owner := meta_v1.GetControllerOf(branch); owner != nil &&
+		(owner.UID != postgres.UID || owner.Name != postgres.Name || owner.Kind != "Postgres" || owner.APIVersion != v1.GroupVersion.String()) {
+		return fmt.Errorf("PostgresBranch %q is controlled by another resource (UID %s); refusing to adopt it", branch.Name, owner.UID)
+	}
+	if !branch.CreationTimestamp.IsZero() && branch.CreationTimestamp.Before(&postgres.CreationTimestamp) {
+		return fmt.Errorf("PostgresBranch %q predates this Postgres; refusing to adopt it", branch.Name)
+	}
+	if err := controllerutil.SetControllerReference(postgres, branch, scheme); err != nil {
+		return fmt.Errorf("setting controller reference on PostgresBranch %q: %w", branch.Name, err)
+	}
+	return nil
+}
+
+func postgresBranchOwnedBy(branch *v1.PostgresBranch, postgres *v1.Postgres) bool {
+	owner := meta_v1.GetControllerOf(branch)
+	return owner != nil && owner.APIVersion == v1.GroupVersion.String() && owner.Kind == "Postgres" &&
+		owner.Name == postgres.Name && owner.UID == postgres.UID && postgres.UID != ""
+}
+
+func (r *PostgresReconciler) Delete(obj *v1.Postgres, _ PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	var actions []action.Action
+	pending := false
+	ownerManager := ownership.NewOwnerManager(r.Name() + "/owner")
+	for _, candidate := range relatedObjects.GetMatchingType(&v1.PostgresBranch{}) {
+		branch := candidate.(*v1.PostgresBranch)
+		if branch.Namespace != obj.Namespace {
+			continue
+		}
+		if branch.Spec.Postgres != obj.Name && !meta_v1.IsControlledBy(branch, obj) && !ownerManager.HasOwnerAnnotation(branch, obj) {
+			continue
+		}
+		// References identify candidates, but only a matching controller UID
+		// authorizes deletion. Ambiguous ownership blocks finalization.
+		if branch.Spec.Postgres != obj.Name || !validBranchIdentity(branch) || !postgresBranchOwnedBy(branch, obj) {
+			return nil, ctrl.Result{}, fmt.Errorf("PostgresBranch %q has missing or inconsistent ownership; refusing to delete it", branch.Name)
+		}
+		pending = true
+		if branch.DeletionTimestamp.IsZero() {
+			actions = append(actions, action.DeleteIfExists(branch, obj, existsConditionGetter, r.Recorder))
+		}
+	}
+	if pending {
+		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
 	return nil, ctrl.Result{}, nil
 }
 

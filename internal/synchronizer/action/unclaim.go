@@ -38,12 +38,22 @@ func (a *unclaim) Do(ctx context.Context, c client.Client, scheme *runtime.Schem
 	}
 
 	original := existing.DeepCopyObject().(client.Object)
-	patchSource := client.MergeFrom(original)
+	patchSource := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
 
 	modified := existing.(client.Object)
+	if a.obj.GetUID() != "" && modified.GetUID() != a.obj.GetUID() {
+		return fmt.Errorf("refusing to unclaim replaced resource %s", key)
+	}
 	ownerManager.RemoveOwnerAnnotation(modified, a.owner)
 	if len(ownerManager.GetOwnerAnnotations(modified)) == 0 {
-		if err = c.Delete(ctx, modified); err != nil {
+		preconditions := client.Preconditions{}
+		if uid := modified.GetUID(); uid != "" {
+			preconditions.UID = &uid
+		}
+		if version := modified.GetResourceVersion(); version != "" {
+			preconditions.ResourceVersion = &version
+		}
+		if err = c.Delete(ctx, modified, preconditions); err != nil {
 			return err
 		}
 		a.recorder.RecordEvent(a.owner, v1.EventTypeNormal, "Deleted", "Deleted %s", describeObj(a.obj))
