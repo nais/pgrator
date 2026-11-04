@@ -106,6 +106,18 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 			},
 		},
 		{Type: &cnpgv1.DatabaseRole{}},
+		{
+			Type: &cnpgv1.Database{},
+			AdditionalPredicate: predicate.Funcs{
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldDatabase, oldOK := e.ObjectOld.(*cnpgv1.Database)
+					newDatabase, newOK := e.ObjectNew.(*cnpgv1.Database)
+					return oldOK && newOK && (oldDatabase.Status.ObservedGeneration != newDatabase.Status.ObservedGeneration ||
+						!equality.Semantic.DeepEqual(oldDatabase.Status.Applied, newDatabase.Status.Applied) ||
+						oldDatabase.Status.Message != newDatabase.Status.Message)
+				},
+			},
+		},
 		{Type: &cnpgv1.Pooler{}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
@@ -585,6 +597,12 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 	actions = append(actions, action.CreateOrUpdate(ownerRole, obj, existsConditionGetter, r.Recorder))
 
+	database, err := r.database(obj, specSource, relatedObjects)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, action.CreateOrUpdate(database, obj, databaseConditionGetter, r.Recorder))
+
 	pooler, err := rccnpg.CreatePooler(r.Scheme, specSource)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)
@@ -620,7 +638,7 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 			// Once recovered, replicas and backups use this branch's own archive.
 			recoverySource = nil
 		}
-		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, recoverySource)
+		cluster, err := rccnpg.CreateCluster(r.Scheme, specSource, r.Config, wal, recoverySource, database)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating CNPG Cluster spec: %w", err)
 		}
@@ -654,6 +672,54 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresBranchReconciler) database(obj *v1.PostgresBranch, specSource *v1.Postgres, relatedObjects reconciler.RelatedObjects) (*cnpgv1.Database, error) {
+	existing, _ := relatedObjects.GetMatching(&cnpgv1.Database{ObjectMeta: metav1.ObjectMeta{
+		Name:      rccnpg.DatabaseResourceName(specSource),
+		Namespace: obj.GetNamespace(),
+	}}).(*cnpgv1.Database)
+	database, err := rccnpg.CreateDatabase(r.Scheme, specSource, existing)
+	if err != nil {
+		return nil, fmt.Errorf("creating Database spec: %w", err)
+	}
+	if err := transferControllerOwnership(obj, database, r.Scheme); err != nil {
+		return nil, err
+	}
+	return database, nil
+}
+
+func databaseConditionGetter(obj client.Object, scheme *runtime.Scheme) []metav1.Condition {
+	database, ok := obj.(*cnpgv1.Database)
+	if !ok {
+		return nil
+	}
+	condition := metav1.Condition{
+		Type:               fmt.Sprintf("%s/Available", typePrefix(obj, scheme)),
+		Status:             metav1.ConditionUnknown,
+		ObservedGeneration: obj.GetGeneration(),
+		Reason:             "Pending",
+		Message:            "Waiting for CloudNativePG to reconcile the Database",
+	}
+	if database.Status.Applied == nil || database.Status.ObservedGeneration < database.GetGeneration() {
+		if database.Status.Message != "" {
+			condition.Message = database.Status.Message
+		}
+		return []metav1.Condition{condition}
+	}
+	if *database.Status.Applied {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "Applied"
+		condition.Message = "Database reconciled by CloudNativePG"
+	} else {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "ReconciliationFailed"
+		condition.Message = "CloudNativePG failed to reconcile the Database"
+	}
+	if database.Status.Message != "" {
+		condition.Message = database.Status.Message
+	}
+	return []metav1.Condition{condition}
 }
 
 func createPersonalAccessGroupRole(scheme *runtime.Scheme, instance *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error) {

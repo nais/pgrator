@@ -1,0 +1,25 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Database
+  metadata:
+    name: pg-mydb-main-6bc4781b-app
+    namespace: myteam
+  spec:
+    cluster:
+      name: pg-mydb-main-6bc4781b
+    name: app
+    owner: app
+    ensure: present
+    databaseReclaimPolicy: retain
+    extensions:
+      - name: postgis
+        ensure: present
+      - name: pg_trgm
+        ensure: present
+      - name: uuid-ossp
+        ensure: present
+      - name: timescaledb
+        ensure: present

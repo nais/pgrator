@@ -1,0 +1,25 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Database
+  metadata:
+    name: pg-mydb-main-6bc4781b-app
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb-main-6bc4781b
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: PostgresBranch
+        name: mydb-main-6bc4781b
+        uid: d3adb33f-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    cluster:
+      name: pg-mydb-main-6bc4781b
+    name: app
+    owner: app
+    ensure: present
+    databaseReclaimPolicy: retain
