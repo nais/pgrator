@@ -59,12 +59,7 @@ type PostgresBranchStatus struct {
 }
 
 // PostgresBranchConfiguration describes explicitly configured PostgreSQL settings.
-type PostgresBranchConfiguration struct {
-	// Parameters contains the unmodified PostgreSQL parameter names and values,
-	// including units and extension prefixes. Defaults not explicitly configured
-	// on the backing resource are not included.
-	Parameters map[string]string `json:"parameters"`
-}
+type PostgresBranchConfiguration = PostgresConfiguration
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

@@ -21,11 +21,23 @@ const (
 )
 
 // PostgresAccessSpec defines one immutable, time-limited personal access request.
+// +kubebuilder:validation:XValidation:rule="has(self.postgres) != has(self.postgresBranch)",message="exactly one of postgres and postgresBranch must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.postgres) == has(oldSelf.postgres) && has(self.postgresBranch) == has(oldSelf.postgresBranch)",message="the Postgres reference is immutable"
 type PostgresAccessSpec struct {
-	// PostgresBranch is the PostgresBranch object name (not its local branch name).
+	// Postgres is the namespace-local Postgres receiving this access.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgres is immutable"
+	Postgres string `json:"postgres,omitempty"`
+
+	// PostgresBranch is the legacy PostgresBranch object name (not its local name).
+	// Deprecated: new accesses reference Postgres directly.
+	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresBranch is immutable"
-	PostgresBranch string `json:"postgresBranch"`
+	PostgresBranch string `json:"postgresBranch,omitempty"`
 
 	// Username is the authenticated NAIS user's email address.
 	// +kubebuilder:validation:MinLength=3
@@ -40,6 +52,19 @@ type PostgresAccessSpec struct {
 	// ExpiresAt is the absolute time at which this access expires.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="expiresAt is immutable"
 	ExpiresAt metav1.Time `json:"expiresAt"`
+}
+
+// PhysicalName returns the stable physical identity for either reference shape.
+// Main accesses keep the same roles, authentication group and relay target when
+// the referenced PostgresBranch is detached.
+func (s PostgresAccessSpec) PhysicalName() string {
+	if s.PostgresBranch != "" {
+		return s.PostgresBranch
+	}
+	if s.Postgres != "" {
+		return PostgresPhysicalName(s.Postgres)
+	}
+	return ""
 }
 
 // PostgresAccessStatus defines the observed state of PostgresAccess.
@@ -77,6 +102,7 @@ type PostgresAccessStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories={nais}
+// +kubebuilder:printcolumn:name="Postgres",type="string",JSONPath=".spec.postgres"
 // +kubebuilder:printcolumn:name="PostgresBranch",type="string",JSONPath=".spec.postgresBranch"
 // +kubebuilder:printcolumn:name="Username",type="string",JSONPath=".spec.username"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"

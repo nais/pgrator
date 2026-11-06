@@ -38,7 +38,6 @@ type PostgresAccessReconciler struct {
 var _ reconciler.Reconciler[*v1.PostgresAccess, PostgresAccessPreparedData] = &PostgresAccessReconciler{}
 
 type PostgresAccessPreparedData struct {
-	Branch         *v1.PostgresBranch         `yaml:"branch"`
 	Cluster        *cnpgv1.Cluster            `yaml:"-"`
 	Password       string                     `yaml:"-"`
 	Role           *cnpgv1.DatabaseRole       `yaml:"-"`
@@ -49,6 +48,7 @@ type PostgresAccessPreparedData struct {
 }
 
 const postgresAccessBranchIndex = "spec.postgresBranch"
+const postgresAccessPostgresIndex = "spec.postgres"
 const readyCondition = "Ready"
 const maximumPostgresAccessLifetime = time.Hour
 
@@ -108,11 +108,31 @@ func (r *PostgresAccessReconciler) Indexes() []reconciler.Index {
 			}
 			return []string{access.Spec.PostgresBranch}
 		},
+	}, {
+		Object: &v1.PostgresAccess{},
+		Field:  postgresAccessPostgresIndex,
+		ExtractValue: func(object client.Object) []string {
+			access, ok := object.(*v1.PostgresAccess)
+			if !ok || access.Spec.Postgres == "" {
+				return nil
+			}
+			return []string{access.Spec.Postgres}
+		},
 	}}
 }
 
 func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
 	return []reconciler.RelationshipWatch{{
+		Type: &v1.Postgres{},
+		Map:  r.accessesForPostgres,
+		Predicate: predicate.Or(predicate.GenerationChangedPredicate{}, predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldPG, oldOK := e.ObjectOld.(*v1.Postgres)
+				newPG, newOK := e.ObjectNew.(*v1.Postgres)
+				return oldOK && newOK && (directClusterName(oldPG) != directClusterName(newPG) || oldPG.DeletionTimestamp.IsZero() != newPG.DeletionTimestamp.IsZero())
+			},
+		}),
+	}, {
 		Type: &v1.PostgresBranch{},
 		Map:  r.accessesForBranch,
 		Predicate: predicate.Funcs{
@@ -133,10 +153,36 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 				newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-				return oldOK && newOK && (recoveryComplete(oldCluster) != recoveryComplete(newCluster) || rccnpg.ReadWriteCreateCapable(oldCluster) != rccnpg.ReadWriteCreateCapable(newCluster))
+				return oldOK && newOK && (recoveryComplete(oldCluster) != recoveryComplete(newCluster) || rccnpg.ReadWriteCreateCapable(oldCluster) != rccnpg.ReadWriteCreateCapable(newCluster) || !reflect.DeepEqual(oldCluster.OwnerReferences, newCluster.OwnerReferences) || oldCluster.DeletionTimestamp.IsZero() != newCluster.DeletionTimestamp.IsZero())
 			},
 		},
 	}}
+}
+
+func directClusterName(postgres *v1.Postgres) string {
+	if postgres.Status == nil {
+		return ""
+	}
+	return postgres.Status.ClusterName
+}
+
+func (r *PostgresAccessReconciler) accessesForPostgres(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
+	postgres, ok := object.(*v1.Postgres)
+	if !ok {
+		return nil, nil
+	}
+	accesses := &v1.PostgresAccessList{}
+	if err := reader.List(ctx, accesses, client.InNamespace(postgres.Namespace), client.MatchingFields{postgresAccessPostgresIndex: postgres.Name}); err != nil {
+		return nil, fmt.Errorf("listing PostgresAccess resources for Postgres %q: %w", postgres.Name, err)
+	}
+	requests, err := r.accessesForBranchName(ctx, reader, postgres.Namespace, v1.PostgresPhysicalName(postgres.Name))
+	if err != nil {
+		return nil, err
+	}
+	for i := range accesses.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&accesses.Items[i])})
+	}
+	return requests, nil
 }
 
 func (r *PostgresAccessReconciler) accessesForBranch(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -144,7 +190,18 @@ func (r *PostgresAccessReconciler) accessesForBranch(ctx context.Context, reader
 	if !ok {
 		return nil, nil
 	}
-	return r.accessesForBranchName(ctx, reader, instance.Namespace, instance.Name)
+	requests, err := r.accessesForBranchName(ctx, reader, instance.Namespace, instance.Name)
+	if err != nil || !validBranchIdentity(instance) || instance.Spec.BranchName != v1.DefaultBranchName {
+		return requests, err
+	}
+	accesses := &v1.PostgresAccessList{}
+	if err := reader.List(ctx, accesses, client.InNamespace(instance.Namespace), client.MatchingFields{postgresAccessPostgresIndex: instance.Spec.Postgres}); err != nil {
+		return nil, fmt.Errorf("listing direct PostgresAccess resources for branch %q: %w", instance.Name, err)
+	}
+	for i := range accesses.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&accesses.Items[i])})
+	}
+	return requests, nil
 }
 
 func (r *PostgresAccessReconciler) accessesForCluster(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -158,7 +215,7 @@ func (r *PostgresAccessReconciler) accessesForCluster(ctx context.Context, reade
 	}
 	requests := make([]reconcile.Request, 0)
 	for _, access := range accesses.Items {
-		if rccnpg.ClusterNameFor(access.Spec.PostgresBranch) == cluster.Name {
+		if rccnpg.ClusterNameFor(access.Spec.PhysicalName()) == cluster.Name {
 			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&access)})
 		}
 	}
@@ -194,32 +251,15 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	if access.Spec.ExpiresAt.After(start.Add(maximumPostgresAccessLifetime)) {
 		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("expiresAt must be at most %s from creation", maximumPostgresAccessLifetime)
 	}
-	instance := &v1.PostgresBranch{}
-	key := client.ObjectKey{Namespace: access.Namespace, Name: access.Spec.PostgresBranch}
-	if err := reader.Get(ctx, key, instance); err != nil {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting PostgresBranch %q: %w", access.Spec.PostgresBranch, err)
-	}
-	if !validBranchIdentity(instance) || instance.Name != access.Spec.PostgresBranch {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q has invalid identity", instance.Name)
-	}
-	postgres := &v1.Postgres{}
-	postgresKey := client.ObjectKey{Namespace: access.Namespace, Name: instance.Spec.Postgres}
-	if err := reader.Get(ctx, postgresKey, postgres); err != nil {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres for PostgresBranch %q: %w", instance.Name, err)
-	}
-	cluster := &cnpgv1.Cluster{}
-	clusterKey := client.ObjectKey{Namespace: access.Namespace, Name: rccnpg.ClusterNameFor(instance.Name)}
-	if err := reader.Get(ctx, clusterKey, cluster); err != nil {
-		if apierrors.IsNotFound(err) {
-			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresBranch %q is not yet available", instance.Name)
-		}
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("getting CNPG Cluster for PostgresBranch %q: %w", instance.Name, err)
+	cluster, err := resolveAccessCluster(ctx, reader, access)
+	if err != nil {
+		return PostgresAccessPreparedData{}, ctrl.Result{}, err
 	}
 	if !recoveryComplete(cluster) {
-		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster for PostgresBranch %q is not ready", instance.Name)
+		return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("CNPG Cluster %q is not ready", cluster.Name)
 	}
 
-	prep := PostgresAccessPreparedData{Branch: instance, Cluster: cluster}
+	prep := PostgresAccessPreparedData{Cluster: cluster}
 
 	secret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.CredentialSecretName(access)}
@@ -241,7 +281,7 @@ func (r *PostgresAccessReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 
 	role := &cnpgv1.DatabaseRole{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch)}, role); err == nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: access.Namespace, Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PhysicalName())}, role); err == nil {
 		if !metav1.IsControlledBy(role, access) {
 			return PostgresAccessPreparedData{}, ctrl.Result{}, fmt.Errorf("personal DatabaseRole is not controlled by PostgresAccess")
 		}
@@ -303,12 +343,12 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		// is immutable; fail the access instead of reconciling it forever.
 		r.Recorder.RecordEvent(access, corev1.EventTypeWarning, "UnsupportedAccessLevel",
 			"accessLevel readwritecreate is not available on PostgresBranch %q: its cluster was initialized without the %s group role",
-			access.Spec.PostgresBranch, rccnpg.ReadWriteCreateRole)
+			access.Spec.PhysicalName(), rccnpg.ReadWriteCreateRole)
 		access.GetStatus().(*v1.PostgresAccessStatus).SetCondition(metav1.Condition{
 			Type:               readyCondition,
 			Status:             metav1.ConditionFalse,
 			Reason:             "UnsupportedAccessLevel",
-			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PostgresBranch),
+			Message:            fmt.Sprintf("readwritecreate requires an instance initialized with the %s group role; %q predates it", rccnpg.ReadWriteCreateRole, access.Spec.PhysicalName()),
 			ObservedGeneration: access.GetGeneration(),
 		})
 		return nil, ctrl.Result{}, nil
@@ -416,7 +456,7 @@ func (r *PostgresAccessReconciler) revokeAccess(access *v1.PostgresAccess, relat
 // for CNPG to remove credentials and memberships before deleting its Retain CR.
 func (r *PostgresAccessReconciler) revokeRole(access *v1.PostgresAccess, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	key := &cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{
-		Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch), Namespace: access.Namespace,
+		Name: rcaccess.DatabaseRoleName(access.Spec.Username, access.Spec.PhysicalName()), Namespace: access.Namespace,
 	}}
 	object := related.GetMatching(key)
 	if object == nil {

@@ -31,6 +31,8 @@ import (
 )
 
 const (
+	postgresKind = "Postgres"
+
 	// ProjectIDLabel and ProjectIDAnnotationFallback is where a team namespace
 	// records which Google project it maps to.
 	ProjectIDLabel              = "google-cloud-project"
@@ -236,7 +238,7 @@ func validBranchIdentity(branch *v1.PostgresBranch) bool {
 
 func setPostgresBranchOwner(branch *v1.PostgresBranch, postgres *v1.Postgres, scheme *runtime.Scheme) error {
 	if owner := meta_v1.GetControllerOf(branch); owner != nil &&
-		(owner.UID != postgres.UID || owner.Name != postgres.Name || owner.Kind != "Postgres" || owner.APIVersion != v1.GroupVersion.String()) {
+		(owner.UID != postgres.UID || owner.Name != postgres.Name || owner.Kind != postgresKind || owner.APIVersion != v1.GroupVersion.String()) {
 		return fmt.Errorf("PostgresBranch %q is controlled by another resource (UID %s); refusing to adopt it", branch.Name, owner.UID)
 	}
 	if !branch.CreationTimestamp.IsZero() && branch.CreationTimestamp.Before(&postgres.CreationTimestamp) {
@@ -250,7 +252,7 @@ func setPostgresBranchOwner(branch *v1.PostgresBranch, postgres *v1.Postgres, sc
 
 func postgresBranchOwnedBy(branch *v1.PostgresBranch, postgres *v1.Postgres) bool {
 	owner := meta_v1.GetControllerOf(branch)
-	return owner != nil && owner.APIVersion == v1.GroupVersion.String() && owner.Kind == "Postgres" &&
+	return owner != nil && owner.APIVersion == v1.GroupVersion.String() && owner.Kind == postgresKind &&
 		owner.Name == postgres.Name && owner.UID == postgres.UID && postgres.UID != ""
 }
 
