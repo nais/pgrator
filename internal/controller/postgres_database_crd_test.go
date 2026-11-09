@@ -32,7 +32,6 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "dbext-", Namespace: "default"},
 				Spec: v1.PostgresSpec{
 					MajorVersion: "18",
-					Resources:    v1.PostgresResources{DiskSize: apiresource.MustParse("10Gi")},
 					Extensions:   []v1.PostgresExtension{{Name: tc.extension}},
 				},
 			}
@@ -74,6 +73,28 @@ func TestPostgresCRDValidatesDiskSize(t *testing.T) {
 			}
 			requireErrorContains(t, err, tc.wantErr)
 		})
+	}
+}
+
+func TestPostgresCRDDefaultsUnsetResources(t *testing.T) {
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "dbdefaults-", Namespace: "default"},
+		Spec:       v1.PostgresSpec{MajorVersion: "18"},
+	}
+	requireNoError(t, k8sClient.Create(ctx, postgres))
+	t.Cleanup(func() { requireNoError(t, k8sClient.Delete(ctx, postgres)) })
+
+	for name, tc := range map[string]struct {
+		got  apiresource.Quantity
+		want string
+	}{
+		"diskSize": {got: postgres.Spec.Resources.DiskSize, want: "10Gi"},
+		"cpu":      {got: postgres.Spec.Resources.Cpu, want: "100m"},
+		"memory":   {got: postgres.Spec.Resources.Memory, want: "512Mi"},
+	} {
+		if tc.got.Cmp(apiresource.MustParse(tc.want)) != 0 {
+			t.Errorf("%s = %s, want default %s", name, tc.got.String(), tc.want)
+		}
 	}
 }
 

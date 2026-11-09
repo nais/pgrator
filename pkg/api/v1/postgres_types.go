@@ -11,17 +11,17 @@ type PostgresResources struct {
 	// +kubebuilder:default="10Gi"
 	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).compareTo(quantity('5Gi')) >= 0",message="diskSize must be at least 5Gi"
 	// +optional
-	DiskSize resource.Quantity `json:"diskSize,omitempty"`
+	DiskSize resource.Quantity `json:"diskSize,omitzero"`
 
 	// Cpu is the CPU resources for the Postgres cluster.
 	// +kubebuilder:default="100m"
 	// +optional
-	Cpu resource.Quantity `json:"cpu,omitempty"`
+	Cpu resource.Quantity `json:"cpu,omitzero"`
 
 	// Memory is the memory resources for the Postgres cluster.
 	// +kubebuilder:default="512Mi"
 	// +optional
-	Memory resource.Quantity `json:"memory,omitempty"`
+	Memory resource.Quantity `json:"memory,omitzero"`
 }
 
 // PostgresExtension is an extension requested for the application database.
