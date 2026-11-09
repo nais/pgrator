@@ -5,14 +5,14 @@ go 1.26.10
 tool github.com/sethvargo/ratchet
 
 require (
-	github.com/cloudnative-pg/barman-cloud v0.6.0
+	github.com/cloudnative-pg/barman-cloud v0.7.0
 	github.com/cloudnative-pg/cloudnative-pg v1.30.1
 	github.com/cloudnative-pg/plugin-barman-cloud v0.15.1
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-cmp v0.7.0
 	github.com/imdario/mergo v0.3.16
 	github.com/nais/pgrator/pkg/api v0.0.0-20260526070414-2a7817745dce
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.94.1
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.94.2
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/sethvargo/go-envconfig v1.4.3
@@ -34,7 +34,7 @@ require (
 	github.com/braydonk/yaml v0.9.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudnative-pg/cnpg-i v0.6.0 // indirect
-	github.com/cloudnative-pg/machinery v0.6.0 // indirect
+	github.com/cloudnative-pg/machinery v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/cli v29.6.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.8 // indirect
