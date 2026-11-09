@@ -122,9 +122,12 @@ spec:
                         - type: integer
                         - type: string
                       default: 10Gi
-                      description: DiskSize is the disk size for the Postgres cluster.
+                      description: DiskSize is the disk size for the Postgres cluster. Minimum is 5Gi.
                       pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                       x-kubernetes-int-or-string: true
+                      x-kubernetes-validations:
+                        - message: diskSize must be at least 5Gi
+                          rule: quantity(string(self)).compareTo(quantity('5Gi')) >= 0
                     memory:
                       anyOf:
                         - type: integer

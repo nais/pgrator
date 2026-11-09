@@ -7,8 +7,9 @@ import (
 )
 
 type PostgresResources struct {
-	// DiskSize is the disk size for the Postgres cluster.
+	// DiskSize is the disk size for the Postgres cluster. Minimum is 5Gi.
 	// +kubebuilder:default="10Gi"
+	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).compareTo(quantity('5Gi')) >= 0",message="diskSize must be at least 5Gi"
 	// +optional
 	DiskSize resource.Quantity `json:"diskSize,omitempty"`
 

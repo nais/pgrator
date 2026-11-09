@@ -7,6 +7,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -31,7 +32,38 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{GenerateName: "dbext-", Namespace: "default"},
 				Spec: v1.PostgresSpec{
 					MajorVersion: "18",
+					Resources:    v1.PostgresResources{DiskSize: apiresource.MustParse("10Gi")},
 					Extensions:   []v1.PostgresExtension{{Name: tc.extension}},
+				},
+			}
+			err := k8sClient.Create(ctx, postgres)
+			if tc.wantErr == "" {
+				requireNoError(t, err)
+				requireNoError(t, k8sClient.Delete(ctx, postgres))
+				return
+			}
+			requireErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestPostgresCRDValidatesDiskSize(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		diskSize string
+		wantErr  string
+	}{
+		{name: "minimum", diskSize: "5Gi"},
+		{name: "above minimum", diskSize: "10Gi"},
+		{name: "below minimum", diskSize: "4Gi", wantErr: "diskSize must be at least 5Gi"},
+		{name: "decimal gigabytes below minimum", diskSize: "5G", wantErr: "diskSize must be at least 5Gi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			postgres := &v1.Postgres{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "dbdisk-", Namespace: "default"},
+				Spec: v1.PostgresSpec{
+					MajorVersion: "18",
+					Resources:    v1.PostgresResources{DiskSize: apiresource.MustParse(tc.diskSize)},
 				},
 			}
 			err := k8sClient.Create(ctx, postgres)
