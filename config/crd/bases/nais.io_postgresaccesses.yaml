@@ -75,11 +75,12 @@ spec:
                 - message: expiresAt is immutable
                   rule: self == oldSelf
               postgres:
-                description: Postgres is the namespace-local Postgres receiving this
-                  access.
-                maxLength: 63
+                description: |-
+                  Postgres is the namespace-local Postgres receiving this access. It follows
+                  the DNS-subdomain naming rules of Postgres.metadata.name.
+                maxLength: 253
                 minLength: 1
-                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
                 x-kubernetes-validations:
                 - message: postgres is immutable

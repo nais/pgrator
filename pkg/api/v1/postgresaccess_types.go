@@ -24,11 +24,12 @@ const (
 // +kubebuilder:validation:XValidation:rule="has(self.postgres) != has(self.postgresBranch)",message="exactly one of postgres and postgresBranch must be set"
 // +kubebuilder:validation:XValidation:rule="has(self.postgres) == has(oldSelf.postgres) && has(self.postgresBranch) == has(oldSelf.postgresBranch)",message="the Postgres reference is immutable"
 type PostgresAccessSpec struct {
-	// Postgres is the namespace-local Postgres receiving this access.
+	// Postgres is the namespace-local Postgres receiving this access. It follows
+	// the DNS-subdomain naming rules of Postgres.metadata.name.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgres is immutable"
 	Postgres string `json:"postgres,omitempty"`
 
