@@ -221,24 +221,53 @@ func TestCreateDatabaseWithoutRequestedExtensionsDeclaresNone(t *testing.T) {
 }
 
 func TestExtensionsAreMountedPreloadedAndActivated(t *testing.T) {
-	extensions := []v1.PostgresExtension{{Name: "postgis"}, {Name: "pg_trgm"}, {Name: "timescaledb-oss"}}
+	for _, tt := range []struct {
+		name          string
+		extensions    []string
+		wantMounted   []string
+		wantActivated []string
+		wantPreload   []string
+	}{
+		{
+			name:          "SQL names",
+			extensions:    []string{"postgis", "pg_trgm", "timescaledb"},
+			wantMounted:   []string{"postgis", "timescaledb-oss"},
+			wantActivated: []string{"postgis", "pg_trgm", "timescaledb"},
+			wantPreload:   []string{"timescaledb"},
+		},
+		{
+			name:          "bundled extensions only",
+			extensions:    []string{"pg_trgm", "citext"},
+			wantMounted:   []string{},
+			wantActivated: []string{"pg_trgm", "citext"},
+			wantPreload:   []string{},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			extensions := make([]v1.PostgresExtension, 0, len(tt.extensions))
+			for _, name := range tt.extensions {
+				extensions = append(extensions, v1.PostgresExtension{Name: name})
+			}
+			cluster := clusterExtensions(extensions, nil)
 
-	mounted := makeExtensions(extensions)
-	if len(mounted) != 2 || mounted[0].Name != "postgis" || mounted[1].Name != "timescaledb-oss" {
-		t.Errorf("mounted extensions = %+v, want postgis and timescaledb-oss only", mounted)
-	}
-	activated := make([]string, 0, len(extensions))
-	for _, e := range makeDatabaseExtensions(extensions, nil) {
-		activated = append(activated, e.Name)
-	}
-	if want := []string{"postgis", "pg_trgm", "timescaledb"}; !slices.Equal(activated, want) {
-		t.Errorf("activated extensions = %v, want %v (catalog names mapped to SQL names)", activated, want)
-	}
-	if preload := makePreloadLibraries(extensions); !slices.Equal(preload, []string{"timescaledb"}) {
-		t.Errorf("preload libraries = %v, want [timescaledb]", preload)
-	}
-	if preload := makePreloadLibraries(extensions[:2]); len(preload) != 0 {
-		t.Errorf("preload libraries without timescaledb-oss = %v, want none", preload)
+			mounted := []string{}
+			for _, e := range makeExtensions(cluster) {
+				mounted = append(mounted, e.Name)
+			}
+			if !slices.Equal(mounted, tt.wantMounted) {
+				t.Errorf("mounted extensions = %v, want %v", mounted, tt.wantMounted)
+			}
+			activated := []string{}
+			for _, e := range makeDatabaseExtensions(extensions, nil) {
+				activated = append(activated, e.Name)
+			}
+			if !slices.Equal(activated, tt.wantActivated) {
+				t.Errorf("activated extensions = %v, want %v", activated, tt.wantActivated)
+			}
+			if preload := makePreloadLibraries(cluster); !slices.Equal(preload, tt.wantPreload) {
+				t.Errorf("preload libraries = %v, want %v", preload, tt.wantPreload)
+			}
+		})
 	}
 }
 

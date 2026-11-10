@@ -9,5 +9,5 @@ postgresSpec:
   extensions:
     - name: postgis
     - name: pg_trgm
-    - name: uuid-ossp
-    - name: timescaledb-oss
+    - name: citext
+    - name: timescaledb
