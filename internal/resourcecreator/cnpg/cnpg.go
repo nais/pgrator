@@ -94,6 +94,26 @@ var imageExtensions = map[string]imageExtension{
 	"timescaledb": {catalogName: "timescaledb-oss", preloadLibrary: "timescaledb"},
 }
 
+// legacyExtensionNames maps names no longer accepted by the CRD, but possibly still
+// persisted in existing Postgres objects, to their SQL extension names.
+var legacyExtensionNames = map[string]string{
+	"timescaledb-oss": "timescaledb",
+}
+
+// sqlExtensions returns the requested extensions by SQL name, without duplicates.
+func sqlExtensions(extensions []v1.PostgresExtension) []v1.PostgresExtension {
+	res := make([]v1.PostgresExtension, 0, len(extensions))
+	for _, e := range extensions {
+		if name, ok := legacyExtensionNames[e.Name]; ok {
+			e.Name = name
+		}
+		if !slices.Contains(res, e) {
+			res = append(res, e)
+		}
+	}
+	return res
+}
+
 var dedicatedPostgresToleration = corev1.Toleration{
 	Key:      "dedicated",
 	Operator: "Equal",
@@ -576,6 +596,7 @@ func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres, existing *cnp
 }
 
 func makeDatabaseExtensions(extensions []v1.PostgresExtension, existing *cnpgv1.Database) []cnpgv1.ExtensionSpec {
+	extensions = sqlExtensions(extensions)
 	res := make([]cnpgv1.ExtensionSpec, 0, len(extensions))
 	requested := make(map[string]bool, len(extensions))
 	for _, e := range extensions {
@@ -610,10 +631,10 @@ func extensionDropped(database *cnpgv1.Database, extension cnpgv1.ExtensionSpec)
 	return false
 }
 
-// clusterExtensions returns the requested extensions plus image extensions the Database
-// is still dropping, whose image and preload library must remain until the drop is done.
+// clusterExtensions returns the requested extensions by SQL name plus image extensions the
+// Database is still dropping, whose image and preload library must remain until the drop is done.
 func clusterExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Database) []v1.PostgresExtension {
-	res := slices.Clone(extensions)
+	res := sqlExtensions(extensions)
 	if database == nil {
 		return res
 	}
