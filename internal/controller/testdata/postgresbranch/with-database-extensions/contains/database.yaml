@@ -19,7 +19,7 @@ object:
         ensure: present
       - name: pg_trgm
         ensure: present
-      - name: uuid-ossp
+      - name: citext
         ensure: present
       - name: timescaledb
         ensure: present

@@ -84,13 +84,34 @@ const (
 // name differs from the SQL name for some extensions, and modules like timescaledb
 // must also be loaded at server start.
 type imageExtension struct {
-	sqlName        string
+	catalogName    string
 	preloadLibrary string
 }
 
+// imageExtensions is keyed by SQL extension name.
 var imageExtensions = map[string]imageExtension{
-	"postgis":         {sqlName: "postgis"},
-	"timescaledb-oss": {sqlName: "timescaledb", preloadLibrary: "timescaledb"},
+	"postgis":     {catalogName: "postgis"},
+	"timescaledb": {catalogName: "timescaledb-oss", preloadLibrary: "timescaledb"},
+}
+
+// legacyExtensionNames maps names no longer accepted by the CRD, but possibly still
+// persisted in existing Postgres objects, to their SQL extension names.
+var legacyExtensionNames = map[string]string{
+	"timescaledb-oss": "timescaledb",
+}
+
+// sqlExtensions returns the requested extensions by SQL name, without duplicates.
+func sqlExtensions(extensions []v1.PostgresExtension) []v1.PostgresExtension {
+	res := make([]v1.PostgresExtension, 0, len(extensions))
+	for _, e := range extensions {
+		if name, ok := legacyExtensionNames[e.Name]; ok {
+			e.Name = name
+		}
+		if !slices.Contains(res, e) {
+			res = append(res, e)
+		}
+	}
+	return res
 }
 
 var dedicatedPostgresToleration = corev1.Toleration{
@@ -574,20 +595,13 @@ func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres, existing *cnp
 	return database, nil
 }
 
-func sqlExtensionName(name string) string {
-	if image, ok := imageExtensions[name]; ok {
-		return image.sqlName
-	}
-	return name
-}
-
 func makeDatabaseExtensions(extensions []v1.PostgresExtension, existing *cnpgv1.Database) []cnpgv1.ExtensionSpec {
+	extensions = sqlExtensions(extensions)
 	res := make([]cnpgv1.ExtensionSpec, 0, len(extensions))
 	requested := make(map[string]bool, len(extensions))
 	for _, e := range extensions {
-		name := sqlExtensionName(e.Name)
-		requested[name] = true
-		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: name, Ensure: cnpgv1.EnsurePresent}})
+		requested[e.Name] = true
+		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: e.Name, Ensure: cnpgv1.EnsurePresent}})
 	}
 	if existing == nil {
 		return res
@@ -617,21 +631,20 @@ func extensionDropped(database *cnpgv1.Database, extension cnpgv1.ExtensionSpec)
 	return false
 }
 
-// clusterExtensions returns the requested extensions plus image extensions the Database
-// is still dropping, whose image and preload library must remain until the drop is done.
+// clusterExtensions returns the requested extensions by SQL name plus image extensions the
+// Database is still dropping, whose image and preload library must remain until the drop is done.
 func clusterExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Database) []v1.PostgresExtension {
+	res := sqlExtensions(extensions)
 	if database == nil {
-		return extensions
+		return res
 	}
-	res := slices.Clone(extensions)
 	for _, e := range database.Spec.Extensions {
 		if e.Ensure != cnpgv1.EnsureAbsent {
 			continue
 		}
-		for name, image := range imageExtensions {
-			if image.sqlName == e.Name && !slices.ContainsFunc(res, func(r v1.PostgresExtension) bool { return r.Name == name }) {
-				res = append(res, v1.PostgresExtension{Name: name})
-			}
+		dropping := v1.PostgresExtension{Name: e.Name}
+		if _, ok := imageExtensions[e.Name]; ok && !slices.Contains(res, dropping) {
+			res = append(res, dropping)
 		}
 	}
 	return res
@@ -652,8 +665,8 @@ func makePreloadLibraries(extensions []v1.PostgresExtension) []string {
 func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
 	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
 	for _, e := range extensions {
-		if _, ok := imageExtensions[e.Name]; ok {
-			res = append(res, cnpgv1.ExtensionConfiguration{Name: e.Name})
+		if image, ok := imageExtensions[e.Name]; ok {
+			res = append(res, cnpgv1.ExtensionConfiguration{Name: image.catalogName})
 		}
 	}
 	return res

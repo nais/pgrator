@@ -149,14 +149,17 @@ func TestPostgresManifestWithExtensionsAndResources(t *testing.T) {
 				valid     bool
 			}{
 				{name: "PostGIS", extension: "postgis", valid: true},
-				{name: "TimescaleDB OSS", extension: "timescaledb-oss", valid: true},
+				{name: "TimescaleDB", extension: "timescaledb", valid: true},
+				{name: "image catalog name", extension: "timescaledb-oss"},
 				{name: "bundled pg_trgm", extension: "pg_trgm", valid: true},
-				{name: "bundled dblink", extension: "dblink", valid: true},
+				{name: "removed unsafe dblink", extension: "dblink"},
 				{name: "bundled sslinfo", extension: "sslinfo", valid: true},
-				{name: "hyphenated bundled extension", extension: "uuid-ossp", valid: true},
+				{name: "removed outdated uuid-ossp", extension: "uuid-ossp"},
+				{name: "pgvector", extension: "vector", valid: true},
+				{name: "platform managed pgaudit", extension: "pgaudit"},
+				{name: "unknown extension", extension: "plpython3u"},
 				{name: "uppercase extension name", extension: "PostGIS"},
 				{name: "extension name with SQL", extension: `"x;DROP"`},
-				{name: "extension name too long", extension: strings.Repeat("a", 64)},
 				{name: "unknown spec field", extension: "postgis", extra: "  unknownField: true\n"},
 				{name: "unknown resource field", extension: "postgis", extra: "    unknownField: true\n"},
 			} {

@@ -221,24 +221,115 @@ func TestCreateDatabaseWithoutRequestedExtensionsDeclaresNone(t *testing.T) {
 }
 
 func TestExtensionsAreMountedPreloadedAndActivated(t *testing.T) {
-	extensions := []v1.PostgresExtension{{Name: "postgis"}, {Name: "pg_trgm"}, {Name: "timescaledb-oss"}}
+	for _, tt := range []struct {
+		name          string
+		extensions    []string
+		wantMounted   []string
+		wantActivated []string
+		wantPreload   []string
+	}{
+		{
+			name:          "SQL names",
+			extensions:    []string{"postgis", "pg_trgm", "timescaledb"},
+			wantMounted:   []string{"postgis", "timescaledb-oss"},
+			wantActivated: []string{"postgis", "pg_trgm", "timescaledb"},
+			wantPreload:   []string{"timescaledb"},
+		},
+		{
+			name:          "legacy timescaledb-oss name",
+			extensions:    []string{"timescaledb-oss"},
+			wantMounted:   []string{"timescaledb-oss"},
+			wantActivated: []string{"timescaledb"},
+			wantPreload:   []string{"timescaledb"},
+		},
+		{
+			name:          "legacy and SQL name together",
+			extensions:    []string{"timescaledb-oss", "timescaledb"},
+			wantMounted:   []string{"timescaledb-oss"},
+			wantActivated: []string{"timescaledb"},
+			wantPreload:   []string{"timescaledb"},
+		},
+		{
+			name:          "bundled extensions only",
+			extensions:    []string{"pg_trgm", "citext"},
+			wantMounted:   []string{},
+			wantActivated: []string{"pg_trgm", "citext"},
+			wantPreload:   []string{},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			extensions := make([]v1.PostgresExtension, 0, len(tt.extensions))
+			for _, name := range tt.extensions {
+				extensions = append(extensions, v1.PostgresExtension{Name: name})
+			}
+			cluster := clusterExtensions(extensions, nil)
 
-	mounted := makeExtensions(extensions)
-	if len(mounted) != 2 || mounted[0].Name != "postgis" || mounted[1].Name != "timescaledb-oss" {
-		t.Errorf("mounted extensions = %+v, want postgis and timescaledb-oss only", mounted)
+			mountedExtensions := makeExtensions(cluster)
+			mounted := make([]string, 0, len(mountedExtensions))
+			for _, e := range mountedExtensions {
+				mounted = append(mounted, e.Name)
+			}
+			if !slices.Equal(mounted, tt.wantMounted) {
+				t.Errorf("mounted extensions = %v, want %v", mounted, tt.wantMounted)
+			}
+			databaseExtensions := makeDatabaseExtensions(extensions, nil)
+			activated := make([]string, 0, len(databaseExtensions))
+			for _, e := range databaseExtensions {
+				activated = append(activated, e.Name)
+			}
+			if !slices.Equal(activated, tt.wantActivated) {
+				t.Errorf("activated extensions = %v, want %v", activated, tt.wantActivated)
+			}
+			if preload := makePreloadLibraries(cluster); !slices.Equal(preload, tt.wantPreload) {
+				t.Errorf("preload libraries = %v, want %v", preload, tt.wantPreload)
+			}
+		})
 	}
-	activated := make([]string, 0, len(extensions))
-	for _, e := range makeDatabaseExtensions(extensions, nil) {
-		activated = append(activated, e.Name)
+}
+
+func TestPersistedLegacyExtensionNameKeepsInstalledExtension(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding Postgres scheme: %v", err)
 	}
-	if want := []string{"postgis", "pg_trgm", "timescaledb"}; !slices.Equal(activated, want) {
-		t.Errorf("activated extensions = %v, want %v (catalog names mapped to SQL names)", activated, want)
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "mydb-main-6bc4781b", Namespace: "myteam"},
+		Spec: v1.PostgresSpec{MajorVersion: "18", Extensions: []v1.PostgresExtension{
+			{Name: "postgis"}, {Name: "timescaledb-oss"},
+		}},
 	}
-	if preload := makePreloadLibraries(extensions); !slices.Equal(preload, []string{"timescaledb"}) {
-		t.Errorf("preload libraries = %v, want [timescaledb]", preload)
+	present := func(name string) cnpgv1.ExtensionSpec {
+		return cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: name, Ensure: cnpgv1.EnsurePresent}}
 	}
-	if preload := makePreloadLibraries(extensions[:2]); len(preload) != 0 {
-		t.Errorf("preload libraries without timescaledb-oss = %v, want none", preload)
+	existing := &cnpgv1.Database{
+		ObjectMeta: metav1.ObjectMeta{Generation: 1},
+		Spec:       cnpgv1.DatabaseSpec{Extensions: []cnpgv1.ExtensionSpec{present("postgis"), present("timescaledb")}},
+		Status: cnpgv1.DatabaseStatus{ObservedGeneration: 1, Applied: new(true), Extensions: []cnpgv1.DatabaseObjectStatus{
+			{Name: "postgis", Applied: true}, {Name: "timescaledb", Applied: true},
+		}},
+	}
+
+	database, err := CreateDatabase(scheme, postgres, existing)
+	if err != nil {
+		t.Fatalf("CreateDatabase() error = %v", err)
+	}
+	if want := []cnpgv1.ExtensionSpec{present("postgis"), present("timescaledb")}; !slices.Equal(database.Spec.Extensions, want) {
+		t.Errorf("Database extensions = %+v, want %+v", database.Spec.Extensions, want)
+	}
+
+	cluster, err := CreateCluster(scheme, postgres, &config.Config{}, WALArchive{}, nil, database)
+	if err != nil {
+		t.Fatalf("CreateCluster() error = %v", err)
+	}
+	mounted := make([]string, 0, len(cluster.Spec.PostgresConfiguration.Extensions))
+	for _, e := range cluster.Spec.PostgresConfiguration.Extensions {
+		mounted = append(mounted, e.Name)
+	}
+	if want := []string{"postgis", "timescaledb-oss"}; !slices.Equal(mounted, want) {
+		t.Errorf("mounted extensions = %v, want %v", mounted, want)
+	}
+	if preload, want := cluster.Spec.PostgresConfiguration.AdditionalLibraries, []string{"timescaledb"}; !slices.Equal(preload, want) {
+		t.Errorf("preload libraries = %v, want %v", preload, want)
 	}
 }
 

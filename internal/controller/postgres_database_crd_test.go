@@ -21,11 +21,16 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "image extension", extension: "postgis"},
-		{name: "plain extension", extension: "pg_trgm"},
-		{name: "hyphenated extension", extension: "uuid-ossp"},
-		{name: "platform managed pg_stat_statements", extension: "pg_stat_statements", wantErr: "managed by the platform"},
-		{name: "platform managed pgaudit", extension: "pgaudit", wantErr: "managed by the platform"},
-		{name: "SQL injection attempt", extension: `x"; DROP DATABASE app; --`, wantErr: "should match"},
+		{name: "timescaledb", extension: "timescaledb"},
+		{name: "image catalog name", extension: "timescaledb-oss", wantErr: "Unsupported value"},
+		{name: "bundled extension", extension: "pg_trgm"},
+		{name: "removed outdated uuid-ossp", extension: "uuid-ossp", wantErr: "Unsupported value"},
+		{name: "removed unsafe dblink", extension: "dblink", wantErr: "Unsupported value"},
+		{name: "standard image pgvector", extension: "vector"},
+		{name: "platform managed pg_stat_statements", extension: "pg_stat_statements", wantErr: "Unsupported value"},
+		{name: "platform managed pgaudit", extension: "pgaudit", wantErr: "Unsupported value"},
+		{name: "unknown extension", extension: "plpython3u", wantErr: "Unsupported value"},
+		{name: "SQL injection attempt", extension: `x"; DROP DATABASE app; --`, wantErr: "Unsupported value"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			postgres := &v1.Postgres{
