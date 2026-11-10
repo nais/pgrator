@@ -7,31 +7,31 @@ import (
 )
 
 type PostgresResources struct {
-	// DiskSize is the disk size for the Postgres cluster.
+	// DiskSize is the disk size for the Postgres cluster. Minimum is 5Gi.
 	// +kubebuilder:default="10Gi"
+	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).compareTo(quantity('5Gi')) >= 0",message="diskSize must be at least 5Gi"
 	// +optional
-	DiskSize resource.Quantity `json:"diskSize,omitempty"`
+	DiskSize resource.Quantity `json:"diskSize,omitzero"`
 
 	// Cpu is the CPU resources for the Postgres cluster.
 	// +kubebuilder:default="100m"
 	// +optional
-	Cpu resource.Quantity `json:"cpu,omitempty"`
+	Cpu resource.Quantity `json:"cpu,omitzero"`
 
 	// Memory is the memory resources for the Postgres cluster.
 	// +kubebuilder:default="512Mi"
 	// +optional
-	Memory resource.Quantity `json:"memory,omitempty"`
+	Memory resource.Quantity `json:"memory,omitzero"`
 }
 
 // PostgresExtension is an extension requested for the application database.
-// +kubebuilder:validation:XValidation:rule="self.name != 'pg_stat_statements' && self.name != 'pgaudit'",message="pg_stat_statements and pgaudit are managed by the platform"
 type PostgresExtension struct {
-	// Name of the extension. postgis and timescaledb-oss are mounted from the configured CNPG
-	// image catalog (timescaledb-oss is also preloaded); any other name must be bundled with the
-	// Postgres image. All are activated with CREATE EXTENSION in the application database.
+	// Name of the extension, as used in CREATE EXTENSION. postgis and timescaledb are mounted
+	// from the configured CNPG image catalog (timescaledb is also preloaded); the rest are bundled
+	// with the Postgres image. pg_stat_statements and pgaudit are managed by the platform and
+	// cannot be requested.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^[a-z_][a-z0-9_-]*$`
-	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Enum=postgis;timescaledb;amcheck;bloom;btree_gin;btree_gist;citext;cube;earthdistance;fuzzystrmatch;hstore;intarray;isn;lo;ltree;pageinspect;pg_buffercache;pg_freespacemap;pg_logicalinspect;pg_prewarm;pg_trgm;pg_visibility;pg_walinspect;pgcrypto;pgrowlocks;pgstattuple;seg;sslinfo;tablefunc;tcn;tsm_system_rows;tsm_system_time;unaccent;vector
 	Name string `json:"name"`
 }
 
@@ -56,7 +56,7 @@ type PostgresSpec struct {
 	HighAvailability bool `json:"highAvailability,omitempty"`
 
 	// Extensions to activate in the application database. Removing an entry drops the extension
-	// (without CASCADE); postgis and timescaledb-oss stay mounted and preloaded until the drop
+	// (without CASCADE); postgis and timescaledb stay mounted and preloaded until the drop
 	// succeeds. The drop fails, and is retried, while other objects depend on the extension.
 	// +listType=map
 	// +listMapKey=name

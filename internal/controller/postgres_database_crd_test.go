@@ -7,6 +7,7 @@ import (
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -20,11 +21,16 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "image extension", extension: "postgis"},
-		{name: "plain extension", extension: "pg_trgm"},
-		{name: "hyphenated extension", extension: "uuid-ossp"},
-		{name: "platform managed pg_stat_statements", extension: "pg_stat_statements", wantErr: "managed by the platform"},
-		{name: "platform managed pgaudit", extension: "pgaudit", wantErr: "managed by the platform"},
-		{name: "SQL injection attempt", extension: `x"; DROP DATABASE app; --`, wantErr: "should match"},
+		{name: "timescaledb", extension: "timescaledb"},
+		{name: "image catalog name", extension: "timescaledb-oss", wantErr: "Unsupported value"},
+		{name: "bundled extension", extension: "pg_trgm"},
+		{name: "removed outdated uuid-ossp", extension: "uuid-ossp", wantErr: "Unsupported value"},
+		{name: "removed unsafe dblink", extension: "dblink", wantErr: "Unsupported value"},
+		{name: "standard image pgvector", extension: "vector"},
+		{name: "platform managed pg_stat_statements", extension: "pg_stat_statements", wantErr: "Unsupported value"},
+		{name: "platform managed pgaudit", extension: "pgaudit", wantErr: "Unsupported value"},
+		{name: "unknown extension", extension: "plpython3u", wantErr: "Unsupported value"},
+		{name: "SQL injection attempt", extension: `x"; DROP DATABASE app; --`, wantErr: "Unsupported value"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			postgres := &v1.Postgres{
@@ -42,6 +48,58 @@ func TestPostgresCRDValidatesDatabaseExtensions(t *testing.T) {
 			}
 			requireErrorContains(t, err, tc.wantErr)
 		})
+	}
+}
+
+func TestPostgresCRDValidatesDiskSize(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		diskSize string
+		wantErr  string
+	}{
+		{name: "minimum", diskSize: "5Gi"},
+		{name: "above minimum", diskSize: "10Gi"},
+		{name: "below minimum", diskSize: "4Gi", wantErr: "diskSize must be at least 5Gi"},
+		{name: "decimal gigabytes below minimum", diskSize: "5G", wantErr: "diskSize must be at least 5Gi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			postgres := &v1.Postgres{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "dbdisk-", Namespace: "default"},
+				Spec: v1.PostgresSpec{
+					MajorVersion: "18",
+					Resources:    v1.PostgresResources{DiskSize: apiresource.MustParse(tc.diskSize)},
+				},
+			}
+			err := k8sClient.Create(ctx, postgres)
+			if tc.wantErr == "" {
+				requireNoError(t, err)
+				requireNoError(t, k8sClient.Delete(ctx, postgres))
+				return
+			}
+			requireErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestPostgresCRDDefaultsUnsetResources(t *testing.T) {
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "dbdefaults-", Namespace: "default"},
+		Spec:       v1.PostgresSpec{MajorVersion: "18"},
+	}
+	requireNoError(t, k8sClient.Create(ctx, postgres))
+	t.Cleanup(func() { requireNoError(t, k8sClient.Delete(ctx, postgres)) })
+
+	for name, tc := range map[string]struct {
+		got  apiresource.Quantity
+		want string
+	}{
+		"diskSize": {got: postgres.Spec.Resources.DiskSize, want: "10Gi"},
+		"cpu":      {got: postgres.Spec.Resources.Cpu, want: "100m"},
+		"memory":   {got: postgres.Spec.Resources.Memory, want: "512Mi"},
+	} {
+		if tc.got.Cmp(apiresource.MustParse(tc.want)) != 0 {
+			t.Errorf("%s = %s, want default %s", name, tc.got.String(), tc.want)
+		}
 	}
 }
 
