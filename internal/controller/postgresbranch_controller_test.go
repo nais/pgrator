@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -74,40 +75,64 @@ func TestPostgresBranchDeleteRespectsActiveBranch(t *testing.T) {
 	}
 }
 
-func TestPostgresBranchSetsInheritedLabelsOnCNPGPods(t *testing.T) {
-	scheme := runtime.NewScheme()
-	initscheme.InitScheme(scheme)
-	reconciler := &PostgresBranchReconciler{
-		Config: &config.Config{CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "standard-rwo"}},
-		Scheme: scheme,
-	}
-	branch := &v1.PostgresBranch{
-		ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team", UID: "branch-uid"},
-		Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"},
-	}
-	actions, _, err := reconciler.Update(branch, PostgresBranchPreparedData{
-		PostgresSpec: v1.PostgresSpec{MajorVersion: "18", Resources: v1.PostgresResources{
-			Cpu: apiresource.MustParse("100m"), Memory: apiresource.MustParse("512Mi"), DiskSize: apiresource.MustParse("10Gi"),
-		}},
-	}, relatedobjectsmap.NewRelatedObjectsMap(scheme))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range actions {
-		cluster, ok := action.GetObject().(*cnpgv1.Cluster)
-		if !ok {
-			continue
+func TestPostgresBranchSetsBillingIdentityOnPodTemplates(t *testing.T) {
+	for _, branchName := range []string{"main", "restore"} {
+		for _, ha := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/ha=%t", branchName, ha), func(t *testing.T) {
+				scheme := runtime.NewScheme()
+				initscheme.InitScheme(scheme)
+				reconciler := &PostgresBranchReconciler{
+					Config: &config.Config{CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "standard-rwo"}},
+					Scheme: scheme,
+				}
+				branch := &v1.PostgresBranch{
+					ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", branchName), Namespace: "team", UID: "branch-uid"},
+					Spec:       v1.PostgresBranchSpec{Postgres: "orders", BranchName: branchName},
+				}
+				actions, _, err := reconciler.Update(branch, PostgresBranchPreparedData{
+					PostgresSpec: v1.PostgresSpec{MajorVersion: "18", HighAvailability: ha, Resources: v1.PostgresResources{
+						Cpu: apiresource.MustParse("100m"), Memory: apiresource.MustParse("512Mi"), DiskSize: apiresource.MustParse("10Gi"),
+					}},
+				}, relatedobjectsmap.NewRelatedObjectsMap(scheme))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var foundCluster, foundPooler bool
+				for _, action := range actions {
+					switch obj := action.GetObject().(type) {
+					case *cnpgv1.Cluster:
+						foundCluster = true
+						labels := obj.Spec.InheritedMetadata.Labels
+						if labels["postgres.nais.io/name"] != "orders" || labels["postgres.nais.io/branch"] != branchName {
+							t.Errorf("inherited Postgres identity labels = %v", labels)
+						}
+						if labels["kyverno.policy.exclusion.nais.io/restrict-volume-types"] != "true" {
+							t.Errorf("inherited labels = %v, want restrict-volume-types Kyverno exclusion", labels)
+						}
+						wantInstances := 2
+						if ha {
+							wantInstances = 3
+						}
+						if obj.Spec.Instances != wantInstances {
+							t.Errorf("instances = %d, want %d", obj.Spec.Instances, wantInstances)
+						}
+					case *cnpgv1.Pooler:
+						foundPooler = true
+						labels := obj.Spec.Template.ObjectMeta.Labels
+						if labels["postgres.nais.io/name"] != "orders" {
+							t.Errorf("pooler pod billing identity = %q, want owning Postgres orders", labels["postgres.nais.io/name"])
+						}
+						if labels["apiserver-access"] != "enabled" {
+							t.Errorf("pooler pod labels = %v, want API server access preserved", labels)
+						}
+					}
+				}
+				if !foundCluster || !foundPooler {
+					t.Fatalf("Update produced Cluster: %t, Pooler: %t; want both", foundCluster, foundPooler)
+				}
+			})
 		}
-		labels := cluster.Spec.InheritedMetadata.Labels
-		if labels["postgres.nais.io/name"] != "orders" || labels["postgres.nais.io/branch"] != "main" {
-			t.Errorf("inherited Postgres identity labels = %v", labels)
-		}
-		if labels["kyverno.policy.exclusion.nais.io/restrict-volume-types"] != "true" {
-			t.Errorf("inherited labels = %v, want restrict-volume-types Kyverno exclusion", labels)
-		}
-		return
 	}
-	t.Fatal("Update did not produce a CNPG Cluster")
 }
 
 func TestContinuousArchivingReady(t *testing.T) {
