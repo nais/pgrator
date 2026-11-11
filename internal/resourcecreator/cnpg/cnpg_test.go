@@ -48,6 +48,25 @@ func TestPoolerNameFor(t *testing.T) {
 	}
 }
 
+func TestCreatePoolerLabelsPodsWithPostgresName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	pooler, err := CreatePooler(scheme, &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pooler.Spec.Template.ObjectMeta.Labels[nameLabel]; got != "orders" {
+		t.Errorf("pooler pod Postgres label = %q, want orders", got)
+	}
+	if got := pooler.Spec.Template.ObjectMeta.Labels["apiserver-access"]; got != "enabled" {
+		t.Errorf("pooler pod API server access = %q, want enabled", got)
+	}
+}
+
 func TestCreateScheduledBackupStartsInitialBackup(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {

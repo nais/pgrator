@@ -497,7 +497,10 @@ func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler
 			Instances: new(poolerInstances),
 			Template: &cnpgv1.PodTemplateSpec{
 				ObjectMeta: cnpgv1.Metadata{
-					Labels: map[string]string{"apiserver-access": "enabled"},
+					Labels: map[string]string{
+						"apiserver-access": "enabled",
+						nameLabel:          postgres.GetName(),
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{

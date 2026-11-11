@@ -24,6 +24,7 @@ object:
       metadata:
         labels:
           apiserver-access: enabled
+          postgres.nais.io/name: mydb
       spec:
         containers:
           - name: pgbouncer

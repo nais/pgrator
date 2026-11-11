@@ -607,6 +607,8 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating Pooler spec: %w", err)
 	}
+	// Billing identity belongs to the owning Postgres, not the physical branch.
+	pooler.Spec.Template.ObjectMeta.Labels["postgres.nais.io/name"] = obj.Spec.Postgres
 	if err := transferControllerOwnership(obj, pooler, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, err
 	}
