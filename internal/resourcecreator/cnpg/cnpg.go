@@ -7,6 +7,7 @@ package cnpg
 import (
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,40 @@ const (
 	maintenanceWorkMemFraction = 8
 	maxMaintenanceWorkMemBytes = 2 * 1024 * 1024 * 1024
 )
+
+// imageExtension describes an extension mounted from the image catalog. The catalog
+// name differs from the SQL name for some extensions, and modules like timescaledb
+// must also be loaded at server start.
+type imageExtension struct {
+	catalogName    string
+	preloadLibrary string
+}
+
+// imageExtensions is keyed by SQL extension name.
+var imageExtensions = map[string]imageExtension{
+	"postgis":     {catalogName: "postgis"},
+	"timescaledb": {catalogName: "timescaledb-oss", preloadLibrary: "timescaledb"},
+}
+
+// legacyExtensionNames maps names no longer accepted by the CRD, but possibly still
+// persisted in existing Postgres objects, to their SQL extension names.
+var legacyExtensionNames = map[string]string{
+	"timescaledb-oss": "timescaledb",
+}
+
+// sqlExtensions returns the requested extensions by SQL name, without duplicates.
+func sqlExtensions(extensions []v1.PostgresExtension) []v1.PostgresExtension {
+	res := make([]v1.PostgresExtension, 0, len(extensions))
+	for _, e := range extensions {
+		if name, ok := legacyExtensionNames[e.Name]; ok {
+			e.Name = name
+		}
+		if !slices.Contains(res, e) {
+			res = append(res, e)
+		}
+	}
+	return res
+}
 
 var dedicatedPostgresToleration = corev1.Toleration{
 	Key:      "dedicated",
@@ -195,7 +230,9 @@ func PersonalAccessRole(instance string) string {
 	return fmt.Sprintf("nais_pa_%x", hash[:8])
 }
 
-func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource) (*cnpgv1.Cluster, error) {
+// CreateCluster keeps image extensions the desired application Database is still
+// dropping mounted and preloaded until CNPG confirms the drop.
+func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource, database *cnpgv1.Database) (*cnpgv1.Cluster, error) {
 	instances := defaultInstances
 	minSync, maxSync := 0, 0
 	if postgres.Spec.HighAvailability {
@@ -253,7 +290,9 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 
 			PostgresConfiguration: cnpgv1.PostgresConfiguration{
 				Parameters: makePostgresParameters(memory),
-				Extensions: makeExtensions(postgres.Spec.Extensions),
+				Extensions: makeExtensions(clusterExtensions(postgres.Spec.Extensions, database)),
+
+				AdditionalLibraries: makePreloadLibraries(clusterExtensions(postgres.Spec.Extensions, database)),
 
 				// Rules are evaluated top to bottom, first match wins.
 				PgHBA: []string{
@@ -526,10 +565,112 @@ func CreatePooler(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpgv1.Pooler
 	return pooler, nil
 }
 
+// DatabaseResourceName returns the CNPG Database object name for the application database.
+func DatabaseResourceName(postgres *v1.Postgres) string {
+	return ClusterName(postgres) + "-" + DatabaseName
+}
+
+// CreateDatabase declares the application database created by bootstrap so CNPG can
+// activate extensions in it. Retain keeps the PostgreSQL database if this object is
+// deleted, and only name, owner and requested extensions are declared so adoption of
+// an existing or recovered database changes nothing else. Extensions declared by the
+// existing Database but no longer requested are dropped by CNPG (ensure: absent) and
+// stay declared until CNPG confirms the drop.
+func CreateDatabase(scheme *runtime.Scheme, postgres *v1.Postgres, existing *cnpgv1.Database) (*cnpgv1.Database, error) {
+	database := &cnpgv1.Database{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Database",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: objectMeta(postgres, DatabaseResourceName(postgres)),
+		Spec: cnpgv1.DatabaseSpec{
+			ClusterRef:    corev1.LocalObjectReference{Name: ClusterName(postgres)},
+			Name:          DatabaseName,
+			Owner:         OwnerRole,
+			Ensure:        cnpgv1.EnsurePresent,
+			ReclaimPolicy: cnpgv1.DatabaseReclaimRetain,
+			Extensions:    makeDatabaseExtensions(postgres.Spec.Extensions, existing),
+		},
+	}
+	if err := controllerutil.SetControllerReference(postgres, database, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Database: %w", err)
+	}
+	return database, nil
+}
+
+func makeDatabaseExtensions(extensions []v1.PostgresExtension, existing *cnpgv1.Database) []cnpgv1.ExtensionSpec {
+	extensions = sqlExtensions(extensions)
+	res := make([]cnpgv1.ExtensionSpec, 0, len(extensions))
+	requested := make(map[string]bool, len(extensions))
+	for _, e := range extensions {
+		requested[e.Name] = true
+		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: e.Name, Ensure: cnpgv1.EnsurePresent}})
+	}
+	if existing == nil {
+		return res
+	}
+	for _, e := range existing.Spec.Extensions {
+		if requested[e.Name] || extensionDropped(existing, e) {
+			continue
+		}
+		requested[e.Name] = true
+		res = append(res, cnpgv1.ExtensionSpec{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: e.Name, Ensure: cnpgv1.EnsureAbsent}})
+	}
+	return res
+}
+
+// extensionDropped reports whether CNPG has applied the current Database generation,
+// including dropping the given extension.
+func extensionDropped(database *cnpgv1.Database, extension cnpgv1.ExtensionSpec) bool {
+	if extension.Ensure != cnpgv1.EnsureAbsent || database.Generation == 0 ||
+		database.Status.ObservedGeneration != database.Generation || database.Status.Applied == nil || !*database.Status.Applied {
+		return false
+	}
+	for _, status := range database.Status.Extensions {
+		if status.Name == extension.Name {
+			return status.Applied
+		}
+	}
+	return false
+}
+
+// clusterExtensions returns the requested extensions by SQL name plus image extensions the
+// Database is still dropping, whose image and preload library must remain until the drop is done.
+func clusterExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Database) []v1.PostgresExtension {
+	res := sqlExtensions(extensions)
+	if database == nil {
+		return res
+	}
+	for _, e := range database.Spec.Extensions {
+		if e.Ensure != cnpgv1.EnsureAbsent {
+			continue
+		}
+		dropping := v1.PostgresExtension{Name: e.Name}
+		if _, ok := imageExtensions[e.Name]; ok && !slices.Contains(res, dropping) {
+			res = append(res, dropping)
+		}
+	}
+	return res
+}
+
+// makePreloadLibraries lists the libraries image extensions need loaded at server start.
+// CNPG places these before the libraries it manages itself, as timescaledb requires.
+func makePreloadLibraries(extensions []v1.PostgresExtension) []string {
+	res := make([]string, 0, len(extensions))
+	for _, e := range extensions {
+		if library := imageExtensions[e.Name].preloadLibrary; library != "" {
+			res = append(res, library)
+		}
+	}
+	return res
+}
+
 func makeExtensions(extensions []v1.PostgresExtension) []cnpgv1.ExtensionConfiguration {
 	res := make([]cnpgv1.ExtensionConfiguration, 0, len(extensions))
 	for _, e := range extensions {
-		res = append(res, cnpgv1.ExtensionConfiguration{Name: e.Name})
+		if image, ok := imageExtensions[e.Name]; ok {
+			res = append(res, cnpgv1.ExtensionConfiguration{Name: image.catalogName})
+		}
 	}
 	return res
 }

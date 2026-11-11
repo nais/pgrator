@@ -17,6 +17,7 @@ CLOUDNATIVE_PG_BASE_URL="https://raw.githubusercontent.com/cloudnative-pg/cloudn
 CLOUDNATIVE_PG_FILES=(
   postgresql.cnpg.io_clusters.yaml
   postgresql.cnpg.io_databaseroles.yaml
+  postgresql.cnpg.io_databases.yaml
   postgresql.cnpg.io_poolers.yaml
   postgresql.cnpg.io_scheduledbackups.yaml
 )
