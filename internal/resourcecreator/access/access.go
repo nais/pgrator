@@ -144,18 +144,18 @@ func CreateDatabaseRole(scheme *runtime.Scheme, access *v1.PostgresAccess, activ
 		}
 		configuration.PasswordSecret = &cnpgv1.LocalObjectReference{Name: CredentialSecretName(access)}
 		configuration.ValidUntil = &access.Spec.ExpiresAt
-		configuration.InRoles = append(roles, rccnpg.PersonalAccessRole(access.Spec.PostgresBranch))
+		configuration.InRoles = append(roles, rccnpg.PersonalAccessRole(access.Spec.PhysicalName()))
 	} else {
 		configuration.DisablePassword = true
 	}
 	role := &cnpgv1.DatabaseRole{
 		TypeMeta: metav1.TypeMeta{Kind: "DatabaseRole", APIVersion: cnpgv1.SchemeGroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DatabaseRoleName(access.Spec.Username, access.Spec.PostgresBranch),
+			Name:      DatabaseRoleName(access.Spec.Username, access.Spec.PhysicalName()),
 			Namespace: access.Namespace,
 		},
 		Spec: cnpgv1.DatabaseRoleSpec{
-			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PostgresBranch)},
+			ClusterRef:        corev1.LocalObjectReference{Name: rccnpg.ClusterNameFor(access.Spec.PhysicalName())},
 			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
 			RoleConfiguration: configuration,
 		},

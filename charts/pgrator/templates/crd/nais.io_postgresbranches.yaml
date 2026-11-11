@@ -177,9 +177,8 @@ spec:
                       additionalProperties:
                         type: string
                       description: |-
-                        Parameters contains the unmodified PostgreSQL parameter names and values,
-                        including units and extension prefixes. Defaults not explicitly configured
-                        on the backing resource are not included.
+                        Parameters contains unmodified PostgreSQL parameter names and values,
+                        including units and extension prefixes. Defaults are not included.
                       type: object
                   required:
                     - parameters

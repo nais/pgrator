@@ -180,6 +180,12 @@ spec:
                 description: ActiveBranch is the local branch name currently selected
                   by pgrator.
                 type: string
+              clusterName:
+                description: |-
+                  ClusterName identifies the directly managed CloudNativePG Cluster.
+                  Its presence selects the branchless status model. Older controllers leave
+                  it unset; readers must then resolve physical status through the active branch.
+                type: string
               conditions:
                 description: |-
                   conditions represent the current state of the controlled resource.
@@ -249,6 +255,21 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configuration:
+                description: |-
+                  Configuration contains settings observed on the directly managed cluster.
+                  Configured values are not necessarily active in running instances yet.
+                properties:
+                  parameters:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Parameters contains unmodified PostgreSQL parameter names and values,
+                      including units and extension prefixes. Defaults are not included.
+                    type: object
+                required:
+                - parameters
+                type: object
               correlationID:
                 type: string
               observedGeneration:

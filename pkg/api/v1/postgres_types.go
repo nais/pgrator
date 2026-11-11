@@ -73,9 +73,27 @@ type PostgresSpec struct {
 type PostgresStatus struct {
 	api.BaseStatus `json:",inline"`
 
+	// ClusterName identifies the directly managed CloudNativePG Cluster.
+	// Its presence selects the branchless status model. Older controllers leave
+	// it unset; readers must then resolve physical status through the active branch.
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+
+	// Configuration contains settings observed on the directly managed cluster.
+	// Configured values are not necessarily active in running instances yet.
+	// +optional
+	Configuration *PostgresConfiguration `json:"configuration,omitempty"`
+
 	// ActiveBranch is the local branch name currently selected by pgrator.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
+}
+
+// PostgresConfiguration describes explicitly configured PostgreSQL settings.
+type PostgresConfiguration struct {
+	// Parameters contains unmodified PostgreSQL parameter names and values,
+	// including units and extension prefixes. Defaults are not included.
+	Parameters map[string]string `json:"parameters"`
 }
 
 // +kubebuilder:object:root=true

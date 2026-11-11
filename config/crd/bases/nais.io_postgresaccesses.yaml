@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.postgres
+      name: Postgres
+      type: string
     - jsonPath: .spec.postgresBranch
       name: PostgresBranch
       type: string
@@ -71,9 +74,21 @@ spec:
                 x-kubernetes-validations:
                 - message: expiresAt is immutable
                   rule: self == oldSelf
+              postgres:
+                description: |-
+                  Postgres is the namespace-local Postgres receiving this access. It follows
+                  the DNS-subdomain naming rules of Postgres.metadata.name.
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+                x-kubernetes-validations:
+                - message: postgres is immutable
+                  rule: self == oldSelf
               postgresBranch:
-                description: PostgresBranch is the PostgresBranch object name (not
-                  its local branch name).
+                description: |-
+                  PostgresBranch is the legacy PostgresBranch object name (not its local name).
+                  Deprecated: new accesses reference Postgres directly.
                 minLength: 1
                 type: string
                 x-kubernetes-validations:
@@ -89,9 +104,14 @@ spec:
             required:
             - accessLevel
             - expiresAt
-            - postgresBranch
             - username
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of postgres and postgresBranch must be set
+              rule: has(self.postgres) != has(self.postgresBranch)
+            - message: the Postgres reference is immutable
+              rule: has(self.postgres) == has(oldSelf.postgres) && has(self.postgresBranch)
+                == has(oldSelf.postgresBranch)
           status:
             description: PostgresAccessStatus defines the observed state of PostgresAccess.
             properties:
