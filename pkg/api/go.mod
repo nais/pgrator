@@ -1,6 +1,6 @@
 module github.com/nais/pgrator/pkg/api
 
-go 1.26.10
+go 1.26.11
 
 require (
 	k8s.io/apimachinery v0.37.1
