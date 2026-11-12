@@ -1,5 +1,162 @@
 # Gjenopptaking: avvikling av PostgresBranch
 
+## Siste implementasjon: ekte PostgresIssue (etter compaction)
+
+Brukerens siste bestilling er implementert lokalt i API og Console. Dette
+avsnittet overstyrer beskrivelser av mellomarbeidet nedenfor.
+
+- API har `PostgresIssue implements Issue & Node` med `postgres: Postgres!`.
+  Checkeren leser Postgres-status direkte, uten MainViews/branch-modell, og
+  skriver issue_type/resource_type `POSTGRES` med logisk databasenavn.
+  Postgres.issues og den midlertidige branch-fasadens issues scopes peker på
+  samme logiske database. Facets og filtre bruker POSTGRES.
+- Undersøkelse av lagringen viste at checkeren allerede sletter alle issues
+  og setter dem inn på nytt hvert minutt med tilfeldige UUID-er. Det finnes
+  ikke varig issue-identitet å migrere. Ingen datamigrering er lagt til.
+  Gamle POSTGRES_BRANCH-rader konverteres til ekte PostgresIssue frem til neste
+  checker-refresh; deres eksisterende UUID/Node-ID beholdes mens raden finnes.
+  En eksplisitt LegacyPhysicalName-adapter slår opp parent innen team/miljø,
+  uten branch-API. SQL-filtre og database-scopes matcher lagrede nøkler, så
+  nye POSTGRES-filtre/scopes krever at den nye checkeren har kjørt minst én
+  gang. Verifiser dette før Console deployes. Adapteren skal ikke bli en ny
+  permanent branch-modell.
+- Node-regresjonen avdekket en eksisterende feil: GetByIdent forsøkte å parse
+  den kodede GraphQL-ID-en som UUID. Den bruker nå dekodet id.ID. Testene
+  dekker Node-oppslag både før og etter konvertering av gammel lagret rad.
+- Gammel PostgresBranchIssue med branch-felt og POSTGRES_BRANCH-enumverdier
+  finnes bare som schema-kompatibilitet under klientutrullingen. De returneres
+  ikke av ny issue-konvertering/checker. Den foreslåtte mellomløsningen
+  PostgresBranchIssue.postgres er fjernet. Gamle Console-klienter kan validere
+  sine dokumenter, men får ikke branch-spesifikk presentasjon av den nye typen;
+  API og Console bør derfor rulles ut tett etter hverandre.
+- Console bruker PostgresIssue i home/issue-presentere, direkte databasefelt,
+  lenker uten branch-parametre og POSTGRES-filteret. Testfilen er omdøpt til
+  PostgresIssue.test.ts. Filteret skjuler kompatibilitetsverdien POSTGRES_BRANCH.
+  Query-regresjonen avviser nå også PostgresBranchIssue. Historiske aktiviteter
+  er bevart. Schema er hentet normalt fra isolert lokal introspection-server;
+  serveren er stoppet og midlertidig kildefil fjernet.
+- Begge Copilot-rettingene er beholdt uendret: tidlig Adopting-vakt ved sletting
+  i pgrator og stale implicit activeBranch-normalisering i API.
+- Validering: pgrator full test/check/build og controller/synchronizer race
+  består. API full test med integrasjon/race, generering, build, staticcheck,
+  deadcode og Helm består. Full API-check feiler fortsatt på fire eksisterende
+  G115-funn i vulnerability/webhook; separat vulncheck har fortsatt kjente
+  sikkerhetsfunn. Console sync/check/lint, 1841 tester i 111 filer, build og
+  Helm består. Svelte-filene er validert av svelte-file-editor med skills/MCP;
+  eneste autofixer-advarsler er kjent falsk positiv om Houdini fragment-stores.
+- Ingen commits, push, PR-svar/resolving, deployments eller live clusterendringer
+  i denne runden. Alle endringene er fremdeles lokale på de samme branchene.
+
+Neste utrullingsrekkefølge: API med ekte PostgresIssue → bekreft checker-refresh
+og POSTGRES-rader → ny Console overalt → fjern gammel GraphQL-kontrakt samlet.
+CRD/RBAC-retirement er fortsatt separat og krever eksplisitt autorisasjon.
+
+## LES FØRST etter compaction: siste beslutning om issues
+
+Brukeren ba om compaction før videre arbeid. **Siste avtalte mål er en ordentlig
+PostgresIssue med direkte postgres-relasjon, IKKE å fjerne Postgres-issues og IKKE
+å beholde PostgresBranchIssue med et nytt postgres-felt som sluttmodell.** Dette
+avsnittet overstyrer den foregående arbeidsretningen dokumentert nedenfor.
+
+Avtalt videre retning:
+
+1. Implementer `PostgresIssue implements Issue & Node { ... postgres: Postgres! }`
+   i API #620, og la issue-checker/konvertering representere feil på Postgres.
+   Bevar gjerne lagrede issue-identiteter gjennom en eksplisitt adapter fremfor
+   å lage duplikate issues eller en unødvendig datamigrering; dette er **ikke
+   ferdig designet/implementert** ennå. Undersøk issue-modell/lagring før endring.
+2. Flytt Console til den nye PostgresIssue-typen og direkte databaselenker.
+3. API må kjenne ny GraphQL-type før Console kan spørre etter den. Påstanden om
+   at en slik Console kan rulles ut helt før noen API-forberedelse var feil og er
+   korrigert med brukeren. Behold gammel schema-kontrakt kun gjennom nødvendig
+   klientutrulling; fjern deretter legacy branch-GraphQL samlet. Ikke fjern
+   funksjonaliteten som rapporterer Postgres-feil.
+4. CRD-/RBAC-retirement er fortsatt separat etter at uavhengige binærer er ute.
+   Ingen deploy, clusteropprydding eller ny push er autorisert av dette notatet.
+
+**Faktisk lokal kode ved compaction (mellomarbeid, ikke forveksle med målet):**
+
+- pgrator: branch `feat/postgres-branch-contraction`, publisert commit `8d9f497`,
+  PR https://github.com/nais/pgrator/pull/206. Ucommittet Copilot-fiks og test:
+  Adopting må avvises før deletion-shortcut, slik at delvis overførte ressurser
+  ikke slettes som et komplett direkte inventar. Reprodusert rødt før retting;
+  test/check/build/race er grønne etterpå. Behold denne rettingen.
+- API: samme branchnavn, publisert commit `6d3ad6d4`, PR
+  https://github.com/nais/api/pull/620. Ucommittet Copilot-fiks: stale implicit
+  activeBranch uten clusterName normaliseres til main/Progressing; eksplisitt
+  ikke-main avvises fortsatt. Enhets-/GraphQL-regresjon og oppdatert modelltest
+  er grønne. Behold denne rettingen.
+- API har i tillegg ucommittet **tidligere foreslått mellomløsning**:
+  PostgresBranchIssue.postgres, deprecated branch-relasjon, resolver og
+  GetPostgresByPhysicalName-helper, generert GraphQL og integrasjonstester.
+  Dette må nå tilpasses den nye PostgresIssue-modellen; ikke commit/push det som
+  om brukeren ønsket å beholde branch-issue-modellen permanent.
+- Console: eksisterende `feat/postgres-without-branches`, PR #735, lokalt
+  fast-forwardet til remote `446a5dba` (inkluderer brukerens branchfrie metrics).
+  Ucommittet arbeid fjerner branch-modellspørringer fra issues/home og bruker
+  **fortsatt typename PostgresBranchIssue med postgres-feltet** fra mellomløsningen.
+  Endre dette videre til PostgresIssue når API-designet er klart. Historiske
+  activity-typer skal ikke slettes blindt.
+- Console har en ny, ennå utracket test
+  `src/lib/domain/postgres/branchFreeQueries.test.ts` som kontrollerer 246
+  GraphQL-dokumenter (inklusive inline queries). Check/lint/build/Helm og 1833
+  tester i 110 filer består på mellomløsningen. To endrede Svelte-filer er
+  validert med skill/MCP av svelte-file-editor-agenten; husk samme krav videre.
+- Console-schema ble generert fra lokal introspection-server, ikke manuelt
+  redigert. Tre whitespace-linjer var allerede endret før denne runden.
+  Den midlertidige serveren på 39001 og kildefilen er stoppet/fjernet.
+- API full test inkl. integrasjon/race, build/staticcheck/deadcode og generering
+  består på mellomløsningen. Full API-check har fortsatt kjente, uvedkommende
+  gosec-/Go-/dependency-funn. Docker-testene på denne maskinen trenger
+  `DOCKER_HOST=unix:///Users/Frode.Sundby/.docker/run/docker.sock`, og publiserte
+  avhengigheter skal testes med `GOWORK=off`.
+- Ingen av de siste Copilot-rettingene eller frontend-/issue-endringene er
+  committet/pushet. PR-kommentarene i #206 og #620 er ikke besvart/resolved.
+  Ingen live clusterendringer i denne runden. Dokumentene har ucommittede noter.
+
+Start etter compaction med git-status i alle tre repoer og AGENTS.md. Ikke
+overskriv brukerarbeid eller revert hele filer for å bytte issue-retning; skill
+de to ønskede Copilot-fiksene fra mellomløsningen som skal videreutvikles.
+
+## Nyeste prioritering: branchløs Console før brytende GraphQL-fjerning
+
+Brukeren ønsker å få Console helt fri for branch-spørringer og rulle den ut først,
+før GraphQL-fasaden fjernes samlet. Dette har forrang over eldre oppryddingsplaner.
+
+- PR pgrator #206 (branch feat/postgres-branch-contraction, publisert base 8d9f497)
+  har én Copilot-retting lokalt: Adopting-journal avvises før deletion-shortcut,
+  slik at delvis overførte ressurser ikke kan slettes/finaliseres som et komplett
+  direkte inventar. Regresjon dekker slettende parent med fortsatt branch-eid barn.
+- PR API #620 (samme branchnavn, publisert base 6d3ad6d4) har én Copilot-retting
+  lokalt: implisitt activeBranch normaliseres til main også uten clusterName ved
+  stale ikke-main metadata. Virtuell main forblir Progressing; eksplisitt ikke-main
+  gir fortsatt not-found. Dekket både med enhetstest og GraphQL-integrasjonstest.
+- Konkret gjenværende Console-konsument var PostgresBranchIssue.branch i
+  homeAttention.gql og issue-presenterne. API har nå additiv PostgresBranchIssue.postgres
+  lokalt, og branch-feltet beholdes deprecated. Direkte parent-oppslag er scoped
+  til team/environment og skjer uten branch-API-et.
+- Console arbeides på eksisterende feat/postgres-without-branches / PR #735.
+  Den ble fast-forwardet fra 1498551a til brukerens remote 446a5dba, som allerede
+  hadde fjernet branch-avhengigheten i metrics og merget nyere main. Eksisterende
+  schema.graphql-diff var bare tre whitespace-linjer og ble ikke forkastet.
+- Lokale Console-endringer bruker postgres { name } for issues, databasebaserte
+  lenker/labels uten «/ main», og ingen aktive branch-modellspørringer. En ny
+  regresjon skanner 246 GraphQL-dokumenter, inklusive inline component-queries;
+  historiske branch-activity scalarfelt og issue-typenavn beholdes som historikk.
+- Console-schema er hentet normalt fra en isolert lokal introspection-server med
+  den additive API-endringen. Serveren og midlertidig kildefil er stoppet/fjernet.
+- Validering: pgrator test/check/build og race består. API full test inkl.
+  integrasjon/race, build/staticcheck/deadcode og GraphQL-generering består.
+  Console check har 0 feil/advarsler; lint, build, Helm og 1833 tester i 110 filer
+  består. De gamle API-gosec-/dependency-funnene er ikke oppgradert i denne runden.
+- Ingen av disse siste rettelsene/Console-endringene er committet eller pushet,
+  og ingen PR-tråder er besvart/resolved eller miljøer endret i denne runden.
+
+Praktisk rekkefølge: additivt API-issuefelt tilgjengelig → branchløs Console ut
+overalt → samlet brytende GraphQL-opprydding og separat, kontrollert CRD-retirement.
+Ikke deploy ny Console før API-feltet finnes; ikke fjern GraphQL-branch-modellen
+før de branchløse UI-queryene er i bruk.
+
 ## Pågående kontraktrunde etter fullført adopsjon
 
 Nyeste arbeidsrunde: bruker har pullet main i pgrator og API etter at adopsjon er

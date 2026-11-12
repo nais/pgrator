@@ -68,6 +68,59 @@ contraction change. No live cluster was modified while implementing this release
 
 ## Rollout and later CRD removal
 
+### Implemented issue model (supersedes the intermediate notes below)
+
+The API now produces real `PostgresIssue` nodes with `postgres: Postgres!`.
+The checker reads Postgres status directly and writes `POSTGRES` issue/resource
+types keyed by the logical database name. Postgres issue scopes, filters and
+facets use that identity. Console queries and presenters use only the new type.
+The intermediate `PostgresBranchIssue.postgres` field has been removed.
+
+Issues are a periodically rebuilt snapshot: the existing checker deletes every
+row and inserts new randomly identified rows each minute. A durable identity
+migration is therefore unnecessary. Old `POSTGRES_BRANCH` rows are converted to
+`PostgresIssue` on reads, preserving the row's current ID and resolving its
+physical identity to Postgres within the same team/environment. The next checker
+refresh replaces these rows with canonical logical identities without duplicates.
+New POSTGRES filters and database scopes match the canonical stored keys, so
+verify at least one successful new checker refresh before deploying Console.
+
+The old `PostgresBranchIssue` schema type and deprecated enum values remain only
+to validate old client documents during rollout; no new API result produces that
+type. Older Console clients do not have type-specific selections for the new
+issue, so deploy the updated Console promptly after API support is available.
+After the branch-free Console is deployed everywhere, remove that legacy schema
+alongside the remaining branch GraphQL facade. Historical activity stays intact.
+
+Validation covers checker degradation/recovery/deletion, logical issue scopes,
+facets/filters, Node lookup, conversion of old rows, scoped legacy parent lookup,
+and refresh without duplicates. Both pending Copilot fixes remain in place.
+
+**Latest decision, superseding the intermediate issue approach below:** retain
+Postgres issue reporting but replace the domain/schema model with a real
+`PostgresIssue` referencing `postgres: Postgres!`. Do not remove the feature and
+do not treat adding `postgres` to `PostgresBranchIssue` as the final model. Current
+local changes still implement that intermediate relation and must be adapted.
+API support for the new GraphQL type necessarily precedes Console queries for it;
+old schema compatibility is only for the client rollout. See the latest section
+of the transition checkpoint before continuing implementation after compaction.
+
+Console rollout is prioritized before breaking GraphQL contraction. The current
+Console still selected `PostgresBranchIssue.branch`, so removing the branch model
+first would invalidate its queries even when no such issues were returned. The
+additive preparation is `PostgresBranchIssue.postgres: Postgres!` (with the old
+branch relation retained/deprecated). Deploy that API capability, then deploy the
+Console which uses direct Postgres fields everywhere. Only after that Console is
+available everywhere should the legacy branch GraphQL fields/types be removed in
+one coordinated cleanup. Historical activity data and issue identities need not
+be renamed merely to stop using the persistence model.
+
+The Console regression scans all current page/component GraphQL documents for
+retired branch dependencies, including inline queries. It protects against finding
+another hidden UI dependency only after a breaking schema rollout. Pgrator and
+the Kubernetes CRD do not require the GraphQL facade; its remaining purpose is
+client rollout compatibility.
+
 1. Before deploying this pgrator, confirm adoption has completed for all existing
    databases in each target cluster: journals Managed, original cluster/resource
    UIDs consistent, no unfinished migrations and no remaining branch resources
