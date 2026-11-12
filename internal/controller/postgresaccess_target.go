@@ -54,6 +54,9 @@ func resolveAccessCluster(ctx context.Context, reader client.Reader, access *v1.
 		if owner == nil || postgres.UID == "" || owner.UID != postgres.UID || owner.Name != postgres.Name || owner.Kind != postgresKind || owner.APIVersion != v1.GroupVersion.String() {
 			return nil, fmt.Errorf("CNPG Cluster %q is not controlled by Postgres %q", cluster.Name, postgres.Name)
 		}
+		if postgres.Status.Ownership != nil && postgres.Status.Ownership.ClusterUID != "" && postgres.Status.Ownership.ClusterUID != string(cluster.UID) {
+			return nil, fmt.Errorf("CNPG Cluster %q was replaced after ownership was checkpointed", cluster.Name)
+		}
 	}
 	return cluster, nil
 }

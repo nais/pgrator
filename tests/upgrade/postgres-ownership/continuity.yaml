@@ -1,0 +1,89 @@
+# Use only in an isolated upgrade-test environment, initially running the OLD
+# pgrator. Apply this fixture BEFORE upgrading the controller. See README.md.
+apiVersion: nais.io/v1
+kind: Postgres
+metadata:
+  name: ownership-continuity
+spec:
+  majorVersion: "18"
+---
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  name: ownership-probe
+spec:
+  image: postgres:18
+  replicas:
+    min: 1
+    max: 1
+    disableAutoScaling: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  uses:
+    postgres:
+      - name: ownership-continuity
+        role: admin
+  # PGHOST/PGUSER/TLS paths, mounts, binding and network access all come from
+  # naiserator. Do not add a hand-crafted Secret, binding or access policy here.
+  command:
+    - bash
+    - -ec
+    - |
+      set -Eeuo pipefail
+      export PGCONNECT_TIMEOUT=5
+      export PGOPTIONS='-c statement_timeout=5000'
+
+      # Applications have restartPolicy Always. Latch failures instead of
+      # restarting into a misleadingly successful new measurement window.
+      fail() {
+        touch /tmp/ownership-probe.failed
+        echo "FAIL ownership continuity: $*"
+        while true; do sleep 3600; done
+      }
+      if test -f /tmp/ownership-probe.failed; then
+        fail 'previous failure retained across container restart'
+      fi
+
+      # Retries are allowed only while establishing the initial baseline.
+      until psql -X -v ON_ERROR_STOP=1 <<'SQL'
+      CREATE TABLE IF NOT EXISTS ownership_upgrade_probe (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        marker text NOT NULL
+      );
+      INSERT INTO ownership_upgrade_probe(marker) VALUES ('before-upgrade');
+      SQL
+      do sleep 2; done
+
+      persistent_connection() {
+        psql -X -v ON_ERROR_STOP=1 <<'SQL'
+      SELECT 'persistent-connection', clock_timestamp(), pg_backend_pid(), 1 / count(*)
+      FROM ownership_upgrade_probe WHERE marker = 'before-upgrade';
+      \watch 1
+      SQL
+      }
+      new_connections() {
+        while true; do
+          psql -X -v ON_ERROR_STOP=1 -c "INSERT INTO ownership_upgrade_probe(marker) VALUES ('during-upgrade') RETURNING 'new-connection', clock_timestamp(), id;"
+          sleep 1
+        done
+      }
+
+      persistent_connection &
+      persistent_pid=$!
+      new_connections &
+      new_pid=$!
+      trap 'kill "$persistent_pid" "$new_pid" 2>/dev/null || true' EXIT
+      touch /tmp/ownership-probe.ready
+      echo 'BASELINE_READY: both probe loops started; verify successful SQL output before upgrading'
+
+      # No reconnect/retry after baseline. Even a clean, unexpected exit of
+      # either worker fails the continuity test. Keep the failure observable.
+      set +e
+      wait -n "$persistent_pid" "$new_pid"
+      status=$?
+      kill "$persistent_pid" "$new_pid" 2>/dev/null || true
+      fail "a probe worker stopped (exit=$status)"

@@ -1,7 +1,7 @@
 # Plan: avvikle PostgresBranch uten å flytte databaser
 
-Status: checkpoint for feature-branches med kompatibilitetsendringer. Ingen fysisk adopsjon er aktivert; endringene skal ikke rulles ut ennå.
-Dato: 2026-11-06.
+Status: kompatibilitetsfasen er under utrulling. Ingen fysisk adopsjon er aktivert.
+Oppdatert: 2026-11-12. **Les [gjenopptakingsnotatet](postgres-branch-transition-checkpoint.md) først** for gjeldende commits, utrullingsstatus og neste steg. Fremdriftslisten nedenfor dokumenterer det opprinnelige checkpointet; senere beslutninger i gjenopptakingsnotatet har forrang (blant annet er GraphQL `Postgres.clusterName` fjernet).
 
 ## Anbefaling
 

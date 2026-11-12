@@ -1,0 +1,23 @@
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: pg-mydb-main-6bc4781b
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb
+      postgres.nais.io/branch: main
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: database-uid
+        controller: true
+  spec:
+    instances: 2
+    inheritedMetadata:
+      labels:
+        postgres.nais.io/name: mydb
+        postgres.nais.io/branch: main

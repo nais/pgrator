@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,6 +49,11 @@ func main() {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(cfg.Development)))
+	if !cfg.LeaderElectionEnabled && !cfg.DryRun {
+		err := fmt.Errorf("leader election is required for automatic Postgres ownership transfer")
+		setupLog.Error(err, "unsafe controller configuration")
+		os.Exit(1)
+	}
 
 	setupLog.Info("--- Configuration ---")
 	cfg.Log(setupLog)
@@ -85,35 +91,34 @@ func main() {
 
 	recorder := events.NewRecorder(mgr.GetEventRecorder("pgrator"))
 
-	postgresReconciler := &controller.PostgresReconciler{
+	// Adoption and binding snapshots must use API-server reads rather than a
+	// potentially stale cache across owner/status/branch deletion checkpoints.
+	postgresClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: scheme, DryRun: &cfg.DryRun})
+	if err != nil {
+		setupLog.Error(err, "unable to create Postgres API client")
+		os.Exit(1)
+	}
+	postgresReconciler := &controller.PostgresClusterReconciler{
 		Config:   cfg,
 		Recorder: recorder,
 		Scheme:   scheme,
 	}
-	postgresController := synchronizer.NewSynchronizer(mgr.GetClient(), mgr.GetScheme(), postgresReconciler, recorder)
+	postgresController := synchronizer.NewSynchronizer(postgresClient, mgr.GetScheme(), postgresReconciler, recorder)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgres")
 		os.Exit(1)
 	}
 
-	postgresBranchReconciler := &controller.PostgresBranchReconciler{
-		Config:   cfg,
-		Recorder: recorder,
-		Scheme:   scheme,
-	}
-	postgresBranchController := synchronizer.NewSynchronizer(
-		mgr.GetClient(), mgr.GetScheme(), postgresBranchReconciler, recorder)
-	if err := postgresBranchController.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "postgresbranch")
-		os.Exit(1)
-	}
+	// Do not register the legacy branch controller: it must neither write nor
+	// prune resources while Postgres takes ownership. The same leader-election
+	// lease serializes the handoff from the previous pgrator binary.
 
 	postgresBindingReconciler := &controller.PostgresBindingReconciler{
 		Recorder: recorder,
 		Scheme:   scheme,
 	}
 	postgresBindingController := synchronizer.NewSynchronizer(
-		mgr.GetClient(), mgr.GetScheme(), postgresBindingReconciler, recorder)
+		postgresClient, mgr.GetScheme(), postgresBindingReconciler, recorder)
 	if err := postgresBindingController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgresbinding")
 		os.Exit(1)
@@ -121,7 +126,7 @@ func main() {
 
 	postgresAccessReconciler := &controller.PostgresAccessReconciler{Recorder: recorder, Scheme: scheme}
 	postgresAccessController := synchronizer.NewSynchronizer(
-		mgr.GetClient(), mgr.GetScheme(), postgresAccessReconciler, recorder)
+		postgresClient, mgr.GetScheme(), postgresAccessReconciler, recorder)
 	if err := postgresAccessController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgresaccess")
 		os.Exit(1)

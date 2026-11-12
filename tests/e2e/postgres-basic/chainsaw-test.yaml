@@ -32,20 +32,8 @@ spec:
                   cpu: 100m
                   memory: 512Mi
 
-    - name: Default branch has a local name and a derived object key
+    - name: Postgres directly owns the stable main-derived physical cluster
       try:
-        - assert:
-            resource:
-              apiVersion: nais.io/v1
-              kind: PostgresBranch
-              metadata:
-                name: mydb-main-6bc4781b
-                labels:
-                  postgres.nais.io/name: mydb
-                  postgres.nais.io/branch: main
-              spec:
-                postgres: mydb
-                branchName: main
         - assert:
             resource:
               apiVersion: nais.io/v1
@@ -53,7 +41,27 @@ spec:
               metadata:
                 name: mydb
               status:
+                clusterName: pg-mydb-main-6bc4781b
                 activeBranch: main
+                ownership:
+                  phase: Managed
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: pg-mydb-main-6bc4781b
+                ownerReferences:
+                  - apiVersion: nais.io/v1
+                    kind: Postgres
+                    name: mydb
+                    controller: true
+        - error:
+            resource:
+              apiVersion: nais.io/v1
+              kind: PostgresBranch
+              metadata:
+                name: mydb-main-6bc4781b
 
     - name: Cluster restricts personal passwords and requires certificates otherwise
       try:
