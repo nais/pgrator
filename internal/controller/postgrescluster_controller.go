@@ -78,6 +78,11 @@ func (r *PostgresClusterReconciler) StatusCheckpointRequired(current, original *
 func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.Reader, pg *v1.Postgres) (PostgresClusterPreparedData, ctrl.Result, error) {
 	p := PostgresClusterPreparedData{}
 	pg.GetStatus()
+	// This release cannot finish partial transfers, including on deletion. Do
+	// not clean only the transferred subset and strand the legacy owner's children.
+	if pg.Status.Ownership != nil && pg.Status.Ownership.Phase == ownershipAdopting {
+		return p, ctrl.Result{}, fmt.Errorf("ownership transfer is unfinished; complete adoption with the previous release")
+	}
 	meta.RemoveStatusCondition(&pg.Status.Conditions, "postgresbranch.nais.io/Available")
 	// Non-main databases and recoveries require manual investigation. Freezing
 	// them must not invoke legacy deletion or prune any of their resources.
@@ -101,7 +106,7 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		p.Cluster = cluster
 	}
 	if !pg.DeletionTimestamp.IsZero() {
-		// Deletion is explicit and can finish an interrupted ownership transfer.
+		// Explicit deletion is supported only after the transfer guard above.
 		return p, ctrl.Result{}, nil
 	}
 	if err := prepareOwnershipJournal(pg, p); err != nil {
@@ -151,9 +156,6 @@ func prepareOwnershipJournal(pg *v1.Postgres, p PostgresClusterPreparedData) err
 		}
 		journal = &v1.PostgresOwnership{Phase: ownershipProvisioning}
 		pg.Status.Ownership = journal
-	}
-	if journal.Phase == ownershipAdopting {
-		return fmt.Errorf("ownership transfer is unfinished; complete adoption with the previous release")
 	}
 	if journal.Phase != ownershipProvisioning && journal.Phase != ownershipManaged {
 		return fmt.Errorf("unknown ownership checkpoint phase %q", journal.Phase)

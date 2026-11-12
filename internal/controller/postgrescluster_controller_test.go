@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"testing"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
@@ -107,6 +108,45 @@ func TestDirectOwnershipDeletionWithoutBranchAPI(t *testing.T) {
 		if err := c.Get(t.Context(), client.ObjectKeyFromObject(child), child); !apierrors.IsNotFound(err) {
 			t.Fatalf("deletion incomplete for %T %s: %v", child, child.GetName(), err)
 		}
+	}
+}
+
+func TestDeletingPostgresRejectsPartiallyAdoptedInventory(t *testing.T) {
+	r, c, pg, identity, children := directOwnershipFixture(t, false)
+	pg.Status.Ownership.Phase = ownershipAdopting
+	requireNoError(t, c.Status().Update(t.Context(), pg))
+	branch := identity.DeepCopy()
+	branch.UID = types.UID(pg.Status.Ownership.LegacyBranchUID)
+	branch.Finalizers = []string{"postgresbranch.nais.io"}
+	requireNoError(t, c.Create(t.Context(), branch))
+	// Simulate a crash after the cluster transfer but before another child was
+	// transferred. That child is absent from the direct owner's live inventory.
+	remaining := children[0].DeepCopyObject().(client.Object)
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(remaining), remaining))
+	remaining.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: branch.UID, Controller: new(true)}})
+	owners := ownership.NewOwnerManager("postgres.nais.io/owner")
+	owners.RemoveOwnerAnnotation(remaining, pg)
+	requireNoError(t, c.Update(t.Context(), remaining))
+	requireNoError(t, c.Delete(t.Context(), pg))
+	s := synchronizer.NewSynchronizer(withoutBranchAPI(t, c), scheme.Scheme, r, recorder)
+	if _, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)}); err == nil {
+		t.Fatal("started deletion while adoption was unfinished")
+	}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(pg), pg))
+	if !slices.Contains(pg.Finalizers, "postgres.nais.io") {
+		t.Fatal("released parent finalizer during unfinished adoption")
+	}
+	for i, original := range children {
+		if i == 0 {
+			original = remaining
+		}
+		got := original.DeepCopyObject().(client.Object)
+		requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(got), got))
+		assertSameFunctionalResource(t, original, got)
+	}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(branch), branch))
+	if !slices.Contains(branch.Finalizers, "postgresbranch.nais.io") {
+		t.Fatal("removed legacy branch finalizer")
 	}
 }
 
