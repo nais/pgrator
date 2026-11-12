@@ -1,5 +1,36 @@
 # Gjenopptaking: avvikling av PostgresBranch
 
+## Pågående kontraktrunde etter fullført adopsjon
+
+Nyeste arbeidsrunde: bruker har pullet main i pgrator og API etter at adopsjon er
+rullet ut overalt. Begge repoer arbeides nå på **feat/postgres-branch-contraction**.
+Se [kontraktplanen](postgres-branch-contraction.md) for gjeldende scope og rekkefølge.
+Tidligere ucommittede valideringsnotater i denne filen er bevart.
+
+- Pgrator: aktive Postgres-/binding-/access-controllere bruker ikke branch-API-et.
+  Watch/oppslag/adopsjon/detach er fjernet fra den registrerte stien. Ny database
+  provisioneres direkte; ufullført adopsjon må ferdigstilles med forrige release.
+  Journal-/UID-sperrer, fysiske identiteter, metric-labels og eksplisitt deletion
+  beholdes. Delte historiske renderer-/Go-typeadaptere er ikke en live CRD-avhengighet.
+- API: branch-informeren og dens loader/gRPC/issue/inventory-avhengigheter er borte.
+  Bare Postgres-status brukes, også for logger og restore-vindu. Virtuell main,
+  stabile node-/issue-identiteter og lesing av gamle immutable main-accessrefs
+  beholdes. Nye accesses skriver alltid spec.postgres. Ikke-main velger aldri main.
+- Testene er oppdatert til direkte modell. En faktisk envtest-server uten branch-CRD
+  starter pgrator-controllerne og provisionerer en database. API-testen starter den
+  vanlige watcher-pakken med branch-kall sperret og dekker main-fasade/access/logger.
+  Full API-integrasjonstestsuite består med eksplisitt lokal Docker Desktop-socket.
+- CRD-templater og eksisterende RBAC-rettigheter er **bevisst beholdt** i dette første
+  kontraktsteget, slik at gamle prosesser ikke mister tilgang midt i utrullingen.
+  Selve CRD-/RBAC-/resterende typefjerningen er separat, etter at begge nye binærer
+  er ute og inventaret er kontrollert.
+- Ingen live clusterendringer eller push er gjort i denne arbeidsrunden.
+- Sluttvalidering: pgrator full check/build/test (begge moduler), generering og
+  controller/synchronizer race består. API full test inkl. integrasjon/race, build,
+  vet, staticcheck, deadcode, Helm lint og generering består med GOWORK=off.
+  API full check har fortsatt eksisterende G115-funn i vulnerability/webhook-kode
+  og dependency-/Go-sårbarheter; ikke presentér samlet API-check som grønn.
+
 Oppdatert 2026-11-12. Dette notatet er gjeldende arbeidstilstand og har forrang over historiske fremdriftsavsnitt i [overgangsplanen](postgres-branch-transition-plan.md). Les også [klientkartleggingen](postgres-branch-client-research.md) ved behov.
 
 ## Ny arbeidsrunde: automatisk fysisk overtakelse (2026-11-12)
@@ -106,6 +137,23 @@ Brukeren ba om å vurdere reviewet med få/lite bevegelige databaser og overgang
 4. Binding Prepare håndterer slettende Postgres før direkte cluster-oppslag. Eksplisitt sletting trekker tilbake Secret/netpol og Ready selv med manglende/deleting cluster; levende, midlertidig ugyldige targets bevarer credentials som før.
 
 Nye tester dekker IAM-kontoforskjeller/policyforskjeller, bevart persistert journal ved ny deleting-child, 6 ressurstyper med bortfall/utskifting mellom Prepare/planlegging/gjennomføring, og bindings under parent-deletion med manglende eller finalizer-blokkert cluster. `mise run test`, `mise run check ::: build`, format/generering og race-tester av controller/synchronizer består. Rettelsene og oppdaterte devnotater inngår i reviewoppfølgingen på feature-branchen. **Ingen clusterendringer i denne runden.**
+
+### Utrullet overalt; lesende validering i nav-dev / nais
+
+Brukeren bekrefter utrulling til alle miljøer. På brukerens forespørsel ble namespace **nais** i kubecontext **nav-dev** validert lesende 2026-11-12. Dette er ikke en kontroll av alle namespace i clusteret. I nais finnes én Postgres: **vegar-test**.
+
+- Pgrator-image `2026-11-12-121429-36bcaab`, Deployment 1/1 Ready/Updated/Available, utrulling fullført ca. `11:20:57Z`.
+- Postgres `vegar-test`, UID `df700625-2d0c-46ca-8799-2d719d6bbc09`, Managed/Completed, generation og observedGeneration 1. Siste reconcile `11:22:36Z`. Ingen PostgresBranch-objekter i nais.
+- Cluster `pg-vegar-test-main-908b5c9e`, UID `bac209ce-64bd-4842-93b6-44f2e4cfa5d8`, healthy, 2/2 Ready og eid direkte av korrekt Postgres. Alle **14 journalførte ressurser** er kontrollert: faktisk UID matcher journal, riktig controller-UID/kind/API-versjon, ny owner-annotasjon og ingen gammel branch-owner-annotasjon eller deletionTimestamp. Alle 5 IAM-/bucket-ressurser er Ready/UpToDate med observert generation lik faktisk generation.
+- Database og alle 3 DatabaseRoles Applied; durable roller eies av Postgres, workloadrollen beholder PostgresBinding-eier. Pooler active, 2 instanser og 2 Ready service-endepunkter på 5432. Begge PVC-er Bound med 10Gi.
+- Database-Podene er fra 10. november, pooler-Podene fra 11. november; alle Ready og null restarter. Appen frode-testapp har 2 Ready Pods fra `2026-11-11T15:05:53Z`, null restarter. De observerte Podene er dermed eldre enn denne pgrator-utrullingen.
+- Binding `vegar-test-frode-testapp`, UID `13809870-790a-487e-98fc-0e621a2a9bc7`, Completed og Ready/CredentialsReady etter utrullingen. Secret-referanse `vegar-test--frode-testapp-208730ba-connection`; binding rapporterer secret/Available True. Direkte Secret-GET er sperret av brukerens Cloud IAM/RBAC; ingen omgåelse ble forsøkt og ingen Secret-data ble lest.
+- WAL ContinuousArchiving True. Sist vellykkede backup fullført **12. november 02:00:03 UTC**, før adopsjonen; alle 15 observerte historiske backups completed og fortsatt cluster-eide. ScheduledBackup neste kjøring **13. november 02:00 UTC**. ObjectStore rapporterer første recoverability point **29. oktober 13:46:42 UTC**. Ingen ny backup eller restore ble trigget.
+- Den observerte personlige tilgangen til vegar-test er historisk/utløpt og korrekt Ready False med reason Expired, ikke en ny tilgangstest.
+- Ingen error/fatal/panic/refusing/failed-to-treff i innhentet pgrator-logg siste 30 minutter. En eldre HPA-advarsel «No recommendation» på frode-testapp var fra 11:00:01Z; nå er ScalingActive/ValidMetricFound True, current/desired begge 2, og ScalingLimited skyldes bare minimumsgrensen. Enkelte kubectl-discovery-kall fikk en transient API-nettverkstimeout før forespørslene deretter lyktes; dette ble ikke diagnostisert som en databasefeil.
+- Ingen SQL-/dataplane-test eller før/etter Secret-hash-sammenligning ble gjort i nav-dev. Lagrede metadata/statusuttrekk i OpenCode-temp: `nav-dev-nais-cnpg-status.json`, `nav-dev-nais-validation-events.json`, `nav-dev-pgrator-validation.log`.
+
+Konklusjon: ingen påviste eierskaps-, reconciliation-, CNPG-, WAL- eller workloadhelseproblemer for den observerte databasen i nais. Følg særlig neste planlagte backup som første dokumenterte backup etter denne adopsjonen. Ingen ressurser i clusteret ble endret under valideringen.
 
 ## Målet og hvor vi er
 

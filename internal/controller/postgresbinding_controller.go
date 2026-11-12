@@ -127,18 +127,6 @@ func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.Relations
 			},
 		},
 		{
-			Type: &v1.PostgresBranch{},
-			Map:  r.bindingsForBranch,
-			Predicate: predicate.Funcs{
-				CreateFunc: func(event.CreateEvent) bool { return true },
-				DeleteFunc: func(event.DeleteEvent) bool { return true },
-				UpdateFunc: func(e event.UpdateEvent) bool {
-					return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
-						!reflect.DeepEqual(e.ObjectOld.GetDeletionTimestamp(), e.ObjectNew.GetDeletionTimestamp())
-				},
-			},
-		},
-		{
 			Type:      &core_v1.Secret{},
 			Map:       r.bindingsForSourceSecret,
 			Predicate: sourceSecretEventFilter(),
@@ -168,21 +156,6 @@ func (r *PostgresBindingReconciler) bindingsForPostgres(ctx context.Context, rea
 		return nil, fmt.Errorf("listing PostgresBindings for Postgres %q: %w", postgres.GetName(), err)
 	}
 	return bindingRequests(bindings.Items), nil
-}
-
-func (r *PostgresBindingReconciler) bindingsForBranch(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
-	branch, ok := object.(*v1.PostgresBranch)
-	if !ok || !validBranchIdentity(branch) {
-		return nil, nil
-	}
-	return r.bindingsForPostgres(ctx, reader, &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: branch.Spec.Postgres, Namespace: branch.Namespace}})
-}
-
-func selectedBindingBranch(binding *v1.PostgresBinding, postgres *v1.Postgres) string {
-	if binding.Spec.Branch != "" {
-		return binding.Spec.Branch
-	}
-	return observedActiveBranch(postgres)
 }
 
 func (r *PostgresBindingReconciler) bindingsForSourceSecret(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
@@ -289,7 +262,9 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 	}
 
 	if instance == "" {
-		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+		// A live parent's missing observation is not an intentional revocation.
+		// Preserve existing credentials until the controller publishes its target.
+		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("postgres %q has no observed physical cluster yet", postgres.Name)
 	}
 	prepared := PostgresBindingPreparedData{Branch: instance}
 	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance)
@@ -303,6 +278,9 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 // resolveBindingInstance returns a stable physical identity, never a new endpoint.
 // Direct status is authoritative even after the legacy branch has disappeared.
 func resolveBindingInstance(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, postgres *v1.Postgres) (string, error) {
+	if binding.Spec.Branch != "" && binding.Spec.Branch != v1.DefaultBranchName {
+		return "", fmt.Errorf("branch selection is no longer supported")
+	}
 	if directClusterName(postgres) != "" {
 		if binding.Spec.Branch != "" && binding.Spec.Branch != v1.DefaultBranchName {
 			return "", fmt.Errorf("non-main binding cannot target a directly managed Postgres")
@@ -317,7 +295,7 @@ func resolveBindingInstance(ctx context.Context, reader client.Reader, binding *
 			// transient/missing direct target or an inconsistent ownership read.
 			return "", fmt.Errorf("direct Postgres cluster cannot be resolved: %v", err)
 		}
-		if !physicalControlledBy(cluster, postgres, postgresKind) || !cluster.DeletionTimestamp.IsZero() {
+		if !physicalControlledBy(cluster, postgres) || !cluster.DeletionTimestamp.IsZero() {
 			return "", fmt.Errorf("direct Postgres cluster is not live and owned by this Postgres")
 		}
 		if postgres.Status.Ownership != nil && postgres.Status.Ownership.ClusterUID != "" && postgres.Status.Ownership.ClusterUID != string(cluster.UID) {
@@ -325,18 +303,7 @@ func resolveBindingInstance(ctx context.Context, reader client.Reader, binding *
 		}
 		return instance, nil
 	}
-	selected := selectedBindingBranch(binding, postgres)
-	branch := &v1.PostgresBranch{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.Namespace, Name: v1.PostgresBranchObjectName(postgres.Name, selected)}, branch); err != nil {
-		return "", err
-	}
-	if !validBranchIdentity(branch) || branch.Spec.Postgres != postgres.Name || branch.Spec.BranchName != selected {
-		return "", fmt.Errorf("selected PostgresBranch has invalid identity")
-	}
-	if !branch.DeletionTimestamp.IsZero() {
-		return "", nil
-	}
-	return branch.Name, nil
+	return "", nil
 }
 
 func (r *PostgresBindingReconciler) readBindingSnapshot(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, instance string) (*bindingSnapshot, error) {
@@ -562,7 +529,7 @@ func readSecretData(ctx context.Context, reader client.Reader, key client.Object
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
 	if prepared.Unavailable {
-		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "BranchUnavailable", Message: "the selected Postgres branch is missing or deleting", ObservedGeneration: obj.Generation})
+		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "PostgresUnavailable", Message: "the Postgres database is missing, deleting or not provisioned yet", ObservedGeneration: obj.Generation})
 		// Withdraw stale connection Secrets and network access, but do not drop
 		// existing login roles merely because the selected branch is unavailable.
 		for _, candidate := range relatedObjects.GetMatchingType(&cnpgv1.DatabaseRole{}) {
@@ -579,11 +546,11 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 		}
 		return actions, ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "CredentialsPending", Message: "waiting for credentials for the selected Postgres branch", ObservedGeneration: obj.Generation}
+	condition := metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "CredentialsPending", Message: "waiting for credentials for the Postgres database", ObservedGeneration: obj.Generation}
 	if prepared.Snapshot != nil {
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = "CredentialsReady"
-		condition.Message = "credentials for the selected Postgres branch are ready"
+		condition.Message = "credentials for the Postgres database are ready"
 	}
 	obj.GetStatus().SetCondition(condition)
 	for _, credential := range obj.Spec.Credentials {

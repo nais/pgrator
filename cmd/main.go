@@ -50,7 +50,7 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(cfg.Development)))
 	if !cfg.LeaderElectionEnabled && !cfg.DryRun {
-		err := fmt.Errorf("leader election is required for automatic Postgres ownership transfer")
+		err := fmt.Errorf("leader election is required for exclusive Postgres reconciliation")
 		setupLog.Error(err, "unsafe controller configuration")
 		os.Exit(1)
 	}
@@ -91,8 +91,8 @@ func main() {
 
 	recorder := events.NewRecorder(mgr.GetEventRecorder("pgrator"))
 
-	// Adoption and binding snapshots must use API-server reads rather than a
-	// potentially stale cache across owner/status/branch deletion checkpoints.
+	// Ownership guards and binding snapshots must use API-server reads rather
+	// than a potentially stale cache across status and deletion checkpoints.
 	postgresClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: scheme, DryRun: &cfg.DryRun})
 	if err != nil {
 		setupLog.Error(err, "unable to create Postgres API client")
@@ -109,9 +109,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Do not register the legacy branch controller: it must neither write nor
-	// prune resources while Postgres takes ownership. The same leader-election
-	// lease serializes the handoff from the previous pgrator binary.
+	// The retired branch controller must not be registered. The same leader-
+	// election lease serializes physical reconciliation across pgrator versions.
 
 	postgresBindingReconciler := &controller.PostgresBindingReconciler{
 		Recorder: recorder,

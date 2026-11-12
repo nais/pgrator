@@ -42,16 +42,21 @@ func TestBindingSelectedBranchConnection(t *testing.T) {
 		)
 	}
 	for _, tt := range []struct{ name, branch, requested, observed, want string }{
-		{name: "omitted follows observed not pending activation", requested: "pr-123", observed: "main", want: "main"},
-		{name: "omitted follows completed activation", requested: "pr-123", observed: "pr-123", want: "pr-123"},
-		{name: "explicit branch is independent of active", branch: "pr-123", observed: "main", want: "pr-123"},
-		{name: "explicit main stays pinned after activation", branch: "main", requested: "pr-123", observed: "pr-123", want: "main"},
-		{name: "explicit branch works without an observed active branch", branch: "pr-123", requested: "missing", want: "pr-123"},
+		{name: "omitted uses direct identity", requested: "pr-123", observed: "main", want: "main"},
+		{name: "stale branch metadata cannot select another database", requested: "pr-123", observed: "pr-123", want: "main"},
+		{name: "explicit main remains compatible", branch: "main", want: "main"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := binding.DeepCopy()
 			obj.Spec.Branch = tt.branch
-			postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: tt.requested}, Status: &v1.PostgresStatus{ActiveBranch: tt.observed}}
+			postgres, cluster := directBindingTarget()
+			postgres.Spec.ActiveBranch = tt.requested
+			postgres.Status.ActiveBranch = tt.observed
+			for _, source := range sources {
+				if candidate, ok := source.(*cnpgv1.Cluster); ok && candidate.Name == cluster.Name {
+					candidate.OwnerReferences = cluster.OwnerReferences
+				}
+			}
 			reader := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(sources...).WithObjects(postgres).Build()
 			r := &PostgresBindingReconciler{Scheme: testScheme, Recorder: recorder}
 			prepared, _, err := r.Prepare(t.Context(), reader, obj)
@@ -102,33 +107,10 @@ func TestBindingUnavailableBranchDoesNotFallBack(t *testing.T) {
 			}
 			reader := builder.Build()
 			r := &PostgresBindingReconciler{Scheme: testScheme, Recorder: recorder}
-			prepared, _, err := r.Prepare(t.Context(), reader, binding)
-			requireNoError(t, err)
-			requireTrue(t, prepared.Unavailable, "selected branch is unavailable")
-			requireNil(t, prepared.Snapshot, "must not read active branch credentials")
-			previousRole, err := rcbinding.CreateDatabaseRole(testScheme, binding, main.Name, v1.PostgresBindingCredentialRead)
-			requireNoError(t, err)
-			related := relatedobjectsmap.NewRelatedObjectsMap(testScheme)
-			related.Insert(previousRole)
-			related.Insert(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "connection", Namespace: "team"}})
-			actions, result, err := r.Update(binding, prepared, related)
-			requireNoError(t, err)
-			requireTrue(t, result.RequeueAfter > 0, "retry while waiting for branch")
-			for _, a := range actions {
-				if _, ok := a.GetObject().(*cnpgv1.DatabaseRole); !ok {
-					t.Fatalf("unavailable branch must not retain or publish a connection: %T", a.GetObject())
-				}
+			_, _, err := r.Prepare(t.Context(), reader, binding)
+			if err == nil {
+				t.Fatal("non-main selection was accepted")
 			}
-			requireEqual(t, len(actions), 1, "retain existing role rather than dropping privileges")
-			conditions := binding.GetStatus().GetConditions()
-			found := false
-			for _, condition := range conditions {
-				if condition.Type == readyCondition {
-					found = true
-					requireEqual(t, condition.Status, metav1.ConditionFalse, "unavailable binding readiness")
-				}
-			}
-			requireTrue(t, found, "unavailable readiness condition")
 		})
 	}
 }
@@ -136,14 +118,13 @@ func TestBindingUnavailableBranchDoesNotFallBack(t *testing.T) {
 func TestBindingPinnedBranchSourceEvents(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	initscheme.InitScheme(testScheme)
-	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "consumer", Namespace: "team"}, Spec: v1.PostgresBindingSpec{Postgres: "orders", Branch: "pr-123", Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin}}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveBranch: "main"}}
-	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "pr-123"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "pr-123"}}
-	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(branch.Name), Namespace: "team"}}
+	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "consumer", Namespace: "team"}, Spec: v1.PostgresBindingSpec{Postgres: "orders", Branch: "main", Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin}}}
+	postgres, cluster := directBindingTarget()
+	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName("orders"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"}}
 	r := &PostgresBindingReconciler{}
 	index := r.Indexes()[0]
 	reader := fake.NewClientBuilder().WithScheme(testScheme).WithIndex(index.Object, index.Field, index.ExtractValue).WithObjects(binding, postgres, branch, cluster).Build()
-	requests, err := r.bindingsForBranch(t.Context(), reader, branch)
+	requests, err := r.bindingsForPostgres(t.Context(), reader, postgres)
 	requireNoError(t, err)
 	requireEqual(t, len(requests), 1, "branch event should wake waiting binding")
 	for _, name := range []string{cluster.GetClientCASecretName(), "unrelated-ca"} {

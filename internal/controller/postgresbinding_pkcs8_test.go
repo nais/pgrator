@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"testing"
 
-	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/initscheme"
 	rcbinding "github.com/nais/pgrator/internal/resourcecreator/binding"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
@@ -80,8 +79,7 @@ func TestBindingPKCS8RotatesWithCompleteCredentialSnapshot(t *testing.T) {
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin, v1.PostgresBindingCredentialRead, v1.PostgresBindingCredentialReadWrite},
 	}}
 	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveBranch: "main"}}
-	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(branch.Name), Namespace: "team"}}
+	postgres, cluster := directBindingTarget()
 	ca, caKey, caPEM := generateTestCA(t)
 	objects := make([]client.Object, 0, 5+2*len(binding.Spec.Credentials))
 	objects = append(objects, binding, branch, postgres, cluster,

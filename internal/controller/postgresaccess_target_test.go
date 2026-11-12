@@ -27,7 +27,7 @@ func adoptAccessFixture(t *testing.T, pg *v1.Postgres, cluster *cnpgv1.Cluster) 
 }
 
 func TestPostgresAccessRelationshipWatchesMapBothReferences(t *testing.T) {
-	legacy, branch, pg, cluster := accessFixture()
+	legacy, _, pg, cluster := accessFixture()
 	legacy.Name = "legacy-access"
 	direct := legacy.DeepCopy()
 	direct.Name = "direct-access"
@@ -45,8 +45,6 @@ func TestPostgresAccessRelationshipWatchesMapBothReferences(t *testing.T) {
 		switch watch.Type.(type) {
 		case *v1.Postgres:
 			object = pg
-		case *v1.PostgresBranch:
-			object = branch
 		case *cnpgv1.Cluster:
 			object = cluster
 		default:
@@ -64,7 +62,7 @@ func TestPostgresAccessRelationshipWatchesMapBothReferences(t *testing.T) {
 		}
 		if _, ok := object.(*v1.Postgres); ok {
 			changed := pg.DeepCopy()
-			changed.Status = &v1.PostgresStatus{ClusterName: cluster.Name}
+			changed.Status = nil
 			if !watch.Predicate.Update(event.UpdateEvent{ObjectOld: pg, ObjectNew: changed}) {
 				t.Error("direct ownership status did not trigger access reconcile")
 			}
@@ -79,8 +77,8 @@ func TestPostgresAccessResolvesBothReferenceShapes(t *testing.T) {
 		adopted         bool
 		keepBranch      bool
 	}{
-		{name: "legacy reference before adoption", keepBranch: true},
-		{name: "direct reference before adoption", directReference: true, keepBranch: true},
+		{name: "legacy reference ignores leftover branch", keepBranch: true},
+		{name: "direct reference ignores leftover branch", directReference: true, keepBranch: true},
 		{name: "legacy reference after detach", adopted: true},
 		{name: "direct reference after detach", directReference: true, adopted: true},
 		{name: "legacy reference during adoption", adopted: true, keepBranch: true},
@@ -146,7 +144,7 @@ func TestPostgresAccessRejectsAmbiguousOrUnavailableTargets(t *testing.T) {
 	}
 }
 
-func TestExistingPostgresAccessPreservesProofAcrossDetach(t *testing.T) {
+func TestExistingPostgresAccessPreservesProofWithoutBranchObjects(t *testing.T) {
 	access, branch, pg, cluster := accessFixture()
 	password, err := rcaccess.CreateCredentialSecret(scheme.Scheme, access, "existing-password")
 	requireNoError(t, err)
