@@ -1153,6 +1153,11 @@ func (r *PostgresBranchReconciler) policyMemberAction(desired *iamcnrm.IAMPolicy
 }
 
 func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner api.NaisObject) (action.Action, error) {
+	if _, direct := owner.(*v1.Postgres); direct {
+		// During the ownership transition resource identities are pinned. A
+		// general replacement protocol is deliberately outside this migration.
+		return nil, fmt.Errorf("refusing IAM recreation for directly managed Postgres: %T %s", desired, client.ObjectKeyFromObject(desired))
+	}
 	if !r.Config.ResyncIAMPermissions {
 		return nil, fmt.Errorf("want to change %T %s, but configuration does not allow recreate", desired, client.ObjectKeyFromObject(desired))
 	}

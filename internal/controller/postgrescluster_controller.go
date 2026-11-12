@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -307,14 +308,17 @@ func (r *PostgresClusterReconciler) checkInventory(journal *v1.PostgresOwnership
 			return fmt.Errorf("checkpointed resource %s disappeared; refusing to recreate it", ref.Name)
 		}
 	}
-	journal.Resources = nil
+	resources := make([]v1.PostgresOwnedResource, 0, len(children))
 	for _, child := range children {
 		if !child.GetDeletionTimestamp().IsZero() {
 			return fmt.Errorf("resource %s is deleting", child.GetName())
 		}
 		gvk := child.GetObjectKind().GroupVersionKind()
-		journal.Resources = append(journal.Resources, v1.PostgresOwnedResource{APIVersion: gvk.GroupVersion().String(), Kind: gvk.Kind, Name: child.GetName(), UID: string(child.GetUID())})
+		resources = append(resources, v1.PostgresOwnedResource{APIVersion: gvk.GroupVersion().String(), Kind: gvk.Kind, Name: child.GetName(), UID: string(child.GetUID())})
 	}
+	// Prepare errors still result in a deferred status write. Never truncate the
+	// durable inventory unless the entire replacement inventory is valid.
+	journal.Resources = resources
 	return nil
 }
 
@@ -338,7 +342,7 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 	if err != nil {
 		return nil, result, err
 	}
-	for _, a := range planned {
+	for i, a := range planned {
 		if existing := related.GetMatching(a.GetObject()); existing != nil && !physicalControlledBy(existing, pg, postgresKind) {
 			return nil, ctrl.Result{}, fmt.Errorf("desired resource %s is controlled by another resource", client.ObjectKeyFromObject(existing))
 		}
@@ -355,6 +359,20 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 			}
 			maps.Copy(labels, a.GetObject().GetLabels())
 			a.GetObject().SetLabels(labels)
+		}
+		gvk, err := apiutil.GVKForObject(a.GetObject(), r.Scheme)
+		if err != nil {
+			return nil, ctrl.Result{}, err
+		}
+		if pg.Status != nil && pg.Status.Ownership != nil {
+			for _, ref := range pg.Status.Ownership.Resources {
+				if ref.APIVersion == gvk.GroupVersion().String() && ref.Kind == gvk.Kind && ref.Name == a.GetObject().GetName() {
+					// Use the journal, not the later related-object snapshot. The
+					// execution guard also prevents CreateOrUpdate fallback to create.
+					planned[i] = action.RequireUID(a, types.UID(ref.UID))
+					break
+				}
+			}
 		}
 	}
 	return append(actions, planned...), result, nil

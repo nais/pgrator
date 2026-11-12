@@ -277,6 +277,9 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
+	if !postgres.DeletionTimestamp.IsZero() {
+		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+	}
 	instance, err := resolveBindingInstance(ctx, reader, obj, postgres)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -285,7 +288,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
 	}
 
-	if !postgres.DeletionTimestamp.IsZero() || instance == "" {
+	if instance == "" {
 		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
 	}
 	prepared := PostgresBindingPreparedData{Branch: instance}

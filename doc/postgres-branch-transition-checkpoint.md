@@ -44,6 +44,69 @@ Brukeren autoriserte opprettelse i `dev-nais-dev`, namespace `basseng`, via `nai
 
 Appen er **etterlatt kjørende med kontinuerlige testskrivinger** (omtrent én ny forbindelse/INSERT per sekund). Ikke redeploy/restart den før overtakelsestesten. Neste steg er avtalt publisering/utrulling av den nye pgrator-versjonen med additive checkpoint-CRD-er, deretter sammenligne baseline og kontrollere SQL-kontinuitet/backup. Denne opprettelsen og baselinen er **ikke** en test av adopsjon ennå; ny kode er fortsatt lokal og ucommittet.
 
+### Baseline avbrutt av Pod-/nodeutskifting før rollout
+
+Senere 2026-11-12: implementasjonen er committet/pushet som **`3828014`** på `feat/postgres-direct-ownership`, men **ikke rullet ut**. Brukeren meldte SSL-feil i ownership-probe. Lesende undersøkelser og en ny read-only SQL-forbindelse bekrefter følgende:
+
+- Pgrator kjører fortsatt `341d6e8`. Clusteret har samme UID `a1086c18-2591-4f18-b8d2-28ca5c372b8e`, generation 1; Pooler/Deployment har generation/revision 1. Ingen adopsjon har skjedd.
+- **08:58:02 UTC:** opprinnelig pooler-Pod `...-vbnhb` stoppes. **08:58:03:** ny-forbindelses-worker får `Connection refused`, og proben logger `FAIL ownership continuity: a probe worker stopped (exit=2)`. Failure-markøren er til stede. Skrivingene stopper på **382**.
+- **09:00:07:** CNPG rapporterer eksplisitt SwitchingOver fordi primary-noden `...-j49h` er unschedulable: primary flyttes fra instance 1 til 2.
+- **09:02:52:** den andre opprinnelige pooler-Poden `...-krfwh` stoppes. **09:02:53:** den vedvarende psql-forbindelsen logger `SSL error: unexpected eof while reading` / `connection to server was lost`.
+- **09:10:01:** ny SwitchingOver fra instance 2 til 1 fordi node `...-jtoc` er unschedulable.
+- Node-events viser at opprinnelige pooler-/databasenoder blir NotSchedulable/NotReady og fjernes fordi de ikke lenger finnes hos cloud provider. Det er **nodeutskifting/drenering**, men eksakt utløsende årsak (autoskalering, nodeoppgradering eller annet) er ikke fastslått her.
+- App-Pod har fortsatt opprinnelig UID/oppstartstid og null restarter. Probe-main holder feilen låst. `kill` av bakgrunnsfunksjonen avsluttet ikke dens psql-barn med en gang; derfor fortsatte sentinel-utskrifter etter den første FAIL-meldingen, til pooler-forbindelsen også ble brutt. Dette skjulte FAIL i korte logg-tail-utdrag, men failure-markøren og full logg fanget korrekt første feil. Forbedring av prosessopprydding i testscriptet kan vurderes separat.
+- Ny read-only SQL-forbindelse fra appen lykkes etterpå: sentinel-count **1**, successful_new_connections **382**. Dette beviser data/ny tilgang nå, ikke uavbrutt kontinuitet.
+- Bevis lagret i OpenCodes tempmappe: `ownership-probe-before-upgrade-failure.log`, `ownership-probe-pod-events.json`, `ownership-probe-node-events.json`. Ikke overskriv den opprinnelige baseline-filen.
+
+**Gjeldende teststatus: feilet baseline, workers er stoppet.** Ikke rull ut ny pgrator og tolk denne proben som kontinuitetsmåling. Først avklar/stabiliser nodeutskiftingen, avtal restart/redeploy av bare testappen, og registrer et nytt målevindu/baseline mens gammel pgrator fortsatt kjører. Ingen restart, nodemanipulasjon eller utrulling er utført av assistenten under diagnosen.
+
+### Nytt grønt målevindu klargjort på brukerens beskjed
+
+Brukeren ba om å gjøre klart før egen pgrator-utrulling. Assistenten restartet **kun** Deployment `ownership-probe` i basseng. Ny app-Pod `ownership-probe-5ddb657f46-25ck4`, UID **`0293262c-482f-4811-81fc-df769f315ede`**, startet `2026-11-12T09:16:54Z`. Gammel feilet Pod er borte. Ny Pod har null restarter, begge SQL-workers viser vellykkede operasjoner, ready-markør finnes og failure-markør finnes ikke. Testtabellen har nå to sentinels (én per oppstart) og skrivingene økte fra 382 til **632** ved siste kontroll rundt 09:21 UTC; dette er kumulative tellere, ikke 632 nye siden restart.
+
+Database/poolere har vært uendret i dette nye målevinduet, alle Ready og null restarter: instance 1 UID `7b5d7f79-e3ac-48bc-94b0-6d3234d5de54`, instance 2 UID `501aadf1-b090-41c6-a94d-460dba86a76e`, pooler-UID-er `b5b47c61-1794-4b34-8b44-31b02427c304` og `a1091c80-ff59-44ef-9a2c-622829c4c634`. De tre aktuelle nodene er Ready og ikke unschedulable. Cluster-UID er fortsatt `a1086c18-2591-4f18-b8d2-28ca5c372b8e`, branch-kontrollert; gammel pgrator `341d6e8` kjører fortsatt.
+
+Fersk baseline (48 ressurser, 4 Secret-hasher, capturedAt `2026-11-12T09:20:32Z`) ligger i samme tempmappe som originalen, med navn **`postgres-ownership-baseline-dev-nais-dev-basseng-20261112-run2.json`**. Original feilet baseline er bevart.
+
+**Utrullingsforutsetning:** installert Postgres-CRD i dev mangler fortsatt `status.ownership` ved klargjøringen. Brukeren må rulle ut nytt chart/additiv CRD **før** ny controller starter, ikke bare endre image. Assistenten har ikke installert CRD eller rullet ut pgrator. La ny app-Pod kjøre urørt gjennom testen.
+
+### Eierskapsovertakelse validert i dev etter brukerens utrulling
+
+Brukeren rullet deretter ut **`2026-11-12-100708-3828014`** i `dev-nais-dev`. Assistenten verifiserte lesende ca. 09:25–09:27 UTC; ingen restart, deploy eller opprydding ble gjort i valideringen.
+
+- `ownership-continuity.status.ownership.phase = Managed`, journalført cluster-UID `a1086c18-2591-4f18-b8d2-28ca5c372b8e`, legacy branch-UID `bf93c99b-5b63-4adc-9a74-bc60433d0b99` og 14 fysisk eide ressurser. Direkte `clusterName`, observert konfigurasjon og cluster-readiness er publisert. Reconciliation Completed kl. 09:23:49 UTC. Additivt checkpoint-schema er dermed installert og statusjournalen bevart.
+- Legacy branch er borte. **Alle fire Postgres i basseng** (`frogres`, `johngres`, `nobranchgres`, `ownership-continuity`) viser Managed/Completed og direkte clusterName; ingen PostgresBranch-objekter gjenstår i namespacet. Kun testdatabasen har full før/etter-sammenligning og automatisk SQL-måling.
+- Run2-baseline er sammenlignet mot levende ressurser: **48 referanser kontrollert, eneste forventede bortfall er legacy branch; 14 direkte branch-barn har skiftet controller til riktig Postgres-UID. Ingen uventede endringer i UID, funksjonell spec, labels, finalizers eller øvrige annotations/ownerReferences. Alle fire Secret-datahashene er uendret.** CNPG-descendants og binding/app-eide ressurser har beholdt sine eiere.
+- App-Pod har samme UID `0293262c-482f-4811-81fc-df769f315ede`, samme starttid `09:16:54Z`, Ready og null restarter. Ready-markør finnes og failure-markør finnes ikke. Database-/pooler-Pod-UID-er samsvarer med run2-baseline, uten restarter under adopsjonen.
+- SQL-logg fra `09:16:55` til `09:26:54`: 601 vellykkede vedvarende lesinger (maksimalt tidsrom 1,006 s), 548 vellykkede nye skrivende forbindelser (maksimalt tidsrom 1,314 s), **ingen SQL-/SSL-feil eller FAIL**. Rundt adopsjonen (`09:23:35–09:24:05`) er største tidsrom henholdsvis 1,000 s og 1,102 s. Dette beviser observert kontinuitet i dette målevinduet, ikke en generell garanti mot alle driftsavbrudd.
+- Read-only ekstrasjekk fra appen lykkes etter adopsjon: 2 sentinels, kumulativt 939 vellykkede skrivinger ved kontrollen (tallet fortsetter å vokse). CNPG system ID er fortsatt `7707204630358376469`.
+- Binding er Ready etter ny reconcile kl. `09:23:51Z`, med samme binding-UID og connection-Secret-referanse. Statusmelding bruker fortsatt historisk «selected Postgres branch»-ordlyd; funksjonen er branch-uavhengig.
+- Clusteret er healthy, WAL ContinuousArchiving True. Eksisterende backup fra `08:52:21Z` er fortsatt completed. **En ny backup etter adopsjonen og reell recovery fra arkivet er ikke testet ennå.** Ingen error/failed/refusing/panic-funn i innhentet pgrator-logg.
+- Full sammenligningsrapport (inkludert filtrert ettersnapshot, uten Secret-plaintext): `postgres-ownership-after-adoption-dev-nais-dev-basseng-20261112.json` i samme OpenCode-tempmappe. SQL-logg `ownership-probe-after-adoption.log` og controllerlogg `pgrator-direct-live-adoption.log` er også bevart der.
+
+Gjeldende status: **automatisk, WAL-aktivert adopsjon av eksisterende database med reell NAIS Application og observerte uavbrutte SQL-operasjoner er grønn i dev**. Appen er fortsatt etterlatt kjørende. Før bredere rollout gjenstår blant annet ny backup/recovery, nye/gamle personlige tilganger, kontrollert stop/resume av adopsjonsbevisst pgrator og separat slettetest av en disponibel database. Ikke hevde at alle disse akseptansekriteriene allerede er dekket av happy-path-testen.
+
+### Supplerende dev-tester bekreftet av brukeren
+
+Brukeren bekrefter etter adopsjonen:
+
+- Personlig tilgang fungerer som forventet.
+- Restart av ny pgrator gikk fint.
+- Opprettelse av ny database, tilkobling av Application og sletting fungerer fint.
+
+Dette er brukerens testresultater, ikke ytterligere tester utført av assistenten. Brukeren opplyser også at det ikke finnes noen ny brukerrettet backup-/restore-mekanisme etter at branch-flyten ble fjernet. Skill dette fra automatisk CNPG/Barman WAL-arkivering og ScheduledBackup, som skal bevares av adopsjonen. Ny branchløs restore-funksjonalitet er en egen oppgave; den skal ikke snikinnføres i eierskapsovergangen. Ny vellykket backup etter adopsjon og en faktisk restore er fortsatt ikke dokumentert i denne arbeidsrunden. En eventuell teknisk engangsbackup/recovery-test kan bruke CNPG/Barman direkte i testmiljø, uten å gjeninnføre branches, men ingen slik handling er utført eller autorisert her.
+
+### Copilot PR #205: avgrensede sikkerhetsrettelser
+
+Brukeren ba om å vurdere reviewet med få/lite bevegelige databaser og overgangskodens levetid i mente. Alle fire konkrete funn ble reprodusert med regresjonstester og rettet **lokalt**, uten generell ressursutskiftings-/IAM-migreringsprotokoll:
+
+1. `recreateIAM` avviser direkte Postgres-eiere før en delete kan planlegges, også med ResyncIAMPermissions aktivert. Gammel branch-kontrakt er uendret.
+2. `checkInventory` bygger ny slice lokalt og erstatter journalen først etter komplett validering. Prepare-feil/deferred status-write kan dermed ikke miste lagrede UID-sperrer.
+3. Planlagte writes til journalførte ressurser pakkes med `action.RequireUID`, basert på journalens UID, ikke en senere related-read. Gjennomføringslesinger krever samme levende UID, create-fallback/delete av target er sperret, og eksisterende Update/Claim beholder optimistic-write-beskyttelsen. Ingen automatisk utskifting implementeres.
+4. Binding Prepare håndterer slettende Postgres før direkte cluster-oppslag. Eksplisitt sletting trekker tilbake Secret/netpol og Ready selv med manglende/deleting cluster; levende, midlertidig ugyldige targets bevarer credentials som før.
+
+Nye tester dekker IAM-kontoforskjeller/policyforskjeller, bevart persistert journal ved ny deleting-child, 6 ressurstyper med bortfall/utskifting mellom Prepare/planlegging/gjennomføring, og bindings under parent-deletion med manglende eller finalizer-blokkert cluster. `mise run test`, `mise run check ::: build`, format/generering og race-tester av controller/synchronizer består. Rettelsene og oppdaterte devnotater inngår i reviewoppfølgingen på feature-branchen. **Ingen clusterendringer i denne runden.**
+
 ## Målet og hvor vi er
 
 Avvikle PostgresBranch slik at eksisterende `nais.io/v1 Postgres` overtar direkte eierskap til eksisterende CNPG-ressurser, **uten å flytte eller gjenopprette databaser, endre forbindelser eller kreve app-redeploy**. Alle eksisterende databaser har kun aktiv `main`; ikke bygg en generell flerbranch-migrator.
