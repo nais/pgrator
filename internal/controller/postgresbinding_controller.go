@@ -121,7 +121,8 @@ func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.Relations
 					if newPostgres.Status != nil {
 						newActive = newPostgres.Status.ActiveBranch
 					}
-					return oldActive != newActive
+					return oldActive != newActive || directClusterName(oldPostgres) != directClusterName(newPostgres) ||
+						!reflect.DeepEqual(oldPostgres.DeletionTimestamp, newPostgres.DeletionTimestamp)
 				},
 			},
 		},
@@ -219,28 +220,27 @@ func bindingSourceSecretNames(ctx context.Context, reader client.Reader, binding
 		}
 		return nil, fmt.Errorf("getting Postgres %q: %w", binding.Spec.Postgres, err)
 	}
-	activeBranch := selectedBindingBranch(binding, postgres)
-	instance := &v1.PostgresBranch{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}, instance); err != nil {
+	instance, err := resolveBindingInstance(ctx, reader, binding, postgres)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting selected PostgresBranch %q: %w", activeBranch, err)
+		return nil, err
 	}
-	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
+	if instance == "" {
 		return nil, nil
 	}
 	cluster := &cnpgv1.Cluster{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: rccnpg.ClusterNameFor(instance.GetName())}, cluster); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.GetNamespace(), Name: rccnpg.ClusterNameFor(instance)}, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("getting CNPG Cluster for PostgresBranch %q: %w", instance.GetName(), err)
+		return nil, fmt.Errorf("getting CNPG Cluster for Postgres %q: %w", postgres.Name, err)
 	}
 
 	names := []string{cluster.GetClientCASecretName()}
 	for _, credential := range binding.Spec.Credentials {
-		roleName, err := certificateRoleName(ctx, reader, binding, instance.GetName(), cluster.GetName(), credential)
+		roleName, err := certificateRoleName(ctx, reader, binding, instance, cluster.GetName(), credential)
 		if err != nil {
 			return nil, err
 		}
@@ -277,30 +277,66 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
-	activeBranch := selectedBindingBranch(obj, postgres)
-
-	instance := &v1.PostgresBranch{}
-	instanceKey := client.ObjectKey{Namespace: obj.GetNamespace(), Name: v1.PostgresBranchObjectName(postgres.Name, activeBranch)}
-	if err := reader.Get(ctx, instanceKey, instance); err != nil {
+	if !postgres.DeletionTimestamp.IsZero() {
+		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+	}
+	instance, err := resolveBindingInstance(ctx, reader, obj, postgres)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
 		}
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting selected PostgresBranch %q: %w", activeBranch, err)
-	}
-	if !validBranchIdentity(instance) || instance.Spec.Postgres != postgres.GetName() || instance.Spec.BranchName != activeBranch {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("PostgresBranch %q belongs to Postgres %q, not %q", instance.GetName(), instance.Spec.Postgres, postgres.GetName())
+		return PostgresBindingPreparedData{}, ctrl.Result{}, err
 	}
 
-	if !postgres.DeletionTimestamp.IsZero() || !instance.DeletionTimestamp.IsZero() {
+	if instance == "" {
 		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
 	}
-	prepared := PostgresBindingPreparedData{Branch: instance.GetName()}
-	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance.GetName())
+	prepared := PostgresBindingPreparedData{Branch: instance}
+	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance)
 	if err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
 	}
 	prepared.Snapshot = snapshot
 	return prepared, ctrl.Result{}, nil
+}
+
+// resolveBindingInstance returns a stable physical identity, never a new endpoint.
+// Direct status is authoritative even after the legacy branch has disappeared.
+func resolveBindingInstance(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, postgres *v1.Postgres) (string, error) {
+	if directClusterName(postgres) != "" {
+		if binding.Spec.Branch != "" && binding.Spec.Branch != v1.DefaultBranchName {
+			return "", fmt.Errorf("non-main binding cannot target a directly managed Postgres")
+		}
+		instance := v1.PostgresPhysicalName(postgres.Name)
+		cluster := &cnpgv1.Cluster{}
+		if directClusterName(postgres) != rccnpg.ClusterNameFor(instance) {
+			return "", fmt.Errorf("postgres has an unexpected physical cluster identity")
+		}
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.Namespace, Name: directClusterName(postgres)}, cluster); err != nil {
+			// Return an error, not Unavailable: never prune credentials on a
+			// transient/missing direct target or an inconsistent ownership read.
+			return "", fmt.Errorf("direct Postgres cluster cannot be resolved: %v", err)
+		}
+		if !physicalControlledBy(cluster, postgres, postgresKind) || !cluster.DeletionTimestamp.IsZero() {
+			return "", fmt.Errorf("direct Postgres cluster is not live and owned by this Postgres")
+		}
+		if postgres.Status.Ownership != nil && postgres.Status.Ownership.ClusterUID != "" && postgres.Status.Ownership.ClusterUID != string(cluster.UID) {
+			return "", fmt.Errorf("direct Postgres cluster was replaced")
+		}
+		return instance, nil
+	}
+	selected := selectedBindingBranch(binding, postgres)
+	branch := &v1.PostgresBranch{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: binding.Namespace, Name: v1.PostgresBranchObjectName(postgres.Name, selected)}, branch); err != nil {
+		return "", err
+	}
+	if !validBranchIdentity(branch) || branch.Spec.Postgres != postgres.Name || branch.Spec.BranchName != selected {
+		return "", fmt.Errorf("selected PostgresBranch has invalid identity")
+	}
+	if !branch.DeletionTimestamp.IsZero() {
+		return "", nil
+	}
+	return branch.Name, nil
 }
 
 func (r *PostgresBindingReconciler) readBindingSnapshot(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, instance string) (*bindingSnapshot, error) {

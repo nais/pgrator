@@ -478,6 +478,9 @@ func (s *Synchronizer[T, P]) UpdatingOwnership(actions []action.Action, relatedO
 }
 
 func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, actions []action.Action) ([]action.Action, error) {
+	if policy, ok := any(s.reconciler).(reconciler.PruningPolicy); ok && !policy.PruneUnreferenced() {
+		return actions, nil
+	}
 	// TODO: can this be replaced with ApplySets?
 	//  https://github.com/kubernetes/enhancements/tree/master/keps/sig-cli/3659-kubectl-apply-prune
 	//  https://github.com/kubernetes-sigs/kro/blob/37ab9d6e3d1dc46bf9e7585238745462b4ab153b/pkg/applyset/applyset.go#L15-L20

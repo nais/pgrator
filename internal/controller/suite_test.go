@@ -133,6 +133,12 @@ func TestGoldenPostgres(t *testing.T) {
 	)
 }
 
+func TestGoldenPostgresCluster(t *testing.T) {
+	cfg := config.Config{APIServerIP: "172.16.0.2/32", CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "hyperdisk-balanced"}}
+	r := &PostgresClusterReconciler{Config: &cfg, Recorder: recorder, Scheme: scheme.Scheme}
+	runGoldenTestsForResource[*v1.Postgres, PostgresClusterPreparedData, v1.Postgres](t, r, "postgrescluster", cfg, func(next config.Config) { *r.Config = next })
+}
+
 func TestGoldenPostgresBranch(t *testing.T) {
 	instanceConfig := config.Config{
 		APIServerIP:     "172.16.0.2/32",

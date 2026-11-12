@@ -79,6 +79,11 @@ type PostgresStatus struct {
 	// +optional
 	ClusterName string `json:"clusterName,omitempty"`
 
+	// Ownership checkpoints physical resource UIDs before changing ownership.
+	// It prevents a retry from treating a lost database as a new database.
+	// +optional
+	Ownership *PostgresOwnership `json:"ownership,omitempty"`
+
 	// Configuration contains settings observed on the directly managed cluster.
 	// Configured values are not necessarily active in running instances yet.
 	// +optional
@@ -87,6 +92,30 @@ type PostgresStatus struct {
 	// ActiveBranch is the local branch name currently selected by pgrator.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
+}
+
+// PostgresOwnership is the durable, per-database ownership transition journal.
+type PostgresOwnership struct {
+	// Phase is Provisioning, Adopting or Managed. This is not database readiness.
+	// +kubebuilder:validation:Enum=Provisioning;Adopting;Managed
+	Phase string `json:"phase"`
+	// LegacyBranchUID pins the previous main branch during adoption and detach.
+	// +optional
+	LegacyBranchUID string `json:"legacyBranchUID,omitempty"`
+	// ClusterUID pins the original CNPG Cluster, independent of its controller.
+	// +optional
+	ClusterUID string `json:"clusterUID,omitempty"`
+	// Resources records the directly owned resources observed during adoption.
+	// +optional
+	Resources []PostgresOwnedResource `json:"resources,omitempty"`
+}
+
+// PostgresOwnedResource identifies a resource without storing its functional spec.
+type PostgresOwnedResource struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
 }
 
 // PostgresConfiguration describes explicitly configured PostgreSQL settings.

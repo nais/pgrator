@@ -87,6 +87,12 @@ type StatusCheckpointer[T client.Object] interface {
 	StatusCheckpointRequired(current, original T) bool
 }
 
+// PruningPolicy opts out of generic annotation-based pruning when a reconciler
+// owns a durable inventory and performs explicit, staged deletion instead.
+type PruningPolicy interface {
+	PruneUnreferenced() bool
+}
+
 // MetricsLabeler can be implemented by reconcilers to provide resource-specific
 // labels for Prometheus metrics (e.g., major_version, high_availability).
 type MetricsLabeler[T client.Object] interface {

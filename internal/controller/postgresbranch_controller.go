@@ -88,6 +88,10 @@ func (r *PostgresBranchReconciler) New() *v1.PostgresBranch {
 }
 
 func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
+	return postgresPhysicalOwnedTypes(r.walArchivingEnabled())
+}
+
+func postgresPhysicalOwnedTypes(includeWAL bool) []reconciler.OwnedType {
 	ownedTypes := []reconciler.OwnedType{
 		{
 			Type: &cnpgv1.Cluster{},
@@ -121,7 +125,7 @@ func (r *PostgresBranchReconciler) OwnedTypes() []reconciler.OwnedType {
 		{Type: &cnpgv1.Pooler{}},
 		{Type: &networkingv1.NetworkPolicy{}},
 	}
-	if r.walArchivingEnabled() {
+	if includeWAL {
 		ownedTypes = append(ownedTypes,
 			reconciler.OwnedType{Type: &cnpgv1.ScheduledBackup{}},
 			reconciler.OwnedType{Type: &barmanv1.ObjectStore{}},
@@ -552,6 +556,12 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 }
 
 func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	return r.physicalActions(obj, obj, prepared, relatedObjects)
+}
+
+// physicalActions keeps the legacy physical identity separate from its logical
+// owner. The identity is never persisted as a synthetic PostgresBranch.
+func (r *PostgresBranchReconciler) physicalActions(obj *v1.PostgresBranch, owner api.NaisObject, prepared PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	if err := recoveryFailureError(obj); err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -582,26 +592,20 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		Spec: prepared.PostgresSpec,
 	}
 
-	actions := make([]action.Action, 0, 6)
 	wal := r.walArchive(obj, prepared)
-
-	personalGroup, err := createPersonalAccessGroupRole(r.Scheme, obj)
+	actions, err := r.physicalRoleActions(obj, owner)
 	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating personal access group DatabaseRole: %w", err)
+		return nil, ctrl.Result{}, err
 	}
-	actions = append(actions, action.CreateOrUpdate(personalGroup, obj, existsConditionGetter, r.Recorder))
-
-	ownerRole, err := createDurableOwnerRole(r.Scheme, obj)
-	if err != nil {
-		return nil, ctrl.Result{}, fmt.Errorf("creating durable app DatabaseRole: %w", err)
-	}
-	actions = append(actions, action.CreateOrUpdate(ownerRole, obj, existsConditionGetter, r.Recorder))
 
 	database, err := r.database(obj, specSource, relatedObjects)
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	actions = append(actions, action.CreateOrUpdate(database, obj, databaseConditionGetter, r.Recorder))
+	if err := transferControllerOwnership(owner, database, r.Scheme); err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, action.CreateOrUpdate(database, owner, databaseConditionGetter, r.Recorder))
 
 	pooler, err := rccnpg.CreatePooler(r.Scheme, specSource)
 	if err != nil {
@@ -609,25 +613,25 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 	}
 	// Billing identity belongs to the owning Postgres, not the physical branch.
 	pooler.Spec.Template.ObjectMeta.Labels["postgres.nais.io/name"] = obj.Spec.Postgres
-	if err := transferControllerOwnership(obj, pooler, r.Scheme); err != nil {
+	if err := transferControllerOwnership(owner, pooler, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	actions = append(actions, action.CreateOrUpdate(pooler, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(pooler, owner, existsConditionGetter, r.Recorder))
 
 	netpol, err := rcnetpol.Create(r.Scheme, specSource, rccnpg.ClusterNameFor(obj.GetName()), r.Config.APIServerIP)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
-	if err := transferControllerOwnership(obj, netpol, r.Scheme); err != nil {
+	if err := transferControllerOwnership(owner, netpol, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, err
 	}
-	actions = append(actions, action.CreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(netpol, owner, existsConditionGetter, r.Recorder))
 
 	clusterExists := existingCluster != nil
 	recovered := prepared.RecoverySource != nil && recoveryFinished(obj, existingCluster)
 	recoveryInProgress := prepared.RecoverySource != nil && !recovered
 	if wal.Enabled() {
-		walActions, err := r.walActions(obj, prepared, wal, recoveryInProgress, relatedObjects, specSource)
+		walActions, err := r.walActions(obj, owner, prepared, wal, recoveryInProgress, relatedObjects, specSource)
 		if err != nil {
 			return nil, ctrl.Result{}, err
 		}
@@ -657,23 +661,38 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 		if freshInitDBCluster || rccnpg.ReadWriteCreateCapable(existingCluster) {
 			metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, rccnpg.ReadWriteCreateCapableAnnotation, "true")
 		}
-		if err := transferControllerOwnership(obj, cluster, r.Scheme); err != nil {
+		if err := transferControllerOwnership(owner, cluster, r.Scheme); err != nil {
 			return nil, ctrl.Result{}, err
 		}
 		if prepared.RecoverySource != nil {
 			if clusterExists {
-				actions = append(actions, action.UpdateSameUID(cluster, obj, prepared.RecoveryClusterUID, clusterConditionGetter, r.Recorder))
+				actions = append(actions, action.UpdateSameUID(cluster, owner, prepared.RecoveryClusterUID, clusterConditionGetter, r.Recorder))
 			} else {
-				actions = append(actions, action.Create(cluster, obj, clusterConditionGetter, r.Recorder))
+				actions = append(actions, action.Create(cluster, owner, clusterConditionGetter, r.Recorder))
 			}
 		} else if clusterExists && existingCluster.UID != "" {
-			actions = append(actions, action.UpdateSameUID(cluster, obj, existingCluster.UID, clusterConditionGetter, r.Recorder))
+			actions = append(actions, action.UpdateSameUID(cluster, owner, existingCluster.UID, clusterConditionGetter, r.Recorder))
 		} else {
-			actions = append(actions, action.CreateOrUpdate(cluster, obj, clusterConditionGetter, r.Recorder))
+			actions = append(actions, action.CreateOrUpdate(cluster, owner, clusterConditionGetter, r.Recorder))
 		}
 	}
 
 	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresBranchReconciler) physicalRoleActions(identity *v1.PostgresBranch, owner api.NaisObject) ([]action.Action, error) {
+	actions := make([]action.Action, 0, 2)
+	for _, create := range []func(*runtime.Scheme, *v1.PostgresBranch) (*cnpgv1.DatabaseRole, error){createPersonalAccessGroupRole, createDurableOwnerRole} {
+		role, err := create(r.Scheme, identity)
+		if err != nil {
+			return nil, fmt.Errorf("creating physical DatabaseRole: %w", err)
+		}
+		if err := transferControllerOwnership(owner, role, r.Scheme); err != nil {
+			return nil, err
+		}
+		actions = append(actions, action.CreateOrUpdate(role, owner, existsConditionGetter, r.Recorder))
+	}
+	return actions, nil
 }
 
 func (r *PostgresBranchReconciler) database(obj *v1.PostgresBranch, specSource *v1.Postgres, relatedObjects reconciler.RelatedObjects) (*cnpgv1.Database, error) {
@@ -778,7 +797,7 @@ func createDurableOwnerRole(scheme *runtime.Scheme, instance *v1.PostgresBranch)
 	return role, nil
 }
 
-func transferControllerOwnership(owner *v1.PostgresBranch, object client.Object, scheme *runtime.Scheme) error {
+func transferControllerOwnership(owner client.Object, object client.Object, scheme *runtime.Scheme) error {
 	object.SetOwnerReferences(nil)
 	if err := controllerutil.SetControllerReference(owner, object, scheme); err != nil {
 		return fmt.Errorf("setting controller reference on %T %s: %w", object, client.ObjectKeyFromObject(object), err)
@@ -861,24 +880,24 @@ func configConnectorReadinessEventFilter() predicate.Predicate {
 	}
 }
 
-func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepared PostgresBranchPreparedData, wal rccnpg.WALArchive, needsRecoverySourceAccess bool, relatedObjects reconciler.RelatedObjects, specSource *v1.Postgres) ([]action.Action, error) {
+func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, owner api.NaisObject, prepared PostgresBranchPreparedData, wal rccnpg.WALArchive, needsRecoverySourceAccess bool, relatedObjects reconciler.RelatedObjects, specSource *v1.Postgres) ([]action.Action, error) {
 	actions := make([]action.Action, 0, 8)
 
 	gsa := rciam.CreateIAMServiceAccount(wal.GSAName, instance.GetNamespace())
-	if err := controllerutil.SetControllerReference(instance, gsa, r.Scheme); err != nil {
+	if err := controllerutil.SetControllerReference(owner, gsa, r.Scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on IAMServiceAccount: %w", err)
 	}
 	switch existing := relatedObjects.GetMatching(gsa); {
 	case existing == nil:
-		actions = append(actions, action.Create(gsa, instance, cnrmConditionsGetter, r.Recorder))
+		actions = append(actions, action.Create(gsa, owner, cnrmConditionsGetter, r.Recorder))
 	case iamServiceAccountHasChanges(gsa, existing.(*iamcnrm.IAMServiceAccount)):
-		recreate, err := r.recreateIAM(gsa, instance)
+		recreate, err := r.recreateIAM(gsa, owner)
 		if err != nil {
 			return nil, err
 		}
 		actions = append(actions, recreate)
 	default:
-		actions = append(actions, action.Claim(gsa, instance, cnrmConditionsGetter, r.Recorder))
+		actions = append(actions, action.Claim(gsa, owner, cnrmConditionsGetter, r.Recorder))
 	}
 
 	wiPolicy := rciam.CreateWorkloadIdentityPolicyMember(
@@ -889,25 +908,25 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepa
 		wal.GSAName,
 		rccnpg.ClusterNameFor(instance.GetName()),
 	)
-	if err := controllerutil.SetControllerReference(instance, wiPolicy, r.Scheme); err != nil {
+	if err := controllerutil.SetControllerReference(owner, wiPolicy, r.Scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on Workload Identity IAMPolicyMember: %w", err)
 	}
-	wiAction, err := r.policyMemberAction(wiPolicy, instance, relatedObjects)
+	wiAction, err := r.policyMemberAction(wiPolicy, owner, relatedObjects)
 	if err != nil {
 		return nil, err
 	}
 	actions = append(actions, wiAction)
 
 	bucket := rcstorage.CreateStorageBucket(specSource, wal.BucketName, r.Config.Google.Location)
-	if err := transferControllerOwnership(instance, bucket, r.Scheme); err != nil {
+	if err := transferControllerOwnership(owner, bucket, r.Scheme); err != nil {
 		return nil, err
 	}
 	if existing := relatedObjects.GetMatching(bucket); existing != nil {
 		copyCnrmAnnotations(existing, bucket)
 		bucket.Spec.ResourceID = existing.(*storagecnrm.StorageBucket).Spec.ResourceID
-		actions = append(actions, action.Update(bucket, instance, cnrmConditionsGetter, r.Recorder))
+		actions = append(actions, action.Update(bucket, owner, cnrmConditionsGetter, r.Recorder))
 	} else {
-		actions = append(actions, action.Create(bucket, instance, cnrmConditionsGetter, r.Recorder))
+		actions = append(actions, action.Create(bucket, owner, cnrmConditionsGetter, r.Recorder))
 	}
 
 	bucketPolicies := []struct {
@@ -926,10 +945,10 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepa
 			wal.BucketName,
 			policy.role,
 		)
-		if err := controllerutil.SetControllerReference(instance, bucketPolicy, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(owner, bucketPolicy, r.Scheme); err != nil {
 			return nil, fmt.Errorf("setting controller reference on bucket IAMPolicyMember: %w", err)
 		}
-		bucketPolicyAction, err := r.policyMemberAction(bucketPolicy, instance, relatedObjects)
+		bucketPolicyAction, err := r.policyMemberAction(bucketPolicy, owner, relatedObjects)
 		if err != nil {
 			return nil, err
 		}
@@ -944,10 +963,10 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepa
 			prepared.RecoverySource.BucketName,
 			rciam.StorageObjectViewerRole,
 		)
-		if err := controllerutil.SetControllerReference(instance, sourcePolicy, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(owner, sourcePolicy, r.Scheme); err != nil {
 			return nil, fmt.Errorf("setting controller reference on recovery source IAMPolicyMember: %w", err)
 		}
-		sourcePolicyAction, err := r.policyMemberAction(sourcePolicy, instance, relatedObjects)
+		sourcePolicyAction, err := r.policyMemberAction(sourcePolicy, owner, relatedObjects)
 		if err != nil {
 			return nil, err
 		}
@@ -960,10 +979,10 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepa
 			rcstorage.OwnerNameLabel: instance.GetName(),
 		},
 	})
-	if err := controllerutil.SetControllerReference(instance, objectStore, r.Scheme); err != nil {
+	if err := controllerutil.SetControllerReference(owner, objectStore, r.Scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on ObjectStore: %w", err)
 	}
-	actions = append(actions, action.CreateOrUpdate(objectStore, instance, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(objectStore, owner, existsConditionGetter, r.Recorder))
 
 	backup := &cnpgv1.ScheduledBackup{ObjectMeta: metav1.ObjectMeta{
 		Name:      rccnpg.ClusterNameFor(instance.GetName()),
@@ -979,20 +998,20 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, prepa
 		if err != nil {
 			return nil, fmt.Errorf("creating ScheduledBackup spec: %w", err)
 		}
-		if err := transferControllerOwnership(instance, backup, r.Scheme); err != nil {
+		if err := transferControllerOwnership(owner, backup, r.Scheme); err != nil {
 			return nil, err
 		}
-		actions = append(actions, action.CreateOrUpdate(backup, instance, existsConditionGetter, r.Recorder))
+		actions = append(actions, action.CreateOrUpdate(backup, owner, existsConditionGetter, r.Recorder))
 	}
 
 	fqdnPolicy, err := rcfqdnpolicy.Create(r.Scheme, specSource, rccnpg.ClusterNameFor(instance.GetName()))
 	if err != nil {
 		return nil, fmt.Errorf("creating WAL FQDNNetworkPolicy spec: %w", err)
 	}
-	if err := transferControllerOwnership(instance, fqdnPolicy, r.Scheme); err != nil {
+	if err := transferControllerOwnership(owner, fqdnPolicy, r.Scheme); err != nil {
 		return nil, err
 	}
-	actions = append(actions, action.CreateOrUpdate(fqdnPolicy, instance, existsConditionGetter, r.Recorder))
+	actions = append(actions, action.CreateOrUpdate(fqdnPolicy, owner, existsConditionGetter, r.Recorder))
 
 	return actions, nil
 }
@@ -1122,7 +1141,7 @@ func configConnectorReady(object client.Object) bool {
 	return false
 }
 
-func (r *PostgresBranchReconciler) policyMemberAction(desired *iamcnrm.IAMPolicyMember, owner *v1.PostgresBranch, relatedObjects reconciler.RelatedObjects) (action.Action, error) {
+func (r *PostgresBranchReconciler) policyMemberAction(desired *iamcnrm.IAMPolicyMember, owner api.NaisObject, relatedObjects reconciler.RelatedObjects) (action.Action, error) {
 	existing := relatedObjects.GetMatching(desired)
 	if existing == nil {
 		return action.Create(desired, owner, cnrmConditionsGetter, r.Recorder), nil
@@ -1133,7 +1152,12 @@ func (r *PostgresBranchReconciler) policyMemberAction(desired *iamcnrm.IAMPolicy
 	return action.Claim(desired, owner, cnrmConditionsGetter, r.Recorder), nil
 }
 
-func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner *v1.PostgresBranch) (action.Action, error) {
+func (r *PostgresBranchReconciler) recreateIAM(desired client.Object, owner api.NaisObject) (action.Action, error) {
+	if _, direct := owner.(*v1.Postgres); direct {
+		// During the ownership transition resource identities are pinned. A
+		// general replacement protocol is deliberately outside this migration.
+		return nil, fmt.Errorf("refusing IAM recreation for directly managed Postgres: %T %s", desired, client.ObjectKeyFromObject(desired))
+	}
 	if !r.Config.ResyncIAMPermissions {
 		return nil, fmt.Errorf("want to change %T %s, but configuration does not allow recreate", desired, client.ObjectKeyFromObject(desired))
 	}

@@ -1,0 +1,21 @@
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Pooler
+  metadata:
+    name: pg-mydb-main-6bc4781b-pooler
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: database-uid
+        controller: true
+  spec:
+    cluster:
+      name: pg-mydb-main-6bc4781b
+    template:
+      metadata:
+        labels:
+          postgres.nais.io/name: mydb

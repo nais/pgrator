@@ -271,6 +271,47 @@ spec:
                 observedGeneration:
                   format: int64
                   type: integer
+                ownership:
+                  description: |-
+                    Ownership checkpoints physical resource UIDs before changing ownership.
+                    It prevents a retry from treating a lost database as a new database.
+                  properties:
+                    clusterUID:
+                      description: ClusterUID pins the original CNPG Cluster, independent of its controller.
+                      type: string
+                    legacyBranchUID:
+                      description: LegacyBranchUID pins the previous main branch during adoption and detach.
+                      type: string
+                    phase:
+                      description: Phase is Provisioning, Adopting or Managed. This is not database readiness.
+                      enum:
+                        - Provisioning
+                        - Adopting
+                        - Managed
+                      type: string
+                    resources:
+                      description: Resources records the directly owned resources observed during adoption.
+                      items:
+                        description: PostgresOwnedResource identifies a resource without storing its functional spec.
+                        properties:
+                          apiVersion:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                          uid:
+                            type: string
+                        required:
+                          - apiVersion
+                          - kind
+                          - name
+                          - uid
+                        type: object
+                      type: array
+                  required:
+                    - phase
+                  type: object
                 reconcilePhase:
                   type: string
                 reconcileTime:
