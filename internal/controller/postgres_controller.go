@@ -156,9 +156,9 @@ func (r *PostgresReconciler) MetricsLabels(obj *v1.Postgres) map[string]string {
 
 func (r *PostgresReconciler) Update(obj *v1.Postgres, prepared PostgresPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	instance := &v1.PostgresBranch{
-		TypeMeta:   meta_v1.TypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch"},
-		ObjectMeta: meta_v1.ObjectMeta{Name: v1.PostgresBranchObjectName(obj.Name, v1.DefaultBranchName), Namespace: obj.GetNamespace(), Labels: map[string]string{"postgres.nais.io/name": obj.Name, "postgres.nais.io/branch": v1.DefaultBranchName}},
-		Spec:       v1.PostgresBranchSpec{Postgres: obj.GetName(), BranchName: v1.DefaultBranchName},
+		LegacyPostgresTypeMeta: v1.LegacyPostgresTypeMeta{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch"},
+		ObjectMeta:             meta_v1.ObjectMeta{Name: v1.PostgresBranchObjectName(obj.Name, v1.DefaultBranchName), Namespace: obj.GetNamespace(), Labels: map[string]string{"postgres.nais.io/name": obj.Name, "postgres.nais.io/branch": v1.DefaultBranchName}},
+		Spec:                   v1.PostgresBranchSpec{Postgres: obj.GetName(), BranchName: v1.DefaultBranchName},
 	}
 	if err := controllerutil.SetControllerReference(obj, instance, r.Scheme); err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("setting controller reference on PostgresBranch: %w", err)

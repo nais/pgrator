@@ -1,5 +1,11 @@
 # PostgresBranch contraction: deploy independence before retiring the CRD
 
+The runtime-independent releases described below are now deployed. The next
+contract-retirement changes and their explicit remaining internal cleanup are
+documented in [postgres-branch-retirement.md](postgres-branch-retirement.md).
+The older intermediate rollout notes below are historical, not instructions to
+reintroduce the removed branch GraphQL fields or republish the branch CRD.
+
 ## Scope of this release
 
 All environments have received the adoption-aware pgrator, and the dev upgrade

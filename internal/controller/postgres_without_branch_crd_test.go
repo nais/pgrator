@@ -13,6 +13,8 @@ import (
 	"github.com/nais/pgrator/internal/synchronizer"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -42,6 +44,11 @@ func TestPostgresControllersStartWithoutBranchCRD(t *testing.T) {
 	configuration, err := environment.Start()
 	requireNoError(t, err)
 	t.Cleanup(func() { requireNoError(t, environment.Stop()) })
+	crds, err := apiextensionsclient.NewForConfig(configuration)
+	requireNoError(t, err)
+	if _, err := crds.ApiextensionsV1().CustomResourceDefinitions().Get(t.Context(), "postgresbranches.nais.io", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("isolated direct-controller server must not install the branch CRD: %v", err)
+	}
 	mgr, err := ctrl.NewManager(configuration, ctrl.Options{Scheme: scheme.Scheme, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"})
 	requireNoError(t, err)
 	c, err := client.New(configuration, client.Options{Scheme: scheme.Scheme})
