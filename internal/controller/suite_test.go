@@ -67,6 +67,9 @@ func setupTestEnvironment() error {
 		CRDDirectoryPaths: []string{
 			"../../config/crd/bases",
 			"./testdata/external-crds",
+			// Only historical controller tests install the retired API. Production
+			// manifests and the isolated direct-controller suite must not include it.
+			"./testdata/legacy-crds",
 		},
 		ErrorIfCRDPathMissing: true,
 	}

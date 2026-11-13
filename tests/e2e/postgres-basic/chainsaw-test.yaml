@@ -7,6 +7,15 @@ spec:
     A Postgres resource produces the CNPG Cluster, durable owner and personal-access
     DatabaseRoles, the application Database, the pooler and the NetworkPolicy, and the API server fills in the spec defaults.
   steps:
+    - name: Retired branch API is not installed
+      try:
+        - error:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata:
+                name: postgresbranches.nais.io
+
     - name: Create Postgres with only the required field
       try:
         - apply:
@@ -56,13 +65,6 @@ spec:
                     kind: Postgres
                     name: mydb
                     controller: true
-        - error:
-            resource:
-              apiVersion: nais.io/v1
-              kind: PostgresBranch
-              metadata:
-                name: mydb-main-6bc4781b
-
     - name: Cluster restricts personal passwords and requires certificates otherwise
       try:
         - assert:

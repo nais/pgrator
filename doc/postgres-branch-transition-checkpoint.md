@@ -1,5 +1,60 @@
 # Gjenopptaking: avvikling av PostgresBranch
 
+## Publisering av mellomarbeid
+
+Brukeren har nå bedt om commit/push av API- og pgrator-endringene til eksisterende
+`feat/postgres-branch-retirement`-brancher. Console-endringene skal ikke publiseres
+i denne runden. Dette er WIP, ikke en ferdig utrullingskandidat: full intern
+renderer-/typeopprydding og fjerning av LegacyPostgresTypeMeta gjenstår på samme
+brancher. Ingen ekstra mellomrelease planlegges. Når ferdig: API ut først, så
+pgrator. Live-CRD-sletting krever fortsatt separat eksplisitt godkjenning.
+
+## Nå: kontrakt-retirement på nye brancher fra main
+
+Brukeren bekreftet API og pgrator ute overalt, Console merget/på vei, og byttet
+deretter alle repoer til oppdatert main før ny kodefase. Alle tre repoer var rene.
+Nye lokale brancher heter `feat/postgres-branch-retirement` i pgrator, API og
+Console. Ingen nye commits/push/PR-er eller clusterendringer i denne runden.
+
+Implementert første del av slutt-oppryddingen:
+
+- API: fjernet branch-lesefelter/-typer fra GraphQL, PostgresBranchIssue,
+  POSTGRES_BRANCH issue/resource enumverdier, postgresBranches inventory og
+  createPostgresAccess.branch. Historiske branch-activity-typer/scalarfelt og ekte
+  PostgresIssue beholdes. PBR-node-registreringen er fjernet. gRPC konverterer
+  direkte fra Postgres uten MainViews, med uendret protobuf-kontrakt.
+- API-integrasjoner spør nå direkte etter database/workload/configuration/issues,
+  med beholdt dekning av paging, team/miljø-isolasjon og personlig tilgang.
+  Schema-regresjon bekrefter at pensjonerte felter og typer er borte.
+- Pgrator: branch-CRD fjernet fra produksjonsbaser og Helm chart; branch-RBAC
+  fjernet fra primaryResources. Generatoren gjenoppretter ikke CRD-en. Ny test
+  kontrollerer fravær i begge katalogene og rendret Helm-output. Historisk schema
+  ligger bare i `internal/controller/testdata/legacy-crds` for gamle tester;
+  isolert direct-controller envtest sjekker eksplisitt at CRD-en ikke finnes.
+- Viktig avgrensning: **ikke alle gamle interne Go-modeller er fjernet**.
+  Pgrator-rendereren bruker fortsatt PostgresBranch-formet identitet og gamle
+  uregistrerte controllers/tester. En midlertidig LegacyPostgresTypeMeta gjør at
+  controller-gen ikke oppfatter typen som CRD-root (object:root=false alene var
+  utilstrekkelig fordi generatoren identifiserer embedded metav1.TypeMeta og
+  ObjectMeta). API har fortsatt interne main-view/readiness-hjelpere og legacy
+  access-referansedekoding. Full renderer-/typeuttrekking er neste interne refaktor;
+  ikke beskriv denne runden som om den allerede fjernet alt dette.
+- Console-schema er regenerert normalt via isolert lokal introspection-server.
+  Kompatibilitetsfiltrering/skipping av POSTGRES_BRANCH/PostgresBranchIssue er
+  fjernet. Query/schema-regresjon krever nå at gamle kontrakter faktisk er borte.
+  Historiske aktiviteter og kompatibilitetslenker beholdes.
+- Validering: pgrator generering, full test/check/build består. API full test med
+  integrasjon/race, generering, build/staticcheck/deadcode/Helm består; full check
+  stopper fortsatt på fire kjente G115-funn utenfor endringen. Console sync/check/
+  lint, 1864 tester i 114 filer, build/Helm består. Svelte-agenten har validert
+  komponenten med skills/MCP uten autofixer-funn. Browser/Playwright ikke kjørt.
+
+Se `doc/postgres-branch-retirement.md` for scope og kontrollert CRD-retirement.
+Ingen live-CRD-sletting er autorisert eller utført. Brytende GraphQL-kontrakt må
+ikke deployes før branchfri Console er ferdig utrullet overalt. Eierskapsjournal,
+UID-guard, fysiske navn/specs og støtte for eksisterende immutable legacy access
+skal ikke fjernes sammen med den gamle public branch-modellen.
+
 ## Siste implementasjon: ekte PostgresIssue (etter compaction)
 
 Brukerens siste bestilling er implementert lokalt i API og Console. Dette

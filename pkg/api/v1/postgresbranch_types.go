@@ -3,6 +3,8 @@ package v1
 import (
 	"github.com/nais/pgrator/pkg/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // PostgresBranchBootstrap describes how a physical branch is initialized.
@@ -61,15 +63,16 @@ type PostgresBranchStatus struct {
 // PostgresBranchConfiguration describes explicitly configured PostgreSQL settings.
 type PostgresBranchConfiguration = PostgresConfiguration
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:path=postgresbranches,scope=Namespaced,categories={nais}
-// +kubebuilder:printcolumn:name="Postgres",type="string",JSONPath=".spec.postgres"
-// +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
+// LegacyPostgresTypeMeta supports the deprecated rendering/test identity without
+// embedding metav1.TypeMeta, which controller-gen treats as a CRD root regardless
+// of object:root=false. It must not be used by new API resources.
+type LegacyPostgresTypeMeta metav1.TypeMeta
 
-// PostgresBranch is a concrete, independently running instance of a logical Postgres.
+// PostgresBranch is retained temporarily as a physical-rendering identity and
+// for historical controller tests. It is not a published Kubernetes resource.
+// +kubebuilder:object:root=false
 type PostgresBranch struct {
-	metav1.TypeMeta `json:",inline"`
+	LegacyPostgresTypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
@@ -88,6 +91,10 @@ func (p *PostgresBranch) GetCorrelationId() string {
 	return p.Annotations[api.DeploymentCorrelationIDAnnotation]
 }
 
+func (p *PostgresBranch) GetObjectKind() schema.ObjectKind {
+	return (*metav1.TypeMeta)(&p.LegacyPostgresTypeMeta)
+}
+
 func (p *PostgresBranch) GetStatus() api.Status {
 	if p.Status == nil {
 		p.Status = &PostgresBranchStatus{}
@@ -95,7 +102,7 @@ func (p *PostgresBranch) GetStatus() api.Status {
 	return p.Status
 }
 
-// +kubebuilder:object:root=true
+// +kubebuilder:object:root=false
 
 // PostgresBranchList contains a list of PostgresBranch.
 type PostgresBranchList struct {
@@ -107,3 +114,9 @@ type PostgresBranchList struct {
 func init() {
 	SchemeBuilder.Register(&PostgresBranch{}, &PostgresBranchList{})
 }
+
+// DeepCopyObject supports historical fake-client fixtures without making this
+// deprecated rendering type a controller-gen CRD root.
+func (p *PostgresBranch) DeepCopyObject() runtime.Object { return p.DeepCopy() }
+
+func (p *PostgresBranchList) DeepCopyObject() runtime.Object { return p.DeepCopy() }
