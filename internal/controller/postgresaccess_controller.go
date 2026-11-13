@@ -133,18 +133,6 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 			},
 		}),
 	}, {
-		Type: &v1.PostgresBranch{},
-		Map:  r.accessesForBranch,
-		Predicate: predicate.Funcs{
-			CreateFunc: func(event.CreateEvent) bool { return true },
-			DeleteFunc: func(event.DeleteEvent) bool { return true },
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldInstance, oldOK := e.ObjectOld.(*v1.PostgresBranch)
-				newInstance, newOK := e.ObjectNew.(*v1.PostgresBranch)
-				return oldOK && newOK && oldInstance.GetGeneration() != newInstance.GetGeneration()
-			},
-		},
-	}, {
 		Type: &cnpgv1.Cluster{},
 		Map:  r.accessesForCluster,
 		Predicate: predicate.Funcs{
@@ -178,25 +166,6 @@ func (r *PostgresAccessReconciler) accessesForPostgres(ctx context.Context, read
 	requests, err := r.accessesForBranchName(ctx, reader, postgres.Namespace, v1.PostgresPhysicalName(postgres.Name))
 	if err != nil {
 		return nil, err
-	}
-	for i := range accesses.Items {
-		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&accesses.Items[i])})
-	}
-	return requests, nil
-}
-
-func (r *PostgresAccessReconciler) accessesForBranch(ctx context.Context, reader client.Reader, object client.Object) ([]reconcile.Request, error) {
-	instance, ok := object.(*v1.PostgresBranch)
-	if !ok {
-		return nil, nil
-	}
-	requests, err := r.accessesForBranchName(ctx, reader, instance.Namespace, instance.Name)
-	if err != nil || !validBranchIdentity(instance) || instance.Spec.BranchName != v1.DefaultBranchName {
-		return requests, err
-	}
-	accesses := &v1.PostgresAccessList{}
-	if err := reader.List(ctx, accesses, client.InNamespace(instance.Namespace), client.MatchingFields{postgresAccessPostgresIndex: instance.Spec.Postgres}); err != nil {
-		return nil, fmt.Errorf("listing direct PostgresAccess resources for branch %q: %w", instance.Name, err)
 	}
 	for i := range accesses.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&accesses.Items[i])})

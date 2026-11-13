@@ -18,11 +18,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func TestBindingCredentialsSurviveBranchDetach(t *testing.T) {
+func directBindingTarget() (*v1.Postgres, *cnpgv1.Cluster) {
+	const name, namespace = "orders", "team"
+	clusterName := v1.CNPGClusterName(v1.PostgresPhysicalName(name))
+	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, UID: "binding-parent-uid"}, Status: &v1.PostgresStatus{ClusterName: clusterName}}
+	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: postgresKind, Name: name, UID: pg.UID, Controller: new(true)}}}}
+	return pg, cluster
+}
+
+func TestBindingCredentialsRemainStableWithoutBranchObjects(t *testing.T) {
 	for _, workload := range []v1.PostgresBindingWorkloadType{v1.PostgresBindingWorkloadTypeApplication, v1.PostgresBindingWorkloadTypeJob} {
 		for _, selected := range []string{"", "main"} {
 			t.Run(fmt.Sprintf("%s/branch=%s", workload, selected), func(t *testing.T) {
-				r, c, pg, b, _ := legacyOwnershipFixture(t, false)
+				r, c, pg, b, _ := directOwnershipFixture(t, false)
 				binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "consumer", Namespace: pg.Namespace, UID: "binding-uid"}, Spec: v1.PostgresBindingSpec{Postgres: pg.Name, Branch: selected, SecretName: "consumer-connection", Consumer: v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "consumer", Type: workload}}, Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead, v1.PostgresBindingCredentialAdmin}}}
 				cluster := &cnpgv1.Cluster{}
 				requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(b.Name)}, cluster))
@@ -81,9 +89,9 @@ func TestBindingCredentialsSurviveBranchDetach(t *testing.T) {
 }
 
 func TestBindingDoesNotWithdrawCredentialsOnInvalidDirectTarget(t *testing.T) {
-	for _, issue := range []string{"absent-direct-cluster", "replaced", "foreign-owner", "non-main"} {
+	for _, issue := range []string{"absent-direct-cluster", "replaced", "foreign-owner", "non-main", "missing observation"} {
 		t.Run(issue, func(t *testing.T) {
-			r, c, pg, b, _ := legacyOwnershipFixture(t, false)
+			r, c, pg, b, _ := directOwnershipFixture(t, false)
 			for range 2 {
 				s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 				_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
@@ -101,6 +109,10 @@ func TestBindingDoesNotWithdrawCredentialsOnInvalidDirectTarget(t *testing.T) {
 			cluster := &cnpgv1.Cluster{}
 			requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(b.Name)}, cluster))
 			switch issue {
+			case "missing observation":
+				requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(pg), pg))
+				pg.Status.ClusterName = ""
+				requireNoError(t, c.Status().Update(t.Context(), pg))
 			case "absent-direct-cluster":
 				requireNoError(t, c.Delete(t.Context(), cluster))
 			case "replaced":

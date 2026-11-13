@@ -26,7 +26,7 @@ import (
 
 func managedOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler, client.Client, *v1.Postgres) {
 	t.Helper()
-	r, c, pg, _, _ := legacyOwnershipFixture(t, wal)
+	r, c, pg, _, _ := directOwnershipFixture(t, wal)
 	for range 2 {
 		s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 		_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
@@ -41,7 +41,7 @@ func TestDirectPostgresRejectsIAMRecreation(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			r, c, pg := managedOwnershipFixture(t, true)
 			r.Config.ResyncIAMPermissions = true
-			children, err := r.ownedChildren(t.Context(), c, pg, nil)
+			children, err := r.ownedChildren(t.Context(), c, pg)
 			requireNoError(t, err)
 			var changed client.Object
 			for _, child := range children {
@@ -126,7 +126,7 @@ func TestCheckpointedPhysicalWritesRejectTargetChanges(t *testing.T) {
 					if timing == "before planning" {
 						change()
 					}
-					children, err := r.ownedChildren(t.Context(), c, pg, nil)
+					children, err := r.ownedChildren(t.Context(), c, pg)
 					requireNoError(t, err)
 					related := relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme)
 					for _, child := range children {

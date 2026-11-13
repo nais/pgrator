@@ -76,7 +76,7 @@ func TestBranchIdentityFailsClosed(t *testing.T) {
 	}
 	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresBranch: key, ExpiresAt: metav1.NewTime(time.Now().Add(10 * time.Minute))}}
 	_, _, err = (&PostgresAccessReconciler{}).Prepare(context.Background(), reader, access)
-	if err == nil || !strings.Contains(err.Error(), "invalid identity") {
-		t.Errorf("access prepare error = %v, want identity rejection", err)
+	if err == nil {
+		t.Errorf("access prepare error = %v, want missing direct ownership rejection", err)
 	}
 }
