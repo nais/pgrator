@@ -136,6 +136,41 @@ spec:
                 enum:
                 - "18"
                 type: string
+              recovery:
+                description: Recovery initializes a new database from an immutable
+                  source archive.
+                properties:
+                  bucketName:
+                    description: BucketName identifies the source Barman ObjectStore
+                      and bucket.
+                    minLength: 1
+                    type: string
+                  serverName:
+                    description: ServerName identifies the source archive within the
+                      ObjectStore.
+                    minLength: 1
+                    type: string
+                  sourcePostgres:
+                    minLength: 1
+                    type: string
+                  sourceUID:
+                    minLength: 1
+                    type: string
+                  targetTime:
+                    description: TargetTime is the explicit point in time to recover
+                      to.
+                    format: date-time
+                    type: string
+                required:
+                - bucketName
+                - serverName
+                - sourcePostgres
+                - sourceUID
+                - targetTime
+                type: object
+                x-kubernetes-validations:
+                - message: recovery is immutable
+                  rule: self == oldSelf
               resources:
                 default: {}
                 description: Resources configures compute and disk for the Postgres
@@ -173,6 +208,9 @@ spec:
             required:
             - majorVersion
             type: object
+            x-kubernetes-validations:
+            - message: recovery can only be selected at creation
+              rule: has(self.recovery) == has(oldSelf.recovery)
           status:
             description: status defines the observed state of Postgres
             properties:

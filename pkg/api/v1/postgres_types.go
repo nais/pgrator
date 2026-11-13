@@ -35,8 +35,32 @@ type PostgresExtension struct {
 	Name string `json:"name"`
 }
 
+// PostgresRecovery pins the archive used once to initialize a new Postgres.
+// SourcePostgres is always in the same namespace. The source UID and physical
+// archive identity prevent a deleted and recreated database from becoming a source.
+type PostgresRecovery struct {
+	// +kubebuilder:validation:MinLength=1
+	SourcePostgres string `json:"sourcePostgres"`
+	// +kubebuilder:validation:MinLength=1
+	SourceUID string `json:"sourceUID"`
+	// BucketName identifies the source Barman ObjectStore and bucket.
+	// +kubebuilder:validation:MinLength=1
+	BucketName string `json:"bucketName"`
+	// ServerName identifies the source archive within the ObjectStore.
+	// +kubebuilder:validation:MinLength=1
+	ServerName string `json:"serverName"`
+	// TargetTime is the explicit point in time to recover to.
+	TargetTime metav1.Time `json:"targetTime"`
+}
+
 // PostgresSpec defines the desired state of Postgres
+// +kubebuilder:validation:XValidation:rule="has(self.recovery) == has(oldSelf.recovery)",message="recovery can only be selected at creation"
 type PostgresSpec struct {
+	// Recovery initializes a new database from an immutable source archive.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="recovery is immutable"
+	Recovery *PostgresRecovery `json:"recovery,omitempty"`
+
 	// Resources configures compute and disk for the Postgres cluster.
 	// +kubebuilder:default={}
 	// +optional

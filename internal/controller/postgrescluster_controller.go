@@ -45,9 +45,12 @@ type PostgresClusterReconciler struct {
 }
 
 type PostgresClusterPreparedData struct {
-	Cluster   *cnpgv1.Cluster `yaml:"cluster,omitempty"`
-	Children  []client.Object `yaml:"-"`
-	ProjectID string          `yaml:"projectID,omitempty"`
+	Cluster             *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
+	Children            []client.Object        `yaml:"-"`
+	ProjectID           string                 `yaml:"projectID,omitempty"`
+	RecoverySource      *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
+	RecoverySourceReady bool                   `yaml:"recoverySourceReady,omitempty"`
+	BlockingRecoveries  []string               `yaml:"blockingRecoveries,omitempty"`
 }
 
 var _ reconciler.Reconciler[*v1.Postgres, PostgresClusterPreparedData] = &PostgresClusterReconciler{}
@@ -107,13 +110,15 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 	}
 	if !pg.DeletionTimestamp.IsZero() {
 		// Explicit deletion is supported only after the transfer guard above.
-		return p, ctrl.Result{}, nil
+		p.BlockingRecoveries, err = blockingPostgresRecoveries(ctx, reader, pg)
+		return p, ctrl.Result{}, err
 	}
 	if err := prepareOwnershipJournal(pg, p); err != nil {
 		return p, ctrl.Result{}, err
 	}
 	journal := pg.Status.Ownership
-	if err := r.checkInventory(journal, children); err != nil {
+	inventory := slices.DeleteFunc(slices.Clone(children), func(child client.Object) bool { return isPostgresRecoveryGrant(pg, child) })
+	if err := r.checkInventory(journal, inventory); err != nil {
 		return p, ctrl.Result{}, err
 	}
 	if p.Cluster != nil {
@@ -141,6 +146,9 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		if p.ProjectID == "" {
 			return p, ctrl.Result{}, fmt.Errorf("namespace %q has no Google project identity", pg.Namespace)
 		}
+	}
+	if err := r.prepareDirectRecovery(ctx, reader, pg, &p); err != nil {
+		return p, ctrl.Result{}, err
 	}
 	return p, ctrl.Result{}, nil
 }
@@ -268,7 +276,11 @@ func (r *PostgresClusterReconciler) checkInventory(journal *v1.PostgresOwnership
 func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := []action.Action{&protectPostgres{postgres: pg}}
 	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Annotations: maps.Clone(pg.Annotations)}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: v1.DefaultBranchName}}
-	planned, result, err := r.legacy().physicalActions(identity, pg, PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID}, related)
+	prepared := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
+	if p.Cluster != nil {
+		prepared.RecoveryClusterUID = p.Cluster.UID
+	}
+	planned, result, err := r.legacy().physicalActions(identity, pg, prepared, related)
 	if err != nil {
 		return nil, result, err
 	}
@@ -305,6 +317,20 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 			}
 		}
 	}
+	// Do not revoke access in the same pass that removes CNPG's source inputs:
+	// wait until the actual Cluster confirms they are gone.
+	if recoveryFinished(pg, p.Cluster) && p.Cluster.Spec.Bootstrap != nil && p.Cluster.Spec.Bootstrap.Recovery == nil && len(p.Cluster.Spec.ExternalClusters) == 0 {
+		for _, child := range p.Children {
+			if isPostgresRecoveryGrant(pg, child) && child.GetDeletionTimestamp().IsZero() {
+				planned = append(planned, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
+			}
+		}
+	}
+	if pg.Spec.Recovery != nil && !recoveryFinished(pg, p.Cluster) {
+		// CNPG's Job status can change without a Cluster update. Poll while
+		// bootstrapping as well as reacting to the ordinary owned-resource watches.
+		result.RequeueAfter = 10 * time.Second
+	}
 	return append(actions, planned...), result, nil
 }
 
@@ -339,6 +365,10 @@ func (a *protectPostgres) Do(ctx context.Context, c client.Client, _ *runtime.Sc
 }
 
 func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if len(p.BlockingRecoveries) > 0 {
+		r.Recorder.RecordEvent(pg, corev1.EventTypeWarning, "DeleteBlocked", "recovery databases still depend on this archive: %v", p.BlockingRecoveries)
+		return nil, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
 	var actions []action.Action
 	for _, child := range p.Children {
 		if child.GetDeletionTimestamp().IsZero() {
