@@ -130,6 +130,20 @@ func TestCreateClusterRecoveryBootstrap(t *testing.T) {
 	}
 }
 
+func TestRecoveryAuthenticationGroupChangesWhenNameIsReused(t *testing.T) {
+	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{UID: "first-incarnation"}, Spec: v1.PostgresSpec{Recovery: &v1.PostgresRecovery{}}}
+	first := PersonalAccessRoleForPostgres("reused-name", pg)
+	pg.UID = "second-incarnation"
+	second := PersonalAccessRoleForPostgres("reused-name", pg)
+	if first == second || first == PersonalAccessRole("reused-name") || second == PersonalAccessRole("reused-name") {
+		t.Fatal("a recovered database could reuse an ancestral authentication group")
+	}
+	pg.Spec.Recovery = nil
+	if got := PersonalAccessRoleForPostgres("reused-name", pg); got != PersonalAccessRole("reused-name") {
+		t.Fatal("changed the authentication identity of an existing ordinary database")
+	}
+}
+
 func TestCreateClusterRecoveryBootstrapPreservesFractionalSeconds(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {
