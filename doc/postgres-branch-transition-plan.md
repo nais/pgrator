@@ -218,7 +218,7 @@ Pgrator følger eksisterende standard-library-/golden-konvensjoner. Legg migreri
 - Nye app-tilkoblingsfeil, credential-/Relay-feil, WAL-/backupfeil eller uventede API/Console/CLI-feil.
 - Ukjent migreringsstatus, eierskapskonflikt eller databaser med annen branch/recovery.
 
-Observasjon skal primært bruke kontinuerlig SQL, CNPG readiness/archiving/backup, workload-feil og UID-/spec-inventar. Pgrator `Completed` alene er ikke en tilgjengelighetsgaranti. Oppdater også branch-tellingen i [postgres-adoption-queries.libsonnet:15](../dashboards/src/postgres-adoption-queries.libsonnet#L15) i contract-fasen; bevart legacy-label er ikke bevis på at branch-ressursen fortsatt eksisterer.
+Observasjon skal primært bruke kontinuerlig SQL, CNPG readiness/archiving/backup, workload-feil og UID-/spec-inventar. Pgrator `Completed` alene er ikke en tilgjengelighetsgaranti. Oppdater også branch-tellingen i [postgres-adoption-queries.libsonnet:15](../grafana/src/postgres-adoption-queries.libsonnet#L15) i contract-fasen; bevart legacy-label er ikke bevis på at branch-ressursen fortsatt eksisterer.
 
 ## Arbeidspakker
 
