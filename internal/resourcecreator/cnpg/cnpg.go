@@ -672,6 +672,45 @@ func clusterExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Datab
 	return res
 }
 
+// ValidateRecoverySourceExtensions refuses bootstrap while source extension
+// intent and its observed child resources disagree. In particular, images and
+// preload libraries retained for a blocked SQL drop must not be lost in a new
+// destination that inherits only the source's desired Postgres spec.
+func ValidateRecoverySourceExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Database, cluster *cnpgv1.Cluster) error {
+	requested := sqlExtensions(extensions)
+	for _, extension := range database.Spec.Extensions {
+		if extension.Ensure == cnpgv1.EnsureAbsent || !slices.ContainsFunc(requested, func(e v1.PostgresExtension) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension %q is still being removed; wait for source extension reconciliation before recovery", extension.Name)
+		}
+	}
+	for _, extension := range requested {
+		if !slices.ContainsFunc(database.Spec.Extensions, func(e cnpgv1.ExtensionSpec) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension %q has not been reconciled into the Database yet", extension.Name)
+		}
+	}
+	expectedImages := makeExtensions(requested)
+	actualImages := cluster.Spec.PostgresConfiguration.Extensions
+	if len(actualImages) != len(expectedImages) {
+		return fmt.Errorf("source extension images are still reconciling; wait before recovery")
+	}
+	for _, extension := range expectedImages {
+		if !slices.ContainsFunc(actualImages, func(e cnpgv1.ExtensionConfiguration) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension image %q has not been reconciled yet", extension.Name)
+		}
+	}
+	expectedLibraries := makePreloadLibraries(requested)
+	actualLibraries := cluster.Spec.PostgresConfiguration.AdditionalLibraries
+	if len(actualLibraries) != len(expectedLibraries) {
+		return fmt.Errorf("source extension preload libraries are still reconciling; wait before recovery")
+	}
+	for _, library := range expectedLibraries {
+		if !slices.Contains(actualLibraries, library) {
+			return fmt.Errorf("source extension preload library %q has not been reconciled yet", library)
+		}
+	}
+	return nil
+}
+
 // makePreloadLibraries lists the libraries image extensions need loaded at server start.
 // CNPG places these before the libraries it manages itself, as timescaledb requires.
 func makePreloadLibraries(extensions []v1.PostgresExtension) []string {

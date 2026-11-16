@@ -99,6 +99,11 @@ func validateDirectRecoverySource(ctx context.Context, reader client.Reader, pg 
 	if source.Status.Ownership == nil || source.Status.Ownership.Phase != ownershipManaged || source.Status.Ownership.ClusterUID != string(cluster.UID) {
 		return false, fmt.Errorf("recovery source has no matching managed cluster checkpoint")
 	}
+	if prepared.Cluster == nil {
+		if err := validateSourceExtensionState(ctx, reader, source, cluster); err != nil {
+			return false, err
+		}
+	}
 	archiveFound := false
 	for _, plugin := range cluster.Spec.Plugins {
 		if plugin.Name == rccnpg.BarmanPluginName && plugin.Parameters["barmanObjectName"] == recovery.BucketName {
@@ -112,14 +117,14 @@ func validateDirectRecoverySource(ctx context.Context, reader client.Reader, pg 
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: pg.Namespace, Name: recovery.BucketName}, store); err != nil {
 		return false, fmt.Errorf("getting recovery ObjectStore: %w", err)
 	}
-	if !physicalControlledBy(store, source) || !store.DeletionTimestamp.IsZero() || !sourceArchiveCheckpointMatches(source, store, "ObjectStore") {
+	if !physicalControlledBy(store, source) || !store.DeletionTimestamp.IsZero() || !sourceResourceCheckpointMatches(source, store, "ObjectStore") {
 		return false, fmt.Errorf("recovery ObjectStore does not match the source database ownership checkpoint")
 	}
 	bucket := &storagecnrm.StorageBucket{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: pg.Namespace, Name: recovery.BucketName}, bucket); err != nil {
 		return false, fmt.Errorf("getting recovery source bucket: %w", err)
 	}
-	if !physicalControlledBy(bucket, source) || !bucket.DeletionTimestamp.IsZero() || !sourceArchiveCheckpointMatches(source, bucket, "StorageBucket") {
+	if !physicalControlledBy(bucket, source) || !bucket.DeletionTimestamp.IsZero() || !sourceResourceCheckpointMatches(source, bucket, "StorageBucket") {
 		return false, fmt.Errorf("recovery bucket does not match the source database ownership checkpoint")
 	}
 	return configConnectorReady(bucket), nil
@@ -140,13 +145,24 @@ func validateRecoveryConfiguration(pg, source *v1.Postgres) error {
 	return nil
 }
 
-func sourceArchiveCheckpointMatches(source *v1.Postgres, object client.Object, kind string) bool {
+func sourceResourceCheckpointMatches(source *v1.Postgres, object client.Object, kind string) bool {
 	for _, ref := range source.Status.Ownership.Resources {
 		if ref.Kind == kind && ref.Name == object.GetName() && ref.UID == string(object.GetUID()) {
 			return true
 		}
 	}
 	return false
+}
+
+func validateSourceExtensionState(ctx context.Context, reader client.Reader, source *v1.Postgres, cluster *cnpgv1.Cluster) error {
+	database := &cnpgv1.Database{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: source.Namespace, Name: cluster.Name + "-" + rccnpg.DatabaseName}, database); err != nil {
+		return fmt.Errorf("getting recovery source Database for extension validation: %w", err)
+	}
+	if !physicalControlledBy(database, source) || !database.DeletionTimestamp.IsZero() || !sourceResourceCheckpointMatches(source, database, "Database") || database.Spec.ClusterRef.Name != cluster.Name || database.Spec.Name != rccnpg.DatabaseName {
+		return fmt.Errorf("recovery source Database does not match its ownership checkpoint")
+	}
+	return rccnpg.ValidateRecoverySourceExtensions(source.Spec.Extensions, database, cluster)
 }
 
 // Source deletion must wait until every live dependent has its own backup and

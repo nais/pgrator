@@ -42,6 +42,13 @@ The requested major version must match the source. Unspecified resource requests
 extensions and availability configuration inherit from the source; explicitly
 requested disk size cannot be smaller and source extensions cannot be omitted.
 Console initially always inherits this configuration during recovery.
+Before initial bootstrap, the source's owned Database extension declarations,
+Cluster image extensions and preload libraries must agree with that configured
+extension set. Pending removals (including a DROP blocked by dependent SQL
+objects) reject new bootstrap attempts instead of silently omitting required
+libraries. An already bootstrapped recovery is not revalidated against later
+source extension edits. This gate does not reconstruct historical extension
+configuration for arbitrary past recovery targets.
 
 The destination has its own ownership/UID journal, cluster, access group and WAL
 archive. Recovered databases use a UID-bound personal authentication group, so
