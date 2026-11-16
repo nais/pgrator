@@ -71,6 +71,29 @@ Rollout order for branch selection: publish the shared API types; install the up
 
 Every branch gets a CNPG `Database` named `<cluster-name>-app` that declares the `app` database created at bootstrap (owner `app`, `databaseReclaimPolicy: retain`). Only name, owner and requested extensions are declared, so adopting existing or recovered databases changes nothing else. `spec.extensions` lists extensions for it, and all are activated with `CREATE EXTENSION` in `app`. Names are SQL extension names and limited to an allowlist: most extensions bundled in the CNPG `standard` image (PostgreSQL contrib and `vector`) plus `postgis` and `timescaledb`. Contrib extensions that reach outside the database or modify storage (`dblink`, `postgres_fdw`, `file_fdw`, `pg_surgery`), and deprecated or example ones (`xml2`, `intagg`, `refint`, `autoinc`, `insert_username`, `moddatetime`, `dict_int`, `dict_xsyn`, `uuid-ossp`), are excluded. `postgis` and `timescaledb` are also mounted from the CNPG image catalog (`timescaledb` from its `timescaledb-oss` entry), and `timescaledb` is additionally added to `shared_preload_libraries` (ahead of the libraries CNPG manages). Removing an entry makes CNPG drop the extension as `postgres` (`ensure: absent`, `DROP EXTENSION` without `CASCADE`), so no tenant privileges are needed. `postgis` and `timescaledb` stay mounted, and `timescaledb` preloaded, until the `Database` reports the drop applied for its current generation; only then are the entry, image and library removed. The drop fails, and CNPG retries it, while other objects depend on the extension: remove those (e.g. hypertables or `geometry` columns) or re-add the entry. Adding `timescaledb` to an existing cluster, or completing its removal, restarts its pods. `pg_stat_statements` and `pgaudit` are not in the allowlist because CNPG already manages them. Multiple databases are not supported.
 
+#### Automatic execution plans
+
+Set `spec.autoExplain: true` on a `nais.io/v1` `Postgres` to log JSON execution
+plans for statements taking at least one second. Pgrator renders these CNPG
+PostgreSQL parameters:
+
+```yaml
+auto_explain.log_min_duration: "1s"
+auto_explain.log_analyze: "on"
+auto_explain.log_timing: "off"
+auto_explain.log_buffers: "on"
+auto_explain.log_format: "json"
+auto_explain.log_parameter_max_length: "0"
+```
+
+Omitting `autoExplain` or setting it to `false` leaves these parameters unset.
+The module is bundled in the CNPG `standard` image, and CNPG manages preloading
+automatically; no image extension or `spec.extensions` entry is needed. Enabling
+or disabling it on an existing cluster requires a rolling restart.
+Execution statistics add instrumentation overhead even for statements below the
+logging threshold. Parameter values are hidden, but SQL text and plans can still
+contain sensitive literals.
+
 #### Workload private-key formats
 
 Each `PostgresBinding` connection Secret contains `ca.crt` and, for every requested

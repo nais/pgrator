@@ -289,7 +289,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			},
 
 			PostgresConfiguration: cnpgv1.PostgresConfiguration{
-				Parameters: makePostgresParameters(memory),
+				Parameters: makePostgresParameters(memory, postgres.Spec.AutoExplain),
 				Extensions: makeExtensions(clusterExtensions(postgres.Spec.Extensions, database)),
 
 				AdditionalLibraries: makePreloadLibraries(clusterExtensions(postgres.Spec.Extensions, database)),
@@ -714,7 +714,7 @@ func postInitApplicationSQL() []string {
 	}
 }
 
-func makePostgresParameters(memory resource.Quantity) map[string]string {
+func makePostgresParameters(memory resource.Quantity, autoExplain bool) map[string]string {
 	memBytes := memory.Value()
 
 	sharedBuffers := memBytes / sharedBuffersFraction
@@ -724,7 +724,7 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 
 	mb := func(b int64) string { return fmt.Sprintf("%dMB", b/(1024*1024)) }
 
-	return map[string]string{
+	parameters := map[string]string{
 		"log_min_duration_statement": "1000",
 		"shared_buffers":             mb(sharedBuffers),
 		"effective_cache_size":       mb(effectiveCacheSize),
@@ -748,6 +748,16 @@ func makePostgresParameters(memory resource.Quantity) map[string]string {
 		"pgaudit.log_parameter":    "on",
 		"pgaudit.log_relation":     "on",
 	}
+	if autoExplain {
+		// CNPG manages preloading auto_explain when these parameters are present.
+		parameters["auto_explain.log_min_duration"] = "500ms"
+		parameters["auto_explain.log_analyze"] = "on"
+		parameters["auto_explain.log_timing"] = "on"
+		parameters["auto_explain.log_buffers"] = "on"
+		parameters["auto_explain.log_format"] = "json"
+		parameters["auto_explain.log_parameter_max_length"] = "0"
+	}
+	return parameters
 }
 
 // poolerAltDNSNames returns the DNS names the pooler service is reachable by,
