@@ -1,6 +1,9 @@
 package v1
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/nais/pgrator/pkg/api"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,8 +52,33 @@ type PostgresRecovery struct {
 	// ServerName identifies the source archive within the ObjectStore.
 	// +kubebuilder:validation:MinLength=1
 	ServerName string `json:"serverName"`
-	// TargetTime is the explicit point in time to recover to.
+	// TargetTime is the explicit point in time to recover to, with whole-second
+	// precision. Fractional seconds are rejected rather than silently truncated.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	// +kubebuilder:validation:Pattern="^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.]0+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
 	TargetTime metav1.Time `json:"targetTime"`
+}
+
+func (r PostgresRecovery) MarshalJSON() ([]byte, error) {
+	if r.TargetTime.Nanosecond() != 0 {
+		return nil, fmt.Errorf("recovery targetTime must have whole-second precision")
+	}
+	type plain PostgresRecovery
+	return json.Marshal(plain(r))
+}
+
+func (r *PostgresRecovery) UnmarshalJSON(data []byte) error {
+	type plain PostgresRecovery
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.TargetTime.Nanosecond() != 0 {
+		return fmt.Errorf("recovery targetTime must have whole-second precision")
+	}
+	*r = PostgresRecovery(decoded)
+	return nil
 }
 
 // PostgresSpec defines the desired state of Postgres

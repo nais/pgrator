@@ -45,12 +45,13 @@ type PostgresClusterReconciler struct {
 }
 
 type PostgresClusterPreparedData struct {
-	Cluster             *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
-	Children            []client.Object        `yaml:"-"`
-	ProjectID           string                 `yaml:"projectID,omitempty"`
-	RecoverySource      *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
-	RecoverySourceReady bool                   `yaml:"recoverySourceReady,omitempty"`
-	BlockingRecoveries  []string               `yaml:"blockingRecoveries,omitempty"`
+	Cluster                   *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
+	Children                  []client.Object        `yaml:"-"`
+	ProjectID                 string                 `yaml:"projectID,omitempty"`
+	RecoverySource            *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
+	RecoverySourceReady       bool                   `yaml:"recoverySourceReady,omitempty"`
+	BlockingRecoveries        []string               `yaml:"blockingRecoveries,omitempty"`
+	RecoveryAdmissionRequired bool                   `yaml:"recoveryAdmissionRequired,omitempty"`
 }
 
 var _ reconciler.Reconciler[*v1.Postgres, PostgresClusterPreparedData] = &PostgresClusterReconciler{}
@@ -111,6 +112,9 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 	if !pg.DeletionTimestamp.IsZero() {
 		// Explicit deletion is supported only after the transfer guard above.
 		p.BlockingRecoveries, err = blockingPostgresRecoveries(ctx, reader, pg)
+		return p, ctrl.Result{}, err
+	}
+	if err := pruneRecoveryAdmissions(ctx, reader, pg); err != nil {
 		return p, ctrl.Result{}, err
 	}
 	if err := prepareOwnershipJournal(pg, p); err != nil {
@@ -275,6 +279,11 @@ func (r *PostgresClusterReconciler) checkInventory(journal *v1.PostgresOwnership
 
 func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
 	actions := []action.Action{&protectPostgres{postgres: pg}}
+	if p.RecoveryAdmissionRequired {
+		// Persist target cleanup responsibility before reserving the source. No
+		// physical child may be created until the reservation is observed.
+		return append(actions, newAcceptPostgresRecovery(pg)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
 	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Annotations: maps.Clone(pg.Annotations)}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: v1.DefaultBranchName}}
 	prepared := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
 	if p.Cluster != nil {
@@ -326,7 +335,7 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 			}
 		}
 	}
-	if pg.Spec.Recovery != nil && !recoveryFinished(pg, p.Cluster) {
+	if pg.Spec.Recovery != nil && !recoveryFinished(pg, p.Cluster) || pg.Annotations[recoveryAdmissionsAnnotation] != "" {
 		// CNPG's Job status can change without a Cluster update. Poll while
 		// bootstrapping as well as reacting to the ordinary owned-resource watches.
 		result.RequeueAfter = 10 * time.Second

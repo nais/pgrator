@@ -55,7 +55,7 @@ func (r *PostgresClusterReconciler) prepareDirectRecovery(ctx context.Context, r
 			return recoveryFailureError(pg)
 		}
 	}
-	ready, err := validateDirectRecoverySource(ctx, reader, pg, p.Cluster == nil)
+	ready, err := validateDirectRecoverySource(ctx, reader, pg, p)
 	p.RecoverySourceReady = ready
 	return err
 }
@@ -67,7 +67,7 @@ func isPostgresRecoveryGrant(pg *v1.Postgres, object client.Object) bool {
 	return pg.Spec.Recovery != nil && policy && object.GetName() == recoverySourcePolicyNameFor(v1.PostgresPhysicalName(pg.Name))
 }
 
-func validateDirectRecoverySource(ctx context.Context, reader client.Reader, pg *v1.Postgres, initializing bool) (bool, error) {
+func validateDirectRecoverySource(ctx context.Context, reader client.Reader, pg *v1.Postgres, prepared *PostgresClusterPreparedData) (bool, error) {
 	recovery := pg.Spec.Recovery
 	source := &v1.Postgres{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: pg.Namespace, Name: recovery.SourcePostgres}, source); err != nil {
@@ -76,13 +76,15 @@ func validateDirectRecoverySource(ctx context.Context, reader client.Reader, pg 
 	if string(source.UID) != recovery.SourceUID {
 		return false, fmt.Errorf("recovery source was replaced")
 	}
-	// An already accepted restore must be able to finish while source deletion
-	// waits for it. Reject new dependents after deletion starts, not older ones:
-	// rejecting both sides would deadlock source deletion against bootstrap.
-	if !source.DeletionTimestamp.IsZero() && (pg.CreationTimestamp.IsZero() || pg.CreationTimestamp.After(source.DeletionTimestamp.Time) || !slices.Contains(source.Finalizers, "postgres.nais.io")) {
+	accepted, err := recoveryWasAccepted(source, pg)
+	if err != nil {
+		return false, err
+	}
+	if !source.DeletionTimestamp.IsZero() && !accepted {
 		return false, fmt.Errorf("recovery source is deleting and cannot accept a new recovery")
 	}
-	if initializing {
+	prepared.RecoveryAdmissionRequired = !accepted
+	if prepared.Cluster == nil {
 		if err := validateRecoveryConfiguration(pg, source); err != nil {
 			return false, err
 		}
@@ -150,30 +152,13 @@ func sourceArchiveCheckpointMatches(source *v1.Postgres, object client.Object, k
 // Source deletion must wait until every live dependent has its own backup and
 // has detached the recovery inputs from its actual CNPG Cluster.
 func blockingPostgresRecoveries(ctx context.Context, reader client.Reader, source *v1.Postgres) ([]string, error) {
-	list := &v1.PostgresList{}
-	if err := reader.List(ctx, list, client.InNamespace(source.Namespace)); err != nil {
+	pending, err := pendingRecoveryAdmissions(ctx, reader, source)
+	if err != nil {
 		return nil, err
 	}
 	var blocking []string
-	for i := range list.Items {
-		dependent := &list.Items[i]
-		recovery := dependent.Spec.Recovery
-		if recovery == nil || recovery.SourceUID != string(source.UID) {
-			continue
-		}
-		// A request admitted after source deletion began is not eligible to
-		// bootstrap from it and must not hold that deletion hostage.
-		if !source.DeletionTimestamp.IsZero() && !dependent.CreationTimestamp.IsZero() && dependent.CreationTimestamp.After(source.DeletionTimestamp.Time) {
-			continue
-		}
-		cluster := &cnpgv1.Cluster{}
-		err := reader.Get(ctx, client.ObjectKey{Namespace: dependent.Namespace, Name: rccnpg.ClusterNameFor(v1.PostgresPhysicalName(dependent.Name))}, cluster)
-		if client.IgnoreNotFound(err) != nil {
-			return nil, err
-		}
-		if !recoveryFinished(dependent, cluster) || cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery != nil || len(cluster.Spec.ExternalClusters) != 0 {
-			blocking = append(blocking, dependent.Name)
-		}
+	for _, name := range pending {
+		blocking = append(blocking, name)
 	}
 	slices.Sort(blocking)
 	return blocking, nil

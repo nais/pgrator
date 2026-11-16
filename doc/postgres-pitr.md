@@ -59,12 +59,26 @@ longer references the source archive. Temporary source read permissions are
 revoked after that detach; unlike data resources, these grants are not durable
 entries in the destination's ownership inventory.
 
+Before creating any physical recovery children, pgrator protects the destination
+with its cleanup finalizer and records its UID and name in the source's
+`postgres.nais.io/recovery-admissions` annotation. Updating this checkpoint uses
+the source's resourceVersion: if source deletion wins the race, admission
+conflicts and a fresh reconcile rejects it. Only checkpointed recoveries may
+continue after source deletion starts or block source cleanup. Creation and
+deletion timestamps are not used to infer admission order. Reservations are
+pruned once a target is gone, replaced, or independently backed up and detached.
+Metadata is used intentionally so ordinary source status updates cannot erase
+admissions written concurrently by its recovery dependents.
+
 ## Timestamp limits
 
 Both API and Console reject targets before the known earliest restore time and
 future targets. There is deliberately no promise that all WAL up to wall-clock
 "now" is archived. A recent explicit PITR can therefore fail. A server-derived
 latest recoverable timestamp and archive-continuity guarantees are deferred.
+Targets use whole-second precision. The shared Go API type rejects fractional
+values on JSON serialization/deserialization, and the CRD rejects non-whole-second
+wire input, rather than allowing `metav1.Time` to silently change a PITR cutoff.
 
 ## Publication and rollout
 

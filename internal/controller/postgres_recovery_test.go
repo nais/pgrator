@@ -9,6 +9,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	iamcnrm "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
@@ -20,6 +21,16 @@ import (
 )
 
 func directRecoveryFixture(t *testing.T) (*PostgresClusterReconciler, client.Client, *v1.Postgres, *v1.Postgres) {
+	t.Helper()
+	r, c, source, pg := unacceptedDirectRecoveryFixture(t)
+	owners := ownership.NewOwnerManager(r.Name() + "/owner")
+	requireNoError(t, (&protectPostgres{postgres: pg}).Do(t.Context(), c, r.Scheme, owners))
+	requireNoError(t, newAcceptPostgresRecovery(pg).Do(t.Context(), c, r.Scheme, owners))
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(source), source))
+	return r, c, source, pg
+}
+
+func unacceptedDirectRecoveryFixture(t *testing.T) (*PostgresClusterReconciler, client.Client, *v1.Postgres, *v1.Postgres) {
 	t.Helper()
 	r, c, source, _, _ := directOwnershipFixture(t, true)
 	sourceCluster := &cnpgv1.Cluster{}
@@ -375,15 +386,17 @@ func TestSourceDeletionAllowsAcceptedRecoveryToFinish(t *testing.T) {
 	// its infrastructure instead of deadlocking against the source finalizer.
 	_, _, err = r.Prepare(t.Context(), c, pg)
 	requireNoError(t, err)
-	pg.CreationTimestamp = metav1.NewTime(source.DeletionTimestamp.Add(time.Second))
-	if _, _, err := r.Prepare(t.Context(), c, pg); err == nil {
+	late := pg.DeepCopy()
+	late.Name, late.UID, late.ResourceVersion, late.Status = "late-restored", "late-recovery-uid", "", nil
+	late.CreationTimestamp = *source.DeletionTimestamp
+	requireNoError(t, c.Create(t.Context(), late))
+	if _, _, err := r.Prepare(t.Context(), c, late); err == nil {
 		t.Fatal("accepted a new recovery after source deletion started")
 	}
-	requireNoError(t, c.Update(t.Context(), pg))
 	blocking, err := blockingPostgresRecoveries(t.Context(), c, source)
 	requireNoError(t, err)
-	if len(blocking) != 0 {
-		t.Fatal("ineligible late recovery held source deletion hostage")
+	if !slices.Equal(blocking, []string{pg.Name}) {
+		t.Fatalf("only the admitted recovery may block source deletion: %v", blocking)
 	}
 }
 
