@@ -50,8 +50,10 @@ func CreateDatabaseRole(scheme *runtime.Scheme, b *v1.PostgresBinding, instance 
 		TypeMeta:   metav1.TypeMeta{Kind: "DatabaseRole", APIVersion: cnpgv1.SchemeGroupVersion.String()},
 		ObjectMeta: objectMeta(b, DatabaseRoleName(b, instance, credential)),
 		Spec: cnpgv1.DatabaseRoleSpec{
-			ClusterRef:        corev1.LocalObjectReference{Name: cnpg.ClusterNameFor(instance)},
-			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimDelete,
+			ClusterRef: corev1.LocalObjectReference{Name: cnpg.ClusterNameFor(instance)},
+			// Keep the SQL identity across unbind/rebind. The binding controller
+			// revokes login and memberships before removing the Retain CR.
+			ReclaimPolicy:     cnpgv1.DatabaseRoleReclaimRetain,
 			RoleConfiguration: cnpgv1.RoleConfiguration{Name: b.RoleName(credential), Login: true, Comment: fmt.Sprintf("Managed by pgrator for workload %q", b.Spec.Consumer.Workload.Name), InRoles: []string{groupRole(credential)}},
 			ClientCertificate: &cnpgv1.ClientCertificateConfiguration{Enabled: new(true)},
 		},

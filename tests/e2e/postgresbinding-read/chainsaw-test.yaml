@@ -56,8 +56,8 @@ spec:
                 login: true
                 inRoles:
                   - app_read
-                # The binding is the grant, so withdrawing it drops the role.
-                databaseRoleReclaimPolicy: delete
+                # Withdrawal revokes access without replacing the SQL identity.
+                databaseRoleReclaimPolicy: retain
                 clientCertificate:
                   enabled: true
 
@@ -163,6 +163,89 @@ spec:
                 podSelector:
                   matchLabels:
                     app: rapport
+
+    - name: Unbind and rebind preserves SQL identity and a long-lived session
+      try:
+        - script:
+            timeout: 3m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              python3 - <<'PY'
+              import json, os, subprocess, time
+              ns = os.environ['NAMESPACE']
+              binding = 'postgres-mydb-rapport-read'
+              role = binding + '-mydb-main-6bc4781b-read'
+              cluster = 'pg-mydb-main-6bc4781b'
+              def kubectl(*args, input=None):
+                  return subprocess.run(['kubectl', '-n', ns, *args], input=input, text=True, capture_output=True, check=True).stdout.strip()
+              primary = None
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  primary = json.loads(kubectl('get', 'clusters.postgresql.cnpg.io', cluster, '-o', 'json')).get('status', {}).get('currentPrimary')
+                  if primary:
+                      state = json.loads(kubectl('get', 'pod', primary, '-o', 'json'))
+                      if any(c['type'] == 'Ready' and c['status'] == 'True' for c in state.get('status', {}).get('conditions', [])):
+                          break
+                  time.sleep(0.5)
+              else:
+                  raise AssertionError('PostgreSQL primary was not ready')
+              psql = ['exec', primary, '-c', 'postgres', '--', 'psql', '-XAt', '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1']
+              def sql(statement):
+                  return kubectl(*psql, '-c', statement)
+              def ready():
+                  deadline = time.monotonic() + 60
+                  while time.monotonic() < deadline:
+                      try:
+                          r = json.loads(kubectl('get', 'databaseroles.postgresql.cnpg.io', role, '-o', 'json'))
+                      except subprocess.CalledProcessError as e:
+                          if 'NotFound' not in e.stderr:
+                              raise
+                          time.sleep(0.5)
+                          continue
+                      if r['spec'].get('login') and r.get('status', {}).get('applied') and r['status'].get('observedGeneration') == r['metadata']['generation']:
+                          return
+                      time.sleep(0.5)
+                  raise AssertionError('role was not applied')
+              manifest = json.loads(kubectl('get', 'postgresbindings.nais.io', binding, '-o', 'json'))
+              manifest = {'apiVersion': manifest['apiVersion'], 'kind': manifest['kind'], 'metadata': {'name': binding, 'namespace': ns}, 'spec': manifest['spec']}
+              ready()
+              sql('SET ROLE app; CREATE TABLE public.binding_rebind_probe(id integer)')
+              oid = sql("SELECT oid FROM pg_roles WHERE rolname='rapport-read'")
+              cmd = ['kubectl', '-n', ns, 'exec', '-i', primary, '-c', 'postgres', '--', 'psql', '-XAt', '-U', 'postgres', '-d', 'app', '-v', 'VERBOSITY=verbose']
+              session = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+              def query(statement):
+                  session.stdin.write(statement + ';\n\\echo REBIND_DONE\n')
+                  session.stdin.flush()
+                  lines = []
+                  for line in session.stdout:
+                      if line.strip() == 'REBIND_DONE':
+                          return '\n'.join(lines)
+                      lines.append(line.rstrip())
+                  raise AssertionError('persistent database session was terminated')
+              try:
+                  assert query('SET SESSION AUTHORIZATION "rapport-read"') == 'SET'
+                  assert query('SELECT count(*) FROM public.binding_rebind_probe') == '0'
+                  for cycle in range(2):
+                      kubectl('delete', 'postgresbindings.nais.io', binding, '--timeout=60s')
+                      assert sql("SELECT oid FROM pg_roles WHERE rolname='rapport-read'") == oid, 'SQL identity dropped on unbind'
+                      assert sql("SELECT rolcanlogin::text || '/' || (SELECT count(*) FROM pg_auth_members WHERE member=r.oid) FROM pg_roles r WHERE rolname='rapport-read'") == 'false/0', 'access not revoked'
+                      # Use a successful boolean query on the persistent exec
+                      # stream; separate remote stderr can arrive after stdout.
+                      assert query("SELECT has_table_privilege(current_user,'public.binding_rebind_probe','SELECT')") == 'f', 'existing session still has access after revocation'
+                      denied = subprocess.run(['kubectl', '-n', ns, *psql, '-v', 'VERBOSITY=verbose', '-c', 'SET ROLE "rapport-read"; SELECT count(*) FROM public.binding_rebind_probe'], text=True, capture_output=True)
+                      assert denied.returncode != 0 and '42501' in denied.stderr, 'revoked SQL access did not fail with insufficient_privilege'
+                      kubectl('apply', '-f', '-', input=json.dumps(manifest))
+                      ready()
+                      assert sql("SELECT oid FROM pg_roles WHERE rolname='rapport-read'") == oid, 'SQL identity changed on rebind'
+                      assert query('SELECT count(*) FROM public.binding_rebind_probe') == '0', 'old session lost access after rebind'
+                      print('rebind cycle', cycle + 1, 'passed with unchanged SQL OID', oid)
+              finally:
+                  session.stdin.write('\\q\n')
+                  session.stdin.flush()
+                  session.wait(timeout=10)
+              PY
 
     - name: Deleting the binding withdraws the access
       try:

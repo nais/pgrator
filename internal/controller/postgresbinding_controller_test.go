@@ -299,9 +299,14 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{Branch: "orders-restored"}, related)
 	requireNoError(t, err)
 	foundPrevious := false
+	foundRevocation := false
 	for _, a := range actions {
 		if a.GetObject().GetName() == removedCredential.GetName() {
-			t.Fatal("removed credential DatabaseRole must not be retained")
+			role := a.GetObject().(*cnpgv1.DatabaseRole)
+			if role.Spec.Login || len(role.Spec.InRoles) != 0 || role.Spec.ReclaimPolicy != cnpgv1.DatabaseRoleReclaimRetain {
+				t.Fatal("removed credential must be revoked before its CR is deleted")
+			}
+			foundRevocation = true
 		}
 		if a.GetObject().GetName() == previous.GetName() {
 			foundPrevious = true
@@ -309,6 +314,9 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	}
 	if !foundPrevious {
 		t.Fatal("expected action retaining the previous instance DatabaseRole")
+	}
+	if !foundRevocation {
+		t.Fatal("removed credential bypassed revocation")
 	}
 }
 

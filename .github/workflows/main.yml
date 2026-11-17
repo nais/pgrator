@@ -8,7 +8,7 @@ on:
   push:
     paths-ignore:
       - "*.md"
-      - 'dashboards/**'
+      - 'grafana/**'
       - '.github/workflows/dashboards.yml'
 
 env:

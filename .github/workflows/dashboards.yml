@@ -3,11 +3,11 @@ name: Dashboard checks
 on:
   pull_request:
     paths:
-      - 'dashboards/**'
+      - 'grafana/**'
       - '.github/workflows/dashboards.yml'
   push:
     paths:
-      - 'dashboards/**'
+      - 'grafana/**'
       - '.github/workflows/dashboards.yml'
 
 concurrency:
@@ -29,6 +29,6 @@ jobs:
           install: false
           cache: false
       - name: Install dashboard dependencies
-        run: make -C dashboards install
+        run: make -C grafana install
       - name: Check formatting and generated resources
-        run: make -C dashboards check
+        run: make -C grafana check

@@ -8,6 +8,7 @@ object:
     name: reporter-mydb-mydb-main-6bc4781b-read
     namespace: myteam
   spec:
+    databaseRoleReclaimPolicy: retain
     cluster:
       name: pg-mydb-main-6bc4781b
     name: reporter-read

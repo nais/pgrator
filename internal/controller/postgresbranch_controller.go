@@ -32,7 +32,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -562,7 +561,7 @@ func (r *PostgresBranchReconciler) Update(obj *v1.PostgresBranch, prepared Postg
 // physicalActions keeps the legacy physical identity separate from its logical
 // owner. The identity is never persisted as a synthetic PostgresBranch.
 func (r *PostgresBranchReconciler) physicalActions(obj *v1.PostgresBranch, owner api.NaisObject, prepared PostgresBranchPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	if err := recoveryFailureError(obj); err != nil {
+	if err := recoveryFailureError(owner); err != nil {
 		return nil, ctrl.Result{}, err
 	}
 	clusterKey := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{
@@ -628,7 +627,7 @@ func (r *PostgresBranchReconciler) physicalActions(obj *v1.PostgresBranch, owner
 	actions = append(actions, action.CreateOrUpdate(netpol, owner, existsConditionGetter, r.Recorder))
 
 	clusterExists := existingCluster != nil
-	recovered := prepared.RecoverySource != nil && recoveryFinished(obj, existingCluster)
+	recovered := prepared.RecoverySource != nil && recoveryFinished(owner, existingCluster)
 	recoveryInProgress := prepared.RecoverySource != nil && !recovered
 	if wal.Enabled() {
 		walActions, err := r.walActions(obj, owner, prepared, wal, recoveryInProgress, relatedObjects, specSource)
@@ -686,6 +685,9 @@ func (r *PostgresBranchReconciler) physicalRoleActions(identity *v1.PostgresBran
 		role, err := create(r.Scheme, identity)
 		if err != nil {
 			return nil, fmt.Errorf("creating physical DatabaseRole: %w", err)
+		}
+		if pg, direct := owner.(*v1.Postgres); direct && role.Spec.Name == rccnpg.PersonalAccessRole(identity.Name) {
+			role.Spec.Name = rccnpg.PersonalAccessRoleForPostgres(identity.Name, pg)
 		}
 		if err := transferControllerOwnership(owner, role, r.Scheme); err != nil {
 			return nil, err
@@ -1028,69 +1030,8 @@ func continuousArchivingReady(cluster *cnpgv1.Cluster) bool {
 	return false
 }
 
-const recoveryCompletedCondition = "RecoveryCompleted"
-const recoveryFailedCondition = "RecoveryFailed"
-
-func recoveryFailureError(branch *v1.PostgresBranch) error {
-	condition := meta.FindStatusCondition(branch.GetStatus().GetConditions(), recoveryFailedCondition)
-	if condition == nil || condition.Status != metav1.ConditionTrue {
-		return nil
-	}
-	branch.GetStatus().SetCondition(metav1.Condition{
-		Type: readyCondition, Status: metav1.ConditionFalse, Reason: recoveryFailedCondition,
-		Message: condition.Message, ObservedGeneration: branch.Generation,
-	})
-	branch.GetStatus().SetReconcilePhase("Failed")
-	return reconcile.TerminalError(errors.New(condition.Message))
-}
-
 func (r *PostgresBranchReconciler) StatusCheckpointRequired(current, original *v1.PostgresBranch) bool {
 	return completedRecoveryClusterUID(current) != completedRecoveryClusterUID(original)
-}
-
-// recoveryFinished is a one-way bootstrap milestone for this particular
-// Cluster object, independent of whether it is currently Ready.
-func recoveryFinished(branch *v1.PostgresBranch, cluster *cnpgv1.Cluster) bool {
-	return cluster != nil && cluster.DeletionTimestamp == nil &&
-		metav1.IsControlledBy(cluster, branch) && cluster.UID != "" &&
-		completedRecoveryClusterUID(branch) == string(cluster.UID)
-}
-
-func completedRecoveryClusterUID(branch *v1.PostgresBranch) string {
-	for _, condition := range branch.GetStatus().GetConditions() {
-		if condition.Type == recoveryCompletedCondition && condition.Status == metav1.ConditionTrue {
-			return condition.Message
-		}
-	}
-	return ""
-}
-
-// A successful backup of this Cluster proves that it no longer depends on
-// the source archive. Initialized alone is not sufficient: the new branch
-// must first have a usable archive of its own.
-func recoveryBackedUp(cluster *cnpgv1.Cluster) bool {
-	if !cluster.IsInitialized() || cluster.Spec.Bootstrap == nil || cluster.Spec.Bootstrap.Recovery == nil {
-		return false
-	}
-	for _, condition := range cluster.Status.Conditions {
-		if condition.Type == "LastBackupSucceeded" && condition.Status == metav1.ConditionTrue &&
-			condition.LastTransitionTime.After(cluster.CreationTimestamp.Time) {
-			return true
-		}
-	}
-	return false
-}
-
-func recoveryComplete(cluster *cnpgv1.Cluster) bool {
-	if cluster == nil || !cluster.IsInitialized() {
-		return false
-	}
-	for _, condition := range cluster.Status.Conditions {
-		if condition.Type == string(cnpgv1.ConditionClusterReady) {
-			return condition.Status == metav1.ConditionTrue
-		}
-	}
-	return false
 }
 
 func recoveryInfrastructureReady(instance *v1.PostgresBranch, wal rccnpg.WALArchive, recovery *rccnpg.RecoverySource, relatedObjects reconciler.RelatedObjects) bool {

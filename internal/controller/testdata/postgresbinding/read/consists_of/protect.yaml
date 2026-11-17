@@ -1,0 +1,8 @@
+action: protectPostgresBinding
+matcher: Subset
+object:
+  apiVersion: nais.io/v1
+  kind: PostgresBinding
+  metadata:
+    name: reporter-mydb
+    namespace: myteam

@@ -45,6 +45,10 @@ const (
 	// controller creates a fresh initdb cluster, and is preserved afterwards.
 	ReadWriteCreateCapableAnnotation = "postgres.nais.io/readwritecreate-capable"
 
+	// PersonalAccessGroupAnnotation publishes the UID-isolated group used by a
+	// recovered cluster. Existing clusters keep their historical name-based group.
+	PersonalAccessGroupAnnotation = "postgres.nais.io/personal-access-group"
+
 	// Every cluster runs a primary and a warm standby, so a lost node or a drained
 	// pod fails over instead of taking the database down. HighAvailability adds a
 	// third instance and turns on synchronous replication, which trades write
@@ -230,9 +234,21 @@ func PersonalAccessRole(instance string) string {
 	return fmt.Sprintf("nais_pa_%x", hash[:8])
 }
 
+// PersonalAccessRoleForPostgres prevents an ancestral restored SQL role from
+// becoming an authentication group when a previously used name is reused.
+func PersonalAccessRoleForPostgres(physicalName string, postgres *v1.Postgres) string {
+	if postgres.Spec.Recovery != nil {
+		return PersonalAccessRole(physicalName + "/" + string(postgres.UID))
+	}
+	return PersonalAccessRole(physicalName)
+}
+
 // CreateCluster keeps image extensions the desired application Database is still
 // dropping mounted and preloaded until CNPG confirms the drop.
 func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource, database *cnpgv1.Database) (*cnpgv1.Cluster, error) {
+	if postgres.Spec.Recovery != nil && postgres.UID == "" {
+		return nil, fmt.Errorf("recovered Postgres requires a UID for isolated personal access")
+	}
 	instances := defaultInstances
 	minSync, maxSync := 0, 0
 	if postgres.Spec.HighAvailability {
@@ -310,7 +326,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 					// Only personal roles may use their short-lived SCRAM password.
 					// The role group is managed on both existing and new clusters;
 					// unlike PodSelectorRef it works when relay is in another namespace.
-					"hostssl all +" + PersonalAccessRole(postgres.Name) + " all scram-sha-256",
+					"hostssl all +" + PersonalAccessRoleForPostgres(postgres.Name, postgres) + " all scram-sha-256",
 
 					// Certificate authentication for all other clients. Without a
 					// map, PostgreSQL requires the certificate CN to equal the role,
@@ -384,6 +400,9 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 		},
 	}
 
+	if postgres.Spec.Recovery != nil {
+		metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, PersonalAccessGroupAnnotation, PersonalAccessRoleForPostgres(postgres.Name, postgres))
+	}
 	if wal.Enabled() {
 		// Bind the instance pods' service account to the Google service account so
 		// barman-cloud can reach the bucket with a metadata-server OAuth token.
@@ -651,6 +670,45 @@ func clusterExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Datab
 		}
 	}
 	return res
+}
+
+// ValidateRecoverySourceExtensions refuses bootstrap while source extension
+// intent and its observed child resources disagree. In particular, images and
+// preload libraries retained for a blocked SQL drop must not be lost in a new
+// destination that inherits only the source's desired Postgres spec.
+func ValidateRecoverySourceExtensions(extensions []v1.PostgresExtension, database *cnpgv1.Database, cluster *cnpgv1.Cluster) error {
+	requested := sqlExtensions(extensions)
+	for _, extension := range database.Spec.Extensions {
+		if extension.Ensure == cnpgv1.EnsureAbsent || !slices.ContainsFunc(requested, func(e v1.PostgresExtension) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension %q is still being removed; wait for source extension reconciliation before recovery", extension.Name)
+		}
+	}
+	for _, extension := range requested {
+		if !slices.ContainsFunc(database.Spec.Extensions, func(e cnpgv1.ExtensionSpec) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension %q has not been reconciled into the Database yet", extension.Name)
+		}
+	}
+	expectedImages := makeExtensions(requested)
+	actualImages := cluster.Spec.PostgresConfiguration.Extensions
+	if len(actualImages) != len(expectedImages) {
+		return fmt.Errorf("source extension images are still reconciling; wait before recovery")
+	}
+	for _, extension := range expectedImages {
+		if !slices.ContainsFunc(actualImages, func(e cnpgv1.ExtensionConfiguration) bool { return e.Name == extension.Name }) {
+			return fmt.Errorf("source extension image %q has not been reconciled yet", extension.Name)
+		}
+	}
+	expectedLibraries := makePreloadLibraries(requested)
+	actualLibraries := cluster.Spec.PostgresConfiguration.AdditionalLibraries
+	if len(actualLibraries) != len(expectedLibraries) {
+		return fmt.Errorf("source extension preload libraries are still reconciling; wait before recovery")
+	}
+	for _, library := range expectedLibraries {
+		if !slices.Contains(actualLibraries, library) {
+			return fmt.Errorf("source extension preload library %q has not been reconciled yet", library)
+		}
+	}
+	return nil
 }
 
 // makePreloadLibraries lists the libraries image extensions need loaded at server start.

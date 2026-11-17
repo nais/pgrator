@@ -11,7 +11,7 @@ These are separate from Console metrics and the legacy postgres_exporter dashboa
 The definitions were moved from `nais/dashboards` commit
 `dafce1a1b00417ea032e387aec5265058b6322e2` without changing their contents or UIDs.
 The central Git Sync connection is managed manually and reads `main` under
-`dashboards/generated/`; see [setup and source changes](MIGRATION.md).
+`grafana/generated/`; see [setup and source changes](MIGRATION.md).
 No provisioning Job, Helm release or component deployment is needed.
 
 ## Develop and validate
@@ -20,10 +20,10 @@ Requires `mise`, `make`, Git and network access to public tool/dependency releas
 No kubecontext, Grafana login or production credentials are needed:
 
 ```sh
-make -C dashboards install
-make -C dashboards fmt
-make -C dashboards compile
-make -C dashboards check
+make -C grafana install
+make -C grafana fmt
+make -C grafana compile
+make -C grafana check
 ```
 
 Run from the repository root. `install` restores Jsonnet dependencies from
@@ -42,7 +42,7 @@ The Makefile runs pinned go-jsonnet 0.21.0 and jsonnet-bundler 0.6.0 with
 loaded. The separate `Dashboard checks` workflow does only installation and
 read-only checks, with `contents: read` and no deployment credentials.
 
-Changes confined to `dashboards/**`, `.github/workflows/dashboards.yml` and the
+Changes confined to `grafana/**`, `.github/workflows/dashboards.yml` and the
 existing ignored Markdown paths do not start the ordinary build/deploy or E2E
 workflows. Mixed operator/dashboard changes still run both workflows. The initial
 change to those workflow filters is itself a normal workflow change; it is not
