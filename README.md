@@ -71,6 +71,13 @@ Rollout order for branch selection: publish the shared API types; install the up
 
 Every branch gets a CNPG `Database` named `<cluster-name>-app` that declares the `app` database created at bootstrap (owner `app`, `databaseReclaimPolicy: retain`). Only name, owner and requested extensions are declared, so adopting existing or recovered databases changes nothing else. `spec.extensions` lists extensions for it, and all are activated with `CREATE EXTENSION` in `app`. Names are SQL extension names and limited to an allowlist: most extensions bundled in the CNPG `standard` image (PostgreSQL contrib and `vector`) plus `postgis` and `timescaledb`. Contrib extensions that reach outside the database or modify storage (`dblink`, `postgres_fdw`, `file_fdw`, `pg_surgery`), and deprecated or example ones (`xml2`, `intagg`, `refint`, `autoinc`, `insert_username`, `moddatetime`, `dict_int`, `dict_xsyn`, `uuid-ossp`), are excluded. `postgis` and `timescaledb` are also mounted from the CNPG image catalog (`timescaledb` from its `timescaledb-oss` entry), and `timescaledb` is additionally added to `shared_preload_libraries` (ahead of the libraries CNPG manages). Removing an entry makes CNPG drop the extension as `postgres` (`ensure: absent`, `DROP EXTENSION` without `CASCADE`), so no tenant privileges are needed. `postgis` and `timescaledb` stay mounted, and `timescaledb` preloaded, until the `Database` reports the drop applied for its current generation; only then are the entry, image and library removed. The drop fails, and CNPG retries it, while other objects depend on the extension: remove those (e.g. hypertables or `geometry` columns) or re-add the entry. Adding `timescaledb` to an existing cluster, or completing its removal, restarts its pods. `pg_stat_statements` and `pgaudit` are not in the allowlist because CNPG already manages them. Multiple databases are not supported.
 
+#### Namespace alerts
+
+Pgrator reconciles one `PrometheusRule`, `nais-postgres-alerts`, in each namespace
+with a Postgres. All databases in the namespace share it; removing one database
+keeps the rule, and deleting the last removes it. Changes to platform alert
+expressions and thresholds overwrite local rule edits.
+
 #### Workload private-key formats
 
 Each `PostgresBinding` connection Secret contains `ca.crt` and, for every requested

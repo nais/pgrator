@@ -70,7 +70,7 @@ func (r *PostgresClusterReconciler) AdditionalTypes() []client.Object { return n
 // list no longer mentions them. Delete uses a fresh, explicit ownership inventory.
 func (r *PostgresClusterReconciler) PruneUnreferenced() bool { return false }
 func (r *PostgresClusterReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
-	return nil
+	return []reconciler.RelationshipWatch{postgresAlertsWatch()}
 }
 func (r *PostgresClusterReconciler) MetricsLabels(pg *v1.Postgres) map[string]string {
 	return (&PostgresReconciler{}).MetricsLabels(pg)
@@ -284,6 +284,11 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 		// physical child may be created until the reservation is observed.
 		return append(actions, newAcceptPostgresRecovery(pg)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
+	alerts, err := newEnsurePostgresAlerts(pg)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, alerts)
 	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Annotations: maps.Clone(pg.Annotations)}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: v1.DefaultBranchName}}
 	prepared := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
 	if p.Cluster != nil {
@@ -387,5 +392,9 @@ func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPre
 	if len(p.Children) > 0 {
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
-	return nil, ctrl.Result{}, nil
+	alerts, err := newEnsurePostgresAlerts(pg)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	return []action.Action{alerts}, ctrl.Result{}, nil
 }

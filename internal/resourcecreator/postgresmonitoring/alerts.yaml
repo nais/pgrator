@@ -1,0 +1,168 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nais-postgres-alerts
+spec:
+  groups:
+    - name: nais-postgres-instances
+      rules:
+        - alert: PostgresClusterIsDown
+          expr: |
+            group by (namespace, postgres, branch) (
+              last_over_time(up{namespace="__NAMESPACE__", postgres!="", branch!=""}[1d])
+              and on (namespace, pod) kube_pod_info{namespace="__NAMESPACE__"}
+            )
+            unless on (namespace, postgres, branch)
+            (cnpg_collector_up{namespace="__NAMESPACE__", postgres!="", branch!=""} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) is down
+            description: No instance of PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` is reporting a healthy database.
+            action: "Check pod status and events in the namespace."
+
+        - alert: PostgresMissingClusterInstance
+          expr: |
+            max by (namespace, postgres, branch) (
+              cnpg_pg_replication_streaming_replicas{namespace="__NAMESPACE__", postgres!="", branch!=""}
+              and on (namespace, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__"} == 0)
+            )
+            < on (namespace, postgres, branch)
+            clamp_min(count by (namespace, postgres, branch) (up{namespace="__NAMESPACE__", postgres!="", branch!=""}) - 1, 1)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) is missing replicas
+            description: The primary of PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` streams to only {{ $value }} replica(s).
+            action: "Check pod status, pending PVCs and replica logs."
+
+        - alert: PostgresReplicationLagHigh
+          expr: |
+            max by (namespace, postgres, branch) (
+              cnpg_pg_replication_lag{namespace="__NAMESPACE__", postgres!="", branch!=""}
+              and on (namespace, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__"} == 1)
+            ) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` replication lag is high
+            description: Replication lag for PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }}.
+            action: "Investigate replica performance and network connectivity."
+
+        - alert: PostgresConnectionSaturation
+          expr: |
+            max by (namespace, postgres, branch) (
+              sum by (namespace, pod, postgres, branch) (cnpg_backends_total{namespace="__NAMESPACE__", postgres!="", branch!=""})
+              / on (namespace, pod)
+              max by (namespace, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", postgres!="", branch!="", name="max_connections"} > 0)
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` connections near limit
+            description: PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` uses {{ $value | humanizePercentage }} of max_connections.
+            action: "Review connection pooling configuration or reduce the number of connections."
+
+        - alert: PostgresMemoryUsageHigh
+          expr: |
+            max by (namespace, pod) (container_memory_working_set_bytes{namespace="__NAMESPACE__", container="postgres"})
+            / on (namespace, pod)
+            max by (namespace, pod) (kube_pod_container_resource_limits{namespace="__NAMESPACE__", container="postgres", resource="memory"} > 0)
+            * on (namespace, pod) group_left (postgres, branch)
+            group by (namespace, pod, postgres, branch) (up{namespace="__NAMESPACE__", postgres!="", branch!=""})
+            > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` memory usage is high
+            description: Memory usage for `{{ $labels.pod }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} of its limit.
+            action: "Investigate memory usage or increase the memory of the Postgres resource."
+
+        - alert: PostgresCpuUsageHigh
+          expr: |
+            max by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace="__NAMESPACE__", container="postgres"}[5m]))
+            / on (namespace, pod)
+            max by (namespace, pod) (kube_pod_container_resource_requests{namespace="__NAMESPACE__", container="postgres", resource="cpu"} > 0)
+            * on (namespace, pod) group_left (postgres, branch)
+            group by (namespace, pod, postgres, branch) (up{namespace="__NAMESPACE__", postgres!="", branch!=""})
+            > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` CPU usage is high
+            description: CPU usage for `{{ $labels.pod }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} of its request.
+            action: "Investigate CPU usage or increase the CPU of the Postgres resource."
+
+        - alert: PostgresDiskIsFull
+          expr: |
+            label_replace(
+              max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace="__NAMESPACE__"})
+              / on (namespace, persistentvolumeclaim)
+              max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{namespace="__NAMESPACE__"} > 0),
+              "pod", "$1", "persistentvolumeclaim", "(.+)"
+            )
+            * on (namespace, pod) group_left (postgres, branch)
+            group by (namespace, pod, postgres, branch) (up{namespace="__NAMESPACE__", postgres!="", branch!=""})
+            > 0.99
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk is full
+            description: Disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} full.
+            action: "Increase the disk size of the Postgres resource."
+
+        - alert: PostgresDiskUsageHigh
+          expr: |
+            label_replace(
+              max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace="__NAMESPACE__"})
+              / on (namespace, persistentvolumeclaim)
+              max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{namespace="__NAMESPACE__"} > 0),
+              "pod", "$1", "persistentvolumeclaim", "(.+)"
+            )
+            * on (namespace, pod) group_left (postgres, branch)
+            group by (namespace, pod, postgres, branch) (up{namespace="__NAMESPACE__", postgres!="", branch!=""})
+            > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk usage is high
+            description: Disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} full.
+            action: "Increase the disk size of the Postgres resource."
+
+        - alert: PostgresWALArchivingFailed
+          expr: |
+            max by (namespace, postgres, branch) (
+              increase(cnpg_pg_stat_archiver_failed_count{namespace="__NAMESPACE__", postgres!="", branch!=""}[10m])
+            ) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` WAL archiving is failing
+            description: WAL archiving for PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` has failed in the last 10 minutes.
+            action: "Check backup bucket permissions and network connectivity."
+
+        - alert: PostgresBackupStale
+          expr: |
+            max by (namespace, postgres, branch) (
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!="", branch!=""}
+            ) < time() - 172800
+            and on (namespace, postgres, branch)
+            group by (namespace, postgres, branch) (
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!="", branch!=""} offset 6h
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` backup is stale
+            description: No successful backup of PostgreSQL `{{ $labels.postgres }}` (branch `{{ $labels.branch }}`) in `{{ $labels.namespace }}` in the last 48 hours.
+            action: "Verify scheduled backups and barman-cloud plugin configuration."
