@@ -86,20 +86,20 @@ func (a *ensurePostgresAlerts) Do(ctx context.Context, c client.Client, _ *runti
 		}
 	}
 	if len(owners) == 0 {
-		if current.Labels[rcmonitoring.ManagedLabel] != "true" {
+		if current.Labels[rcmonitoring.ManagedLabel] != rcmonitoring.ManagedValue {
 			return nil // Never delete a rule we have not taken over.
 		}
 		return client.IgnoreNotFound(c.Delete(ctx, current, client.Preconditions{UID: &current.UID, ResourceVersion: &current.ResourceVersion}))
 	}
 	if !current.DeletionTimestamp.IsZero() {
-		return fmt.Errorf("Postgres alert rule is terminating")
+		return fmt.Errorf("postgres alert rule is terminating")
 	}
 	slices.SortFunc(owners, func(a, b metav1.OwnerReference) int { return strings.Compare(a.Name, b.Name) })
 	original := current.DeepCopy()
 	if current.Labels == nil {
 		current.Labels = map[string]string{}
 	}
-	current.Labels[rcmonitoring.ManagedLabel] = "true"
+	current.Labels[rcmonitoring.ManagedLabel] = rcmonitoring.ManagedValue
 	// Non-controller references allow the rule to survive deletion of any
 	// single database. GC also covers concurrent deletion of the last parents.
 	current.OwnerReferences = owners

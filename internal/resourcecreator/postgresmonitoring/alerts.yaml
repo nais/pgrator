@@ -55,8 +55,8 @@ spec:
         - alert: PostgresConnectionSaturation
           expr: |
             max by (namespace, postgres, branch) (
-              sum by (namespace, pod, postgres, branch) (cnpg_backends_total{namespace="__NAMESPACE__", postgres!="", branch!=""})
-              / on (namespace, pod)
+              sum by (namespace, pod, postgres, branch) (cnpg_pg_stat_activity_count{namespace="__NAMESPACE__", postgres!="", branch!="", backend_type="client backend"})
+              / on (namespace, pod) group_left()
               max by (namespace, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", postgres!="", branch!="", name="max_connections"} > 0)
             ) > 0.8
           for: 5m

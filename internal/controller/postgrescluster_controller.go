@@ -278,7 +278,8 @@ func (r *PostgresClusterReconciler) checkInventory(journal *v1.PostgresOwnership
 }
 
 func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	actions := []action.Action{&protectPostgres{postgres: pg}}
+	actions := make([]action.Action, 0, 2)
+	actions = append(actions, &protectPostgres{postgres: pg})
 	if p.RecoveryAdmissionRequired {
 		// Persist target cleanup responsibility before reserving the source. No
 		// physical child may be created until the reservation is observed.

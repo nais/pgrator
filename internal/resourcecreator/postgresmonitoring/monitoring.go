@@ -12,6 +12,9 @@ import (
 const (
 	RuleName     = "nais-postgres-alerts"
 	ManagedLabel = "postgres.nais.io/namespace-monitoring"
+	ManagedValue = "true"
+
+	sourceURL = "https://github.com/nais/pgrator/blob/main/internal/resourcecreator/postgresmonitoring/alerts.yaml"
 )
 
 //go:embed alerts.yaml
@@ -24,6 +27,18 @@ func Rule(namespace string) (*monitoringv1.PrometheusRule, error) {
 		return nil, err
 	}
 	rule.Namespace = namespace
-	rule.Labels = map[string]string{ManagedLabel: "true"}
+	rule.Labels = map[string]string{ManagedLabel: ManagedValue}
+	// Tell whoever receives an alert where it comes from and where to change it.
+	for g := range rule.Spec.Groups {
+		for r := range rule.Spec.Groups[g].Rules {
+			alert := &rule.Spec.Groups[g].Rules[r]
+			if alert.Annotations == nil {
+				alert.Annotations = map[string]string{}
+			}
+			alert.Annotations["source"] = sourceURL
+			alert.Annotations["managed_by"] = "pgrator"
+			alert.Annotations["configuration"] = "Managed by pgrator. Change the alert in the source repository; edits to this PrometheusRule are overwritten."
+		}
+	}
 	return rule, nil
 }
