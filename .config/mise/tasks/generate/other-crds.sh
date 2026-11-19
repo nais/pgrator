@@ -40,6 +40,9 @@ LOGGING_OPERATOR_FILES=(
   logging.banzaicloud.io_clusterflows.yaml
 )
 
+PROMETHEUS_OPERATOR_VERSION="v0.94.2"
+PROMETHEUS_OPERATOR_BASE_URL="https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/refs/tags/${PROMETHEUS_OPERATOR_VERSION}/example/prometheus-operator-crd/"
+
 function download_crd {
   local base_url
   local filename
@@ -74,3 +77,5 @@ done
 for fname in "${LOGGING_OPERATOR_FILES[@]}"; do
   download_crd "${LOGGING_OPERATOR_BASE_URL}" "${fname}"
 done
+
+download_crd "${PROMETHEUS_OPERATOR_BASE_URL}" monitoring.coreos.com_prometheusrules.yaml

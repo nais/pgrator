@@ -34,7 +34,8 @@ docker_build(
 # ---------------------------------------------------------------------------
 # 2. External CRDs (Aiven, Google IAM, barman plugin, logging-operator)
 #
-# postgresql.cnpg.io CRDs are deliberately excluded: the CloudNativePG Helm
+# postgresql.cnpg.io and PrometheusRule CRDs are deliberately excluded (the
+# PrometheusRule CRD is owned by the prometheus-crds Helm release): the CloudNativePG Helm
 # chart installs and owns those, and Helm refuses to adopt resources created by
 # kubectl (missing app.kubernetes.io/managed-by + meta.helm.sh annotations).
 # The chart also ships CRDs this directory lacks, e.g. ClusterImageCatalog.
@@ -42,7 +43,7 @@ docker_build(
 # ---------------------------------------------------------------------------
 local_resource(
     "external-crds",
-    cmd="find internal/controller/testdata/external-crds -name '*.yaml' ! -name 'postgresql.cnpg.io_*' -exec kubectl apply --server-side -f {} ';'",
+    cmd="find internal/controller/testdata/external-crds -name '*.yaml' ! -name 'postgresql.cnpg.io_*' ! -name 'monitoring.coreos.com_prometheusrules.yaml' -exec kubectl apply --server-side -f {} ';'",
     deps=["internal/controller/testdata/external-crds"],
     labels=["setup"],
 )

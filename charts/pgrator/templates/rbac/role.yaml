@@ -36,6 +36,11 @@ rules:
   resources: [valkeys, opensearches, serviceintegrations]
   verbs: [create, delete, get, list, patch, update, watch]
 
+# Namespace-wide alerts shared by the namespace's Postgres resources.
+- apiGroups: [monitoring.coreos.com]
+  resources: [prometheusrules]
+  verbs: [create, delete, get, list, patch, update, watch]
+
 # Resources needed for Postgres controller
 - apiGroups: [batch]
   resources: [jobs]

@@ -6,6 +6,9 @@
 !**/*.go
 **/*_test.go
 
+# Embedded Postgres alert definitions are required at compile time.
+!internal/resourcecreator/postgresmonitoring/alerts.yaml
+
 # Re-include Go module files
 !go.mod
 !go.sum
