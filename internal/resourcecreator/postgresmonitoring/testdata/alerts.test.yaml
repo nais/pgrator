@@ -1,0 +1,198 @@
+rule_files: [__RULE_FILE__]
+evaluation_interval: 1m
+
+tests:
+  - name: A fenced instance does not count as a healthy database
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'kube_pod_info{namespace="team",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_collector_fencing_on{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresClusterIsDown",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresClusterIsDown",alertstate="firing",severity="critical",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: An unfenced healthy instance keeps the database up
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'kube_pod_info{namespace="team",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_collector_fencing_on{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresClusterIsDown
+        exp_alerts: []
+
+  - name: WAL senders and duplicate scrapes cannot hide a missing physical standby
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'up{namespace="team",postgres="orders",pod="p2",job="one"}'
+        values: '1x30'
+      - series: 'up{namespace="team",postgres="orders",pod="p2",job="two"}'
+        values: '1x30'
+      - series: 'up{namespace="team",postgres="orders",pod="p3"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p3"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_is_wal_receiver_up{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_is_wal_receiver_up{namespace="team",postgres="orders",pod="p3"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_streaming_replicas{namespace="team",postgres="orders",pod="p1"}'
+        values: '12x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresMissingClusterInstance",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresMissingClusterInstance",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: Replication lag identifies the replica
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_lag{namespace="team",postgres="orders",pod="p2"}'
+        values: '60x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresReplicationLagHigh",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresReplicationLagHigh",alertstate="firing",severity="warning",namespace="team",postgres="orders",pod="p2"}'
+            value: 1
+
+  - name: Connections are deduplicated, exclude walsenders and use ordinary-client capacity
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_stat_activity_count{namespace="team",postgres="orders",pod="p1",backend_type="client backend",datname="app",state="idle",user="app",application_name="orders",job="one"}'
+        values: '81x30'
+      - series: 'cnpg_pg_stat_activity_count{namespace="team",postgres="orders",pod="p1",backend_type="client backend",datname="app",state="idle",user="app",application_name="orders",job="two"}'
+        values: '81x30'
+      - series: 'cnpg_pg_stat_activity_count{namespace="team",postgres="orders",pod="p1",backend_type="walsender",state="active"}'
+        values: '20x30'
+      - series: 'cnpg_pg_settings_setting{namespace="team",postgres="orders",pod="p1",name="max_connections"}'
+        values: '100x30'
+      - series: 'cnpg_pg_settings_setting{namespace="team",postgres="orders",pod="p1",name="superuser_reserved_connections"}'
+        values: '3x30'
+      - series: 'cnpg_pg_settings_setting{namespace="team",postgres="orders",pod="p1",name="reserved_connections"}'
+        values: '7x30'
+    promql_expr_test:
+      # 81 / (100 - 3 - 7) = 0.9; duplicate scrape and walsenders not counted.
+      - expr: 'ALERTS{alertname="PostgresConnectionSaturation",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresConnectionSaturation",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: A separate WAL volume is mapped to its database
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="team",pod="p1",persistentvolumeclaim="p1-wal",volume="pg-wal"}'
+        values: '1x30'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="team",persistentvolumeclaim="p1-wal"}'
+        values: '995x30'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="team",persistentvolumeclaim="p1-wal"}'
+        values: '1000x30'
+      - series: 'kubelet_volume_stats_available_bytes{namespace="team",persistentvolumeclaim="p1-wal"}'
+        values: '5x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresDiskCriticallyLow",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresDiskCriticallyLow",alertstate="firing",severity="critical",namespace="team",postgres="orders",pod="p1",persistentvolumeclaim="p1-wal"}'
+            value: 1
+
+  - name: A recovered archive retry is not a stall
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_pg_stat_archiver_failed_count{namespace="team",postgres="orders",pod="p1"}'
+        values: '0 1x30'
+      - series: 'cnpg_collector_pg_wal_archive_status{namespace="team",postgres="orders",pod="p1",value="ready"}'
+        values: '0x30'
+      - series: 'cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="team",postgres="orders",pod="p1"}'
+        values: '30x30'
+      - series: 'cnpg_pg_stat_archiver_last_archived_time{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresWALArchivingStalled
+        exp_alerts: []
+
+  - name: Pending WAL without recent archive success is a stall
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_collector_pg_wal_archive_status{namespace="team",postgres="orders",pod="p1",value="ready"}'
+        values: '4x30'
+      - series: 'cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="team",postgres="orders",pod="p1"}'
+        values: '2000x30'
+      - series: 'cnpg_pg_stat_archiver_last_archived_time{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresWALArchivingStalled",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresWALArchivingStalled",alertstate="firing",severity="warning",namespace="team",postgres="orders",pod="p1"}'
+            value: 1
+
+  - name: A zero backup timestamp is not a stale backup
+    interval: 1m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x2500'
+    alert_rule_test:
+      - eval_time: 40h
+        alertname: PostgresBackupStale
+        exp_alerts: []
+
+  - name: An old backup is stale
+    interval: 1m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x2500'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresBackupStale",alertstate="firing"}'
+        eval_time: 40h
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresBackupStale",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: CPU above request is a non-paging hint
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x45'
+      - series: 'container_cpu_usage_seconds_total{namespace="team",pod="p1",container="postgres"}'
+        values: '0+60x45'
+      - series: 'kube_pod_container_resource_requests{namespace="team",pod="p1",container="postgres",resource="cpu"}'
+        values: '0.5x45'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresCpuAboveRequest",alertstate="firing"}'
+        eval_time: 40m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresCpuAboveRequest",alertstate="firing",severity="info",namespace="team",postgres="orders",pod="p1"}'
+            value: 1
