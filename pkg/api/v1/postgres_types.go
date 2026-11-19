@@ -141,8 +141,8 @@ type PostgresSpec struct {
 	// +optional
 	Extensions []PostgresExtension `json:"extensions,omitempty"`
 
-	// ActiveBranch selects the local branch name within this Postgres for normal workloads.
-	// When omitted, pgrator retains the current active branch.
+	// ActiveBranch is deprecated: branches were retired. Only `main` (or empty)
+	// is accepted; the field is kept so existing manifests stay valid.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
 }
@@ -162,9 +162,8 @@ func (s PostgresSpec) BackupRetentionDays() int32 {
 type PostgresStatus struct {
 	api.BaseStatus `json:",inline"`
 
-	// ClusterName identifies the directly managed CloudNativePG Cluster.
-	// Its presence selects the branchless status model. Older controllers leave
-	// it unset; readers must then resolve physical status through the active branch.
+	// ClusterName identifies the directly managed CloudNativePG Cluster. It is
+	// unset until pgrator has observed or created the cluster.
 	// +optional
 	ClusterName string `json:"clusterName,omitempty"`
 
@@ -178,7 +177,8 @@ type PostgresStatus struct {
 	// +optional
 	Configuration *PostgresConfiguration `json:"configuration,omitempty"`
 
-	// ActiveBranch is the local branch name currently selected by pgrator.
+	// ActiveBranch is deprecated: branches were retired. Pgrator always reports
+	// `main`; the field is kept for existing readers.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
 }
@@ -188,7 +188,8 @@ type PostgresOwnership struct {
 	// Phase is Provisioning, Adopting or Managed. This is not database readiness.
 	// +kubebuilder:validation:Enum=Provisioning;Adopting;Managed
 	Phase string `json:"phase"`
-	// LegacyBranchUID pins the previous main branch during adoption and detach.
+	// LegacyBranchUID records the PostgresBranch this database was adopted from,
+	// before branches were retired.
 	// +optional
 	LegacyBranchUID string `json:"legacyBranchUID,omitempty"`
 	// ClusterUID pins the original CNPG Cluster, independent of its controller.
@@ -221,7 +222,6 @@ type PostgresConfiguration struct {
 // +kubebuilder:printcolumn:name="Disk Size",type="string",JSONPath=".spec.resources.diskSize"
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.resources.cpu"
 // +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.resources.memory"
-// +kubebuilder:printcolumn:name="Active branch",type="string",JSONPath=".status.activeBranch"
 // +kubebuilder:printcolumn:name="Last reconcile",type="string",JSONPath=".status.reconcileTime"
 
 // Postgres is the Schema for the postgres API

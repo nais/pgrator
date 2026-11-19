@@ -33,8 +33,9 @@ type PostgresAccessSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgres is immutable"
 	Postgres string `json:"postgres,omitempty"`
 
-	// PostgresBranch is the legacy PostgresBranch object name (not its local name).
-	// Deprecated: new accesses reference Postgres directly.
+	// PostgresBranch is deprecated: the object name of the retired PostgresBranch
+	// this access was created for. Kept for existing, immutable accesses; new
+	// accesses set postgres instead.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="postgresBranch is immutable"
@@ -56,8 +57,8 @@ type PostgresAccessSpec struct {
 }
 
 // PhysicalName returns the stable physical identity for either reference shape.
-// Main accesses keep the same roles, authentication group and relay target when
-// the referenced PostgresBranch is detached.
+// Accesses created for a retired PostgresBranch keep the same roles,
+// authentication group and relay target.
 func (s PostgresAccessSpec) PhysicalName() string {
 	if s.PostgresBranch != "" {
 		return s.PostgresBranch

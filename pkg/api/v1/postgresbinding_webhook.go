@@ -10,7 +10,7 @@ import (
 )
 
 // PostgresBindingValidator enforces immutable binding identity. Admin credentials
-// may be consumed by multiple bindings; the branch owns the app role and certificate.
+// may be consumed by multiple bindings; the Postgres owns the app role and certificate.
 // +kubebuilder:object:generate=false
 type PostgresBindingValidator struct{}
 

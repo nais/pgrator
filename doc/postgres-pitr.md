@@ -4,7 +4,7 @@
 
 PITR creates a new, independent Postgres from an existing source in the same team
 and environment. The caller supplies a distinct new name and an explicit UTC
-target time. It does not modify the source, activate a branch, or reconnect any
+target time. It does not modify the source or reconnect any
 applications. Disaster recovery after source deletion and cross-environment
 recovery are outside this first version.
 

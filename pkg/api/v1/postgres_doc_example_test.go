@@ -27,6 +27,8 @@ var ignoredPostgresFields = []string{
 	`.ObjectMeta.SelfLink`,
 	`.ObjectMeta.UID`,
 	`.Status`,
+	// Deprecated, not advertised in the example.
+	`.Spec.ActiveBranch`,
 }
 
 // Test that the example Postgres contains examples for all fields encountered.

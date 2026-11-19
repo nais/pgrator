@@ -67,8 +67,8 @@ type PostgresBindingSpec struct {
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
-	// Branch pins access to a local branch of Postgres. Omitted follows the
-	// observed active branch. An unavailable explicit branch never falls back.
+	// Branch is deprecated: branches were retired. Only `main` (or empty) is
+	// accepted; the field is kept so existing manifests stay valid.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63

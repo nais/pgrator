@@ -28,6 +28,8 @@ var ignoredPostgresBindingFields = []string{
 	`.ObjectMeta.SelfLink`,
 	`.ObjectMeta.UID`,
 	`.Status`,
+	// Deprecated, not advertised in the example.
+	`.Spec.Branch`,
 }
 
 // Test that the example PostgresBinding contains examples for all fields encountered.

@@ -256,7 +256,7 @@ func TestUpdateRetainsConfigSecretWhenSnapshotNil(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	initscheme.InitScheme(testScheme)
 	r := &PostgresBindingReconciler{Recorder: recorder, Scheme: testScheme}
-	prepared := PostgresBindingPreparedData{Branch: "orders-restore"}
+	prepared := PostgresBindingPreparedData{PhysicalName: "orders-restore"}
 
 	t.Run("claims existing config Secret", func(t *testing.T) {
 		related := relatedobjectsmap.NewRelatedObjectsMap(testScheme)
@@ -296,7 +296,7 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	related.Insert(previous)
 	related.Insert(removedCredential)
 
-	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{Branch: "orders-restored"}, related)
+	actions, _, err := (&PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}).Update(binding, PostgresBindingPreparedData{PhysicalName: "orders-restored"}, related)
 	requireNoError(t, err)
 	foundPrevious := false
 	foundRevocation := false
