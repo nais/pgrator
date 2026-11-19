@@ -12,6 +12,7 @@ import (
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/postgresmonitoring"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
@@ -136,6 +137,14 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		}
 		for _, condition := range clusterConditionGetter(p.Cluster, r.Scheme) {
 			pg.Status.SetCondition(condition)
+		}
+		// One-way milestone for alerting: later outages must not make an
+		// established database look like one that is still provisioning.
+		if recoveryComplete(p.Cluster) && !meta.IsStatusConditionTrue(pg.Status.Conditions, rcmonitoring.InitializedCondition) {
+			pg.Status.SetCondition(metav1.Condition{
+				Type: rcmonitoring.InitializedCondition, Status: metav1.ConditionTrue, Reason: "ClusterReadyObserved",
+				Message: string(p.Cluster.UID), ObservedGeneration: pg.Generation,
+			})
 		}
 	}
 	if r.legacy().walArchivingEnabled() {
@@ -285,7 +294,7 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 		// physical child may be created until the reservation is observed.
 		return append(actions, newAcceptPostgresRecovery(pg)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
-	alerts, err := newEnsurePostgresAlerts(pg)
+	alerts, err := newEnsurePostgresAlerts(pg, r.alertOptions())
 	if err != nil {
 		return nil, ctrl.Result{}, err
 	}
@@ -384,7 +393,14 @@ func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPre
 		r.Recorder.RecordEvent(pg, corev1.EventTypeWarning, "DeleteBlocked", "recovery databases still depend on this archive: %v", p.BlockingRecoveries)
 		return nil, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
-	var actions []action.Action
+	alerts, err := newEnsurePostgresAlerts(pg, r.alertOptions())
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	// Remove the database from alerting now; release ownership of the shared
+	// rule only once its physical resources are gone.
+	alerts.keepOwner = len(p.Children) > 0
+	actions := []action.Action{alerts}
 	for _, child := range p.Children {
 		if child.GetDeletionTimestamp().IsZero() {
 			actions = append(actions, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
@@ -393,9 +409,5 @@ func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPre
 	if len(p.Children) > 0 {
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
-	alerts, err := newEnsurePostgresAlerts(pg)
-	if err != nil {
-		return nil, ctrl.Result{}, err
-	}
-	return []action.Action{alerts}, ctrl.Result{}, nil
+	return actions, ctrl.Result{}, nil
 }

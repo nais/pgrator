@@ -19,11 +19,11 @@ func TestPostgresAlertsNamespaceLifecycle(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
 	first := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team", UID: "first", Finalizers: []string{"test"}}}
-	second := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "analytics", Namespace: "team", UID: "second", Finalizers: []string{"test"}}}
+	second := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "analytics", Namespace: "team", UID: "second", Finalizers: []string{"test"}}, Spec: v1.PostgresSpec{HighAvailability: true}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(first, second).Build()
 	ensure := func(pg *v1.Postgres) {
 		t.Helper()
-		a, err := newEnsurePostgresAlerts(pg)
+		a, err := newEnsurePostgresAlerts(pg, rcmonitoring.Options{})
 		requireNoError(t, err)
 		requireNoError(t, a.Do(t.Context(), c, scheme, nil))
 	}
@@ -40,6 +40,10 @@ func TestPostgresAlertsNamespaceLifecycle(t *testing.T) {
 	if len(rule.OwnerReferences) != 2 {
 		t.Fatal("rule must be shared by both databases")
 	}
+	inventory := rule.Spec.Groups[0]
+	if inventory.Name != "nais-postgres-inventory" {
+		t.Fatal("databases must have inventory even without pods")
+	}
 	initialVersion := rule.ResourceVersion
 	ensure(first)
 	if get().ResourceVersion != initialVersion {
@@ -48,7 +52,7 @@ func TestPostgresAlertsNamespaceLifecycle(t *testing.T) {
 	rule.Spec.Groups = nil
 	requireNoError(t, c.Update(t.Context(), rule))
 	ensure(first)
-	defaults, err := rcmonitoring.Rule(first.Namespace)
+	defaults, err := rcmonitoring.Rule(first.Namespace, rcmonitoring.Options{}, *first, *second)
 	requireNoError(t, err)
 	if diff := cmp.Diff(defaults.Spec, get().Spec); diff != "" {
 		t.Fatalf("defaults not reconciled: %s", diff)
@@ -57,8 +61,14 @@ func TestPostgresAlertsNamespaceLifecycle(t *testing.T) {
 	requireNoError(t, c.Delete(t.Context(), first))
 	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(first), first))
 	ensure(first)
-	if owners := get().OwnerReferences; len(owners) != 1 || owners[0].UID != second.UID {
+	rule = get()
+	if owners := rule.OwnerReferences; len(owners) != 1 || owners[0].UID != second.UID {
 		t.Fatalf("first deletion must retain the shared rule: %v", owners)
+	}
+	for _, record := range rule.Spec.Groups[0].Rules {
+		if record.Labels["postgres"] != second.Name {
+			t.Fatal("intentional deletion must remove the database from alert inventory")
+		}
 	}
 	first.Finalizers = nil
 	requireNoError(t, c.Update(t.Context(), first))
