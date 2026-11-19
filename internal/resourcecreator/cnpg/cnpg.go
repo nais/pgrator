@@ -815,9 +815,9 @@ func makePostgresParameters(memory resource.Quantity, autoExplain bool) map[stri
 	}
 	if autoExplain {
 		// CNPG manages preloading auto_explain when these parameters are present.
-		parameters["auto_explain.log_min_duration"] = "500ms"
+		parameters["auto_explain.log_min_duration"] = "1s"
 		parameters["auto_explain.log_analyze"] = "on"
-		parameters["auto_explain.log_timing"] = "on"
+		parameters["auto_explain.log_timing"] = "off"
 		parameters["auto_explain.log_buffers"] = "on"
 		parameters["auto_explain.log_format"] = "json"
 		parameters["auto_explain.log_parameter_max_length"] = "0"
