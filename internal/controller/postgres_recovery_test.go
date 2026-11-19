@@ -14,7 +14,10 @@ import (
 	iamcnrm "github.com/nais/pgrator/internal/thirdparty/google/iam/v1beta1"
 	storagecnrm "github.com/nais/pgrator/internal/thirdparty/google/storage/v1beta1"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -441,4 +444,22 @@ func TestRecoveredDatabasePersonalAccessUsesNewAuthenticationGroup(t *testing.T)
 		}
 	}
 	t.Fatal("no personal DatabaseRole planned")
+}
+
+func failedRecoveryJob(t *testing.T, scheme *runtime.Scheme, cluster *cnpgv1.Cluster) *batchv1.Job {
+	t.Helper()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cluster.Name + "-1-full-recovery", Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				recoveryJobRoleLabel: recoveryJobRole, recoveryJobClusterLabel: cluster.Name,
+			},
+		},
+		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{
+			Type: batchv1.JobFailed, Status: corev1.ConditionTrue,
+			Reason: "BackoffLimitExceeded",
+		}}},
+	}
+	requireNoError(t, controllerutil.SetControllerReference(cluster, job, scheme))
+	return job
 }

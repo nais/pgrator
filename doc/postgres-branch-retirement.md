@@ -33,14 +33,14 @@ including when the parent is deleting.
   database identities (`name`, database `app`, environment/team/type) are unchanged.
 - Console's generated schema and query regression cover the contracted schema.
 
-### Internal cleanup still outstanding
+### Internal cleanup
 
-Retiring these contracts is not the same as purging every branch-named helper.
-The operator's direct physical renderer still uses the old branch-shaped Go
-identity. The type no longer generates a CRD, but the historical controller
-tests still need it and a test-only archived CRD under `testdata/legacy-crds`.
-The normal production manifest directories do not contain this fixture. The
-isolated direct-controller envtest explicitly verifies the branch CRD is absent.
+Done in pgrator: the unregistered `PostgresReconciler` and `PostgresBranchReconciler`,
+the unused adoption action and the test-only archived CRD are removed. The physical
+renderer (`internal/controller/postgres_physical.go`) takes a plain physical
+identity instead of a `PostgresBranch`; the former branch golden cases now run
+against the direct reconciler. The `PostgresBranch` type remains in `pkg/api`
+only for API-module consumers.
 
 The API also still has internal main-view/readiness helpers and legacy physical
 reference decoding for immutable personal accesses. These must be disentangled

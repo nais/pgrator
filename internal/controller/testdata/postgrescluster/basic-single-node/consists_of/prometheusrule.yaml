@@ -1,0 +1,9 @@
+# Namespace alerts shared by the namespace's databases.
+action: ensurePostgresAlerts
+matcher: Subset
+object:
+  apiVersion: monitoring.coreos.com/v1
+  kind: PrometheusRule
+  metadata:
+    name: nais-postgres-alerts
+    namespace: myteam

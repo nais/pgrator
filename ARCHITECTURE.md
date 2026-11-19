@@ -113,7 +113,7 @@ pgrator/
 - CRD YAMLs are auto-copied into `charts/pgrator/templates/crd/` with a `helm.sh/resource-policy: keep` annotation.
 
 ### Naming patterns
-- Controllers follow the `{Resource}Reconciler` naming (e.g., `PostgresReconciler`).
+- Controllers follow the `{Resource}Reconciler` naming (e.g., `PostgresClusterReconciler`).
 - Each reconciler implements the generic `reconciler.Reconciler[T, P]` interface.
 - Resource creator functions live in `internal/resourcecreator/` and are named `Create{Thing}` / `Minimal{Thing}`.
 - Action constructors are verb functions: `action.Create`, `action.Update`, `action.DeleteIfExists`, `action.Claim`, `action.Unclaim`, `action.Recreate`, `action.NoOp`.
@@ -207,8 +207,8 @@ Helm chart exposes most of these via `charts/pgrator/values.yaml`.
 | Pattern                                                                                                                                                                    | Evidence                                                                                  |
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
 | **Generic reconciler via `Synchronizer[T, P]`**: resource controllers plug into the same generic synchronizer; resource-specific logic is in `Prepare`/`Update`/`Delete`. | `internal/synchronizer/synchronizer.go`, `internal/synchronizer/reconciler/reconciler.go` |
-| **Action objects**: all mutations are expressed as `action.Action` values — none executed inline in reconcilers.                                                           | `internal/synchronizer/action/action.go`, `internal/controller/postgres_controller.go`    |
-| **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgres_controller.go:57`, `valkey_controller.go:35`                |
+| **Action objects**: all mutations are expressed as `action.Action` values — none executed inline in reconcilers.                                                           | `internal/synchronizer/action/action.go`, `internal/controller/postgrescluster_controller.go`|
+| **Compile-time interface checks**: `var _ reconciler.Reconciler[...] = &XxxReconciler{}` in every controller file.                                                         | `internal/controller/postgrescluster_controller.go`, `valkey_controller.go`             |
 | **Wrapped errors with context**: `fmt.Errorf("...: %w", err)` throughout.                                                                                                  | `internal/synchronizer/synchronizer.go`  |
 | **Structured logging via `logr`/`zap`**: no `fmt.Print*` in production paths; uses `ctrl.Log` / `logf.FromContext(ctx)`.                                                   | `cmd/main.go:58`, `internal/synchronizer/synchronizer.go:93`                              |
 | **Golden-file tests**: test cases are data-driven YAML directories; adding a test means adding a directory.                                                                | `internal/controller/suite_test.go`, `internal/controller/testdata/`                      |
