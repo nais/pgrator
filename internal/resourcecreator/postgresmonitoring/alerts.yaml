@@ -1,0 +1,305 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nais-postgres-alerts
+spec:
+  groups:
+    - name: nais-postgres-volumes
+      rules:
+        # Map each PVC to its pod via the pod spec, not by assuming the PVC is named
+        # after the pod. This also covers separate WAL/tablespace volumes.
+        - record: nais_postgres_volume_usage_ratio
+          expr: |
+            (
+              max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace="__NAMESPACE__"})
+              / on (namespace, persistentvolumeclaim)
+              (max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{namespace="__NAMESPACE__"}) > 0)
+            )
+            * on (namespace, persistentvolumeclaim) group_right()
+            group by (namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="__NAMESPACE__"})
+            * on (namespace, pod) group_left (postgres)
+            group by (namespace, pod, postgres) (up{namespace="__NAMESPACE__", postgres!=""})
+        - record: nais_postgres_volume_available_bytes
+          expr: |
+            max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_available_bytes{namespace="__NAMESPACE__"})
+            * on (namespace, persistentvolumeclaim) group_right()
+            group by (namespace, pod, persistentvolumeclaim) (kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="__NAMESPACE__"})
+            * on (namespace, pod) group_left (postgres)
+            group by (namespace, pod, postgres) (up{namespace="__NAMESPACE__", postgres!=""})
+
+    - name: nais-postgres-instances
+      rules:
+        - alert: PostgresClusterIsDown
+          expr: |
+            (nais_postgres_initialized_timestamp_seconds{namespace="__NAMESPACE__"} > 0)
+            unless on (namespace, postgres)
+            (
+              (cnpg_collector_up{namespace="__NAMESPACE__", postgres!=""} == 1)
+              unless on (namespace, pod) (cnpg_collector_fencing_on{namespace="__NAMESPACE__"} == 1)
+            )
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` is down
+            description: No unfenced instance of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` reports a healthy database. This also fires when no pods or metrics remain at all.
+            action: "Check pod status and events, primary/failover status and fencing in the namespace."
+
+        - alert: PostgresMissingClusterInstance
+          expr: |
+            (
+              count by (namespace, postgres) (
+                (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 1)
+                and on (namespace, postgres, pod)
+                (max by (namespace, postgres, pod) (cnpg_pg_replication_is_wal_receiver_up{namespace="__NAMESPACE__", postgres!=""}) == 1)
+              )
+              or on (namespace, postgres)
+              (0 * nais_postgres_desired_instances{namespace="__NAMESPACE__"})
+            )
+            < on (namespace, postgres) (nais_postgres_desired_instances{namespace="__NAMESPACE__"} - 1)
+            and on (namespace, postgres) (nais_postgres_initialized_timestamp_seconds{namespace="__NAMESPACE__"} > 0)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` is missing replicas
+            description: Only {{ $value }} standby pod(s) of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` are receiving WAL, fewer than configured. Logical replication clients are not counted.
+            action: "Check pod status, pending PVCs, WAL receiver state and replica logs."
+
+        - alert: PostgresReplicationLagHigh
+          expr: |
+            (max by (namespace, postgres, pod) (cnpg_pg_replication_lag{namespace="__NAMESPACE__", postgres!=""}) > 30)
+            and on (namespace, postgres, pod)
+            (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 1)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` replication lag is high on `{{ $labels.pod }}`
+            description: Replica `{{ $labels.pod }}` of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} behind in replaying WAL.
+            action: "Investigate the replica's disk/CPU pressure, recovery conflicts and network connectivity."
+
+        - alert: PostgresConnectionSaturation
+          expr: |
+            max by (namespace, postgres) (
+              sum by (namespace, postgres, pod) (
+                max by (namespace, postgres, pod, datname, state, user, application_name, backend_type, wait_event_type, wait_event) (
+                  cnpg_pg_stat_activity_count{namespace="__NAMESPACE__", postgres!="", backend_type="client backend"}
+                )
+              )
+              / on (namespace, postgres, pod)
+              (
+                max by (namespace, postgres, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", postgres!="", name="max_connections"})
+                - on (namespace, postgres, pod)
+                max by (namespace, postgres, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", postgres!="", name="superuser_reserved_connections"})
+                - on (namespace, postgres, pod)
+                max by (namespace, postgres, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", postgres!="", name="reserved_connections"})
+                > 0
+              )
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` connections near limit
+            description: PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` uses {{ $value | humanizePercentage }} of the connections available to ordinary clients (max_connections minus reserved slots).
+            action: "Review connections per application, connection leaks and pool sizes. Check memory impact before raising max_connections."
+
+        - alert: PostgresMemoryUsageHigh
+          expr: |
+            max by (namespace, pod) (container_memory_working_set_bytes{namespace="__NAMESPACE__", container="postgres"})
+            / on (namespace, pod)
+            max by (namespace, pod) (kube_pod_container_resource_limits{namespace="__NAMESPACE__", container="postgres", resource="memory"} > 0)
+            * on (namespace, pod) group_left (postgres)
+            group by (namespace, pod, postgres) (up{namespace="__NAMESPACE__", postgres!=""})
+            > 0.9
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` memory usage is high
+            description: Memory usage for `{{ $labels.pod }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} of its limit.
+            action: "Investigate memory usage (connections, work_mem, large sorts/hashes) or increase the memory of the Postgres resource."
+
+        - alert: PostgresCpuAboveRequest
+          expr: |
+            max by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace="__NAMESPACE__", container="postgres"}[5m]))
+            / on (namespace, pod)
+            max by (namespace, pod) (kube_pod_container_resource_requests{namespace="__NAMESPACE__", container="postgres", resource="cpu"} > 0)
+            * on (namespace, pod) group_left (postgres)
+            group by (namespace, pod, postgres) (up{namespace="__NAMESPACE__", postgres!=""})
+            > 1.5
+          for: 30m
+          labels:
+            severity: info
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` CPU usage is above its request
+            description: CPU usage for `{{ $labels.pod }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} of its request. There is no CPU limit, so this is a capacity hint, not throttling.
+            action: "Review query load and latency; increase the CPU request of the Postgres resource if this is the normal load."
+
+        - alert: PostgresDiskCriticallyLow
+          expr: |
+            (nais_postgres_volume_usage_ratio{namespace="__NAMESPACE__"} > 0.99)
+            or
+            (
+              (nais_postgres_volume_usage_ratio{namespace="__NAMESPACE__"} > 0.95)
+              and on (namespace, pod, persistentvolumeclaim)
+              (nais_postgres_volume_available_bytes{namespace="__NAMESPACE__"} < 1073741824)
+            )
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk is almost full
+            description: Disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} full.
+            action: "Increase the disk size of the Postgres resource; check WAL retention, archiving and temporary files. Never delete files in pg_wal or PGDATA."
+
+        - alert: PostgresDiskUsageHigh
+          expr: nais_postgres_volume_usage_ratio{namespace="__NAMESPACE__"} > 0.9
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk usage is high
+            description: Disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` is {{ $value | humanizePercentage }} full.
+            action: "Increase the disk size of the Postgres resource."
+
+        - alert: PostgresWALArchivingStalled
+          expr: |
+            (max by (namespace, postgres, pod) (cnpg_collector_pg_wal_archive_status{namespace="__NAMESPACE__", postgres!="", value="ready"}) > 0)
+            and on (namespace, postgres, pod)
+            (
+              (max by (namespace, postgres, pod) (cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="__NAMESPACE__", postgres!=""}) > 900)
+              or
+              (max by (namespace, postgres, pod) (cnpg_pg_stat_archiver_last_archived_time{namespace="__NAMESPACE__", postgres!=""}) <= 0)
+            )
+            and on (namespace, postgres, pod)
+            (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 0)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` WAL archiving is stalled
+            description: WAL for PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is waiting to be archived, and nothing has been archived for over 15 minutes.
+            action: "Check Barman plugin errors, backup bucket permissions, Workload Identity and network connectivity."
+
+        - alert: PostgresBackupStale
+          expr: |
+            time() - (
+              max by (namespace, postgres) (
+                barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!=""}
+              ) > 0
+            ) > 129600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` backup is stale
+            description: The last successful backup of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} old. Backups run nightly.
+            action: "Verify scheduled backups, the Barman plugin and backup bucket access."
+
+        - alert: PostgresNoWritablePrimary
+          expr: |
+            group by (namespace, postgres) (
+              (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 1)
+              and on (namespace, pod) (cnpg_collector_up{namespace="__NAMESPACE__"} == 1)
+            )
+            unless on (namespace, postgres)
+            (
+              (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 0)
+              and on (namespace, pod) (cnpg_collector_up{namespace="__NAMESPACE__"} == 1)
+              unless on (namespace, pod) (cnpg_collector_fencing_on{namespace="__NAMESPACE__"} == 1)
+            )
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` has no writable primary
+            description: Standbys of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` are healthy, but no instance is a healthy, unfenced primary. Writes fail.
+            action: "Check CNPG primary election, fencing and failover status, and pod events of the former primary."
+
+        - alert: PostgresDiskFillingUp
+          expr: |
+            (predict_linear(nais_postgres_volume_available_bytes{namespace="__NAMESPACE__"}[6h], 4 * 3600) < 0)
+            and on (namespace, pod, persistentvolumeclaim)
+            (nais_postgres_volume_usage_ratio{namespace="__NAMESPACE__"} > 0.7)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk is filling up
+            description: At the growth rate of the last 6 hours, disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` fills up within 4 hours.
+            action: "Check what is growing (data, WAL, temporary files) and increase the disk size of the Postgres resource if the growth is expected."
+
+        - alert: PostgresBackupNeverSucceeded
+          expr: |
+            max by (namespace, postgres) (
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!=""}
+            ) == 0
+          for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` has never been backed up
+            description: No successful backup of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` has been reported for 24 hours. The first backup normally runs right after creation.
+            action: "Check the ScheduledBackup and Backup status, the Barman plugin and backup bucket access."
+
+        - alert: PostgresQueryMetricsMissing
+          expr: |
+            group by (namespace, postgres, pod) (
+              (cnpg_collector_up{namespace="__NAMESPACE__", postgres!=""} == 1)
+              unless on (namespace, pod) (cnpg_collector_fencing_on{namespace="__NAMESPACE__"} == 1)
+            )
+            unless on (namespace, postgres, pod)
+            (
+              group by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__"})
+              and on (namespace, postgres, pod) group by (namespace, postgres, pod) (cnpg_pg_stat_activity_count{namespace="__NAMESPACE__"})
+              and on (namespace, postgres, pod) group by (namespace, postgres, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", name="max_connections"})
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` is missing monitoring metrics
+            description: Instance `{{ $labels.pod }}` in `{{ $labels.namespace }}` is up, but replication, activity or settings metrics are missing, so replica and connection alerts cannot evaluate.
+            action: "Check the CNPG monitoring query ConfigMap and exporter errors for the instance."
+
+        - alert: PostgresProvisioningTooLong
+          expr: |
+            (time() - (nais_postgres_created_timestamp_seconds{namespace="__NAMESPACE__"} > 0) > 3600)
+            and on (namespace, postgres) (nais_postgres_initialized_timestamp_seconds{namespace="__NAMESPACE__"} == 0)
+            and on (namespace, postgres) (nais_postgres_recovery_requested{namespace="__NAMESPACE__"} == 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` has not finished provisioning
+            description: PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` has not become ready more than an hour after creation.
+            action: "Check pgrator reconcile errors on the Postgres resource, CNPG bootstrap status, scheduling and PVC provisioning."
+
+        - alert: PostgresRecoveryTooLong
+          expr: |
+            (time() - (nais_postgres_created_timestamp_seconds{namespace="__NAMESPACE__"} > 0) > 21600)
+            and on (namespace, postgres) (nais_postgres_initialized_timestamp_seconds{namespace="__NAMESPACE__"} == 0)
+            and on (namespace, postgres) (nais_postgres_recovery_requested{namespace="__NAMESPACE__"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` point-in-time recovery has not completed
+            description: The recovery of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` has not become ready after six hours. Large restores can legitimately take longer.
+            action: "Check the RecoveryFailed condition, CNPG recovery job logs, source archive access and WAL replay progress."
+
+        - alert: PostgresBackupMetricsMissing
+          expr: |
+            (nais_postgres_backup_enabled{namespace="__NAMESPACE__"} == 1)
+            and on (namespace, postgres) (nais_postgres_initialized_timestamp_seconds{namespace="__NAMESPACE__"} > 0)
+            unless on (namespace, postgres)
+            barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!=""}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` backup status is unknown
+            description: Backups are enabled for PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}`, but no backup metrics are reported, so stale or missing backups would go unnoticed.
+            action: "Check the Barman plugin, ObjectStore access and the instance's metrics."

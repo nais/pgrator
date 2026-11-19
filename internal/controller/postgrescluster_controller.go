@@ -12,6 +12,7 @@ import (
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
+	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/postgresmonitoring"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/events"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
@@ -45,9 +46,13 @@ type PostgresClusterReconciler struct {
 }
 
 type PostgresClusterPreparedData struct {
-	Cluster   *cnpgv1.Cluster `yaml:"cluster,omitempty"`
-	Children  []client.Object `yaml:"-"`
-	ProjectID string          `yaml:"projectID,omitempty"`
+	Cluster                   *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
+	Children                  []client.Object        `yaml:"-"`
+	ProjectID                 string                 `yaml:"projectID,omitempty"`
+	RecoverySource            *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
+	RecoverySourceReady       bool                   `yaml:"recoverySourceReady,omitempty"`
+	BlockingRecoveries        []string               `yaml:"blockingRecoveries,omitempty"`
+	RecoveryAdmissionRequired bool                   `yaml:"recoveryAdmissionRequired,omitempty"`
 }
 
 var _ reconciler.Reconciler[*v1.Postgres, PostgresClusterPreparedData] = &PostgresClusterReconciler{}
@@ -66,7 +71,7 @@ func (r *PostgresClusterReconciler) AdditionalTypes() []client.Object { return n
 // list no longer mentions them. Delete uses a fresh, explicit ownership inventory.
 func (r *PostgresClusterReconciler) PruneUnreferenced() bool { return false }
 func (r *PostgresClusterReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
-	return nil
+	return []reconciler.RelationshipWatch{postgresAlertsWatch()}
 }
 func (r *PostgresClusterReconciler) MetricsLabels(pg *v1.Postgres) map[string]string {
 	return (&PostgresReconciler{}).MetricsLabels(pg)
@@ -107,13 +112,18 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 	}
 	if !pg.DeletionTimestamp.IsZero() {
 		// Explicit deletion is supported only after the transfer guard above.
-		return p, ctrl.Result{}, nil
+		p.BlockingRecoveries, err = blockingPostgresRecoveries(ctx, reader, pg)
+		return p, ctrl.Result{}, err
+	}
+	if err := pruneRecoveryAdmissions(ctx, reader, pg); err != nil {
+		return p, ctrl.Result{}, err
 	}
 	if err := prepareOwnershipJournal(pg, p); err != nil {
 		return p, ctrl.Result{}, err
 	}
 	journal := pg.Status.Ownership
-	if err := r.checkInventory(journal, children); err != nil {
+	inventory := slices.DeleteFunc(slices.Clone(children), func(child client.Object) bool { return isPostgresRecoveryGrant(pg, child) })
+	if err := r.checkInventory(journal, inventory); err != nil {
 		return p, ctrl.Result{}, err
 	}
 	if p.Cluster != nil {
@@ -128,6 +138,14 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		for _, condition := range clusterConditionGetter(p.Cluster, r.Scheme) {
 			pg.Status.SetCondition(condition)
 		}
+		// One-way milestone for alerting: later outages must not make an
+		// established database look like one that is still provisioning.
+		if recoveryComplete(p.Cluster) && !meta.IsStatusConditionTrue(pg.Status.Conditions, rcmonitoring.InitializedCondition) {
+			pg.Status.SetCondition(metav1.Condition{
+				Type: rcmonitoring.InitializedCondition, Status: metav1.ConditionTrue, Reason: "ClusterReadyObserved",
+				Message: string(p.Cluster.UID), ObservedGeneration: pg.Generation,
+			})
+		}
 	}
 	if r.legacy().walArchivingEnabled() {
 		namespace := &corev1.Namespace{}
@@ -141,6 +159,9 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		if p.ProjectID == "" {
 			return p, ctrl.Result{}, fmt.Errorf("namespace %q has no Google project identity", pg.Namespace)
 		}
+	}
+	if err := r.prepareDirectRecovery(ctx, reader, pg, &p); err != nil {
+		return p, ctrl.Result{}, err
 	}
 	return p, ctrl.Result{}, nil
 }
@@ -266,9 +287,24 @@ func (r *PostgresClusterReconciler) checkInventory(journal *v1.PostgresOwnership
 }
 
 func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	actions := []action.Action{&protectPostgres{postgres: pg}}
+	actions := make([]action.Action, 0, 2)
+	actions = append(actions, &protectPostgres{postgres: pg})
+	if p.RecoveryAdmissionRequired {
+		// Persist target cleanup responsibility before reserving the source. No
+		// physical child may be created until the reservation is observed.
+		return append(actions, newAcceptPostgresRecovery(pg)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	alerts, err := newEnsurePostgresAlerts(pg, r.alertOptions())
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions = append(actions, alerts)
 	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Annotations: maps.Clone(pg.Annotations)}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: v1.DefaultBranchName}}
-	planned, result, err := r.legacy().physicalActions(identity, pg, PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID}, related)
+	prepared := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
+	if p.Cluster != nil {
+		prepared.RecoveryClusterUID = p.Cluster.UID
+	}
+	planned, result, err := r.legacy().physicalActions(identity, pg, prepared, related)
 	if err != nil {
 		return nil, result, err
 	}
@@ -305,6 +341,20 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 			}
 		}
 	}
+	// Do not revoke access in the same pass that removes CNPG's source inputs:
+	// wait until the actual Cluster confirms they are gone.
+	if recoveryFinished(pg, p.Cluster) && p.Cluster.Spec.Bootstrap != nil && p.Cluster.Spec.Bootstrap.Recovery == nil && len(p.Cluster.Spec.ExternalClusters) == 0 {
+		for _, child := range p.Children {
+			if isPostgresRecoveryGrant(pg, child) && child.GetDeletionTimestamp().IsZero() {
+				planned = append(planned, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
+			}
+		}
+	}
+	if pg.Spec.Recovery != nil && !recoveryFinished(pg, p.Cluster) || pg.Annotations[recoveryAdmissionsAnnotation] != "" {
+		// CNPG's Job status can change without a Cluster update. Poll while
+		// bootstrapping as well as reacting to the ordinary owned-resource watches.
+		result.RequeueAfter = 10 * time.Second
+	}
 	return append(actions, planned...), result, nil
 }
 
@@ -339,7 +389,18 @@ func (a *protectPostgres) Do(ctx context.Context, c client.Client, _ *runtime.Sc
 }
 
 func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	var actions []action.Action
+	if len(p.BlockingRecoveries) > 0 {
+		r.Recorder.RecordEvent(pg, corev1.EventTypeWarning, "DeleteBlocked", "recovery databases still depend on this archive: %v", p.BlockingRecoveries)
+		return nil, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	alerts, err := newEnsurePostgresAlerts(pg, r.alertOptions())
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	// Remove the database from alerting now; release ownership of the shared
+	// rule only once its physical resources are gone.
+	alerts.keepOwner = len(p.Children) > 0
+	actions := []action.Action{alerts}
 	for _, child := range p.Children {
 		if child.GetDeletionTimestamp().IsZero() {
 			actions = append(actions, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
@@ -348,5 +409,5 @@ func (r *PostgresClusterReconciler) Delete(pg *v1.Postgres, p PostgresClusterPre
 	if len(p.Children) > 0 {
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
-	return nil, ctrl.Result{}, nil
+	return actions, ctrl.Result{}, nil
 }

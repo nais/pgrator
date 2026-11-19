@@ -94,6 +94,14 @@ Execution statistics add instrumentation overhead even for statements below the
 logging threshold. Parameter values are hidden, but SQL text and plans can still
 contain sensitive literals.
 
+#### Namespace alerts
+
+Pgrator reconciles one `PrometheusRule`, `nais-postgres-alerts`, in each namespace
+with a Postgres. All databases in the namespace share it; removing one database
+keeps the rule, and deleting the last removes it. Changes to platform alert
+expressions and thresholds overwrite local rule edits.
+>>>>>>> main
+
 #### Workload private-key formats
 
 Each `PostgresBinding` connection Secret contains `ca.crt` and, for every requested
@@ -187,15 +195,15 @@ Implementation entry points:
 
 ## Dashboards
 
-The [Postgres dashboards](dashboards/README.md) have component-owned Jsonnet sources,
+The [Postgres dashboards](grafana/README.md) have component-owned Jsonnet sources,
 generated Grafana resources and a separate, credential-free validation workflow.
-Run `make -C dashboards install check`; operator tooling and cluster access are not
-required. [Manual Git Sync setup](dashboards/MIGRATION.md) documents the central
+Run `make -C grafana install check`; operator tooling and cluster access are not
+required. [Manual Git Sync setup](grafana/MIGRATION.md) documents the central
 connection to `main`. No provisioning Job or Helm release is needed.
 
 ## CI/CD
 
-GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`. Changes confined to `dashboards/**`, its workflow and existing ignored Markdown paths skip this pipeline and use `Dashboard checks` instead.
+GitHub Actions runs the repository's mise checks and tests and publishes image and Helm chart artifacts for non-Dependabot branch pushes. Deployment via Fasit remains restricted to `main`. Changes confined to `grafana/**`, its workflow and existing ignored Markdown paths skip this pipeline and use `Dashboard checks` instead.
 
 Pull requests also run E2E tests in a [kind](https://kind.sigs.k8s.io/) cluster using [Chainsaw](https://github.com/kyverno/chainsaw), via the `mise run test:ci` task. The same dashboard-only exclusion applies; mixed operator/dashboard changes still run E2E.
 

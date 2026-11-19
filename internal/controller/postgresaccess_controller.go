@@ -141,7 +141,7 @@ func (r *PostgresAccessReconciler) RelationshipWatches() []reconciler.Relationsh
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldCluster, oldOK := e.ObjectOld.(*cnpgv1.Cluster)
 				newCluster, newOK := e.ObjectNew.(*cnpgv1.Cluster)
-				return oldOK && newOK && (recoveryComplete(oldCluster) != recoveryComplete(newCluster) || rccnpg.ReadWriteCreateCapable(oldCluster) != rccnpg.ReadWriteCreateCapable(newCluster) || !reflect.DeepEqual(oldCluster.OwnerReferences, newCluster.OwnerReferences) || oldCluster.DeletionTimestamp.IsZero() != newCluster.DeletionTimestamp.IsZero())
+				return oldOK && newOK && (recoveryComplete(oldCluster) != recoveryComplete(newCluster) || rccnpg.ReadWriteCreateCapable(oldCluster) != rccnpg.ReadWriteCreateCapable(newCluster) || oldCluster.Annotations[rccnpg.PersonalAccessGroupAnnotation] != newCluster.Annotations[rccnpg.PersonalAccessGroupAnnotation] || !reflect.DeepEqual(oldCluster.OwnerReferences, newCluster.OwnerReferences) || oldCluster.DeletionTimestamp.IsZero() != newCluster.DeletionTimestamp.IsZero())
 			},
 		},
 	}}
@@ -334,6 +334,14 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 	role, err := rcaccess.CreateDatabaseRole(r.Scheme, access, active)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
+	}
+	if active && prepared.Cluster != nil {
+		if group := prepared.Cluster.Annotations[rccnpg.PersonalAccessGroupAnnotation]; group != "" {
+			// The restored SQL state can contain old authentication groups. Only
+			// the new database incarnation's UID-bound group is accepted by HBA.
+			roles := role.Spec.InRoles
+			roles[len(roles)-1] = group
+		}
 	}
 	access.GetStatus().(*v1.PostgresAccessStatus).DatabaseRole = role.Spec.Name
 

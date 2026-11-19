@@ -8,9 +8,9 @@ object:
     name: myapp-mydb-mydb-main-6bc4781b-readwrite
     namespace: myteam
   spec:
+    databaseRoleReclaimPolicy: retain
     cluster:
       name: pg-mydb-main-6bc4781b
-    databaseRoleReclaimPolicy: delete
     name: myapp-readwrite
     login: true
     inRoles:

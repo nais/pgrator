@@ -11,12 +11,14 @@ import (
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/nais/pgrator/internal/config"
+	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/postgresmonitoring"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,6 +50,45 @@ func TestDirectOwnershipPreservesResourcesWithoutBranchAPI(t *testing.T) {
 				t.Fatal("lost managed ownership checkpoint")
 			}
 		})
+	}
+}
+
+func TestPostgresInitializedMilestoneSurvivesOutage(t *testing.T) {
+	r, c, pg, _, _ := directOwnershipFixture(t, false)
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(pg), pg))
+	cluster := &cnpgv1.Cluster{}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: pg.Status.ClusterName}, cluster))
+	var firstObserved metav1.Time
+	for _, state := range []struct {
+		ready bool
+		want  bool
+	}{{false, false}, {true, true}, {false, true}} {
+		ready := metav1.ConditionFalse
+		if state.ready {
+			ready = metav1.ConditionTrue
+		}
+		cluster.Status.Conditions = []metav1.Condition{
+			{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue},
+			{Type: string(cnpgv1.ConditionClusterReady), Status: ready},
+		}
+		requireNoError(t, c.Status().Update(t.Context(), cluster))
+		_, _, err := r.Prepare(t.Context(), c, pg)
+		requireNoError(t, err)
+		condition := meta.FindStatusCondition(pg.Status.Conditions, rcmonitoring.InitializedCondition)
+		if (condition != nil && condition.Status == metav1.ConditionTrue) != state.want {
+			t.Fatalf("ready=%t: wrong initialized milestone: %+v", state.ready, condition)
+		}
+		if state.want {
+			if condition.Message != string(cluster.UID) {
+				t.Fatal("initialized milestone is not pinned to the physical cluster")
+			}
+			if firstObserved.IsZero() {
+				firstObserved = condition.LastTransitionTime
+			} else if firstObserved.Unix() != condition.LastTransitionTime.Unix() {
+				t.Fatal("outage reset the initial-ready timestamp")
+			}
+		}
+		requireNoError(t, c.Status().Update(t.Context(), pg))
 	}
 }
 

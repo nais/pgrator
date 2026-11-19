@@ -44,9 +44,10 @@ var _ reconciler.Reconciler[*v1.PostgresBinding, PostgresBindingPreparedData] = 
 // PostgresBindingPreparedData contains the selected branch and, when all CNPG
 // source material is present, an internally consistent credential snapshot.
 type PostgresBindingPreparedData struct {
-	Branch      string `yaml:"branch"`
-	Unavailable bool   `yaml:"unavailable,omitempty"`
-	Snapshot    *bindingSnapshot
+	Branch          string `yaml:"branch"`
+	Unavailable     bool   `yaml:"unavailable,omitempty"`
+	Snapshot        *bindingSnapshot
+	MissingClusters map[string]bool `yaml:"missingClusters,omitempty"`
 }
 
 type bindingSnapshot struct {
@@ -238,20 +239,27 @@ func bindingRequests(bindings []v1.PostgresBinding) []reconcile.Request {
 // resolving the Postgres by name in the binding's own namespace is what enforces
 // that a team cannot bind to another team's database.
 func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.Reader, obj *v1.PostgresBinding) (PostgresBindingPreparedData, ctrl.Result, error) {
+	missing, err := missingRetiringBindingClusters(ctx, reader, obj)
+	if err != nil {
+		return PostgresBindingPreparedData{}, ctrl.Result{}, err
+	}
+	prepared := PostgresBindingPreparedData{MissingClusters: missing}
 	if !obj.DeletionTimestamp.IsZero() {
-		return PostgresBindingPreparedData{}, ctrl.Result{}, nil
+		return prepared, ctrl.Result{}, nil
 	}
 	postgres := &v1.Postgres{}
 	key := client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.Spec.Postgres}
 	if err := reader.Get(ctx, key, postgres); err != nil {
 		if apierrors.IsNotFound(err) {
-			return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+			prepared.Unavailable = true
+			return prepared, ctrl.Result{}, nil
 		}
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("getting Postgres %q: %w", obj.Spec.Postgres, err)
 	}
 
 	if !postgres.DeletionTimestamp.IsZero() {
-		return PostgresBindingPreparedData{Unavailable: true}, ctrl.Result{}, nil
+		prepared.Unavailable = true
+		return prepared, ctrl.Result{}, nil
 	}
 	instance, err := resolveBindingInstance(ctx, reader, obj, postgres)
 	if err != nil {
@@ -266,7 +274,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		// Preserve existing credentials until the controller publishes its target.
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("postgres %q has no observed physical cluster yet", postgres.Name)
 	}
-	prepared := PostgresBindingPreparedData{Branch: instance}
+	prepared.Branch = instance
 	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance)
 	if err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
@@ -527,7 +535,11 @@ func readSecretData(ctx context.Context, reader client.Reader, key client.Object
 }
 
 func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, relatedObjects reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	actions := make([]action.Action, 0, len(obj.Spec.Credentials)+3)
+	retired, retiring, err := r.retireBindingRoles(obj, relatedObjects, false, prepared.MissingClusters)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	actions := append([]action.Action{&protectPostgresBinding{binding: obj}}, retired...)
 	if prepared.Unavailable {
 		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "PostgresUnavailable", Message: "the Postgres database is missing, deleting or not provisioned yet", ObservedGeneration: obj.Generation})
 		// Withdraw stale connection Secrets and network access, but do not drop
@@ -620,23 +632,29 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 	}
 	actions = append(actions, action.ExclusiveCreateOrUpdate(egressNetpol, obj, existsConditionGetter, r.Recorder))
 
+	if retiring {
+		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "RevokingCredentials", Message: "waiting for removed credentials to be revoked by CloudNativePG", ObservedGeneration: obj.Generation})
+		return actions, ctrl.Result{RequeueAfter: time.Second}, nil
+	}
 	return actions, ctrl.Result{}, nil
 }
 
-// Delete relies on ownerReference garbage collection. Everything a binding creates
-// lives in the binding's own namespace, so there is nothing to clean up by hand.
-//
-// This is destructive by design: read and readwrite DatabaseRoles carry
-// databaseRoleReclaimPolicy: delete, so removing a binding runs DROP ROLE and
-// revokes that workload's access immediately. That is the intent — a binding is the
-// grant, so withdrawing it must withdraw the access.
-//
-// Admin bindings retain the durable owner role when their DatabaseRole is deleted,
-// while CloudNativePG garbage-collects the client certificate.
-//
-// DROP ROLE fails if the role still owns objects. Read and readwrite roles never
-// create objects, so this does not bite today, but a future writable role that owns
-// tables would need ownership reassigned before its binding can be deleted.
-func (r *PostgresBindingReconciler) Delete(_ *v1.PostgresBinding, _ PostgresBindingPreparedData, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
-	return nil, ctrl.Result{}, nil
+// Delete withdraws transport immediately, but retains the SQL identity. Wait for
+// confirmed revocation before deleting each Retain CR and releasing the binding.
+func (r *PostgresBindingReconciler) Delete(obj *v1.PostgresBinding, prepared PostgresBindingPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	actions, pending, err := r.retireBindingRoles(obj, related, true, prepared.MissingClusters)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	for _, typ := range []client.Object{&core_v1.Secret{}, &networking_v1.NetworkPolicy{}} {
+		for _, child := range related.GetMatchingType(typ) {
+			if metav1.IsControlledBy(child, obj) && child.GetDeletionTimestamp().IsZero() {
+				actions = append(actions, action.DeleteIfExists(child, obj, existsConditionGetter, r.Recorder))
+			}
+		}
+	}
+	if pending {
+		return actions, ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return actions, ctrl.Result{}, nil
 }

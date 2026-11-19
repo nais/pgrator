@@ -13,7 +13,7 @@ release, operator or component-CI access to Grafana.
 | Display name | `Nais monitoring` |
 | Public Git repository | `https://github.com/nais/pgrator.git` |
 | Branch | `main` |
-| Path | `dashboards/generated/` |
+| Path | `grafana/generated/` |
 | Sync | Read-only, 60-second polling |
 | Write workflows | Disabled / empty |
 | Webhooks | Disabled |
@@ -27,7 +27,7 @@ validates the files; it needs no production credentials.
 
 ## Dashboard changes
 
-Edit Jsonnet, compile and run `make -C dashboards check`, then commit sources and
+Edit Jsonnet, compile and run `make -C grafana check`, then commit sources and
 generated resources together. After publication on `main`, Grafana polls the
 files directly. No pgrator build/deploy is needed for dashboard-only changes.
 Generation checks are not PromQL, datasource-coverage or rendering tests; see
