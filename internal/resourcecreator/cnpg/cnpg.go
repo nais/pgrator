@@ -243,16 +243,23 @@ func PersonalAccessRoleForPostgres(physicalName string, postgres *v1.Postgres) s
 	return PersonalAccessRole(physicalName)
 }
 
+// DesiredInstances is the configured primary-plus-standby count.
+func DesiredInstances(highAvailability bool) int {
+	if highAvailability {
+		return haInstances
+	}
+	return defaultInstances
+}
+
 // CreateCluster keeps image extensions the desired application Database is still
 // dropping mounted and preloaded until CNPG confirms the drop.
 func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource, database *cnpgv1.Database) (*cnpgv1.Cluster, error) {
 	if postgres.Spec.Recovery != nil && postgres.UID == "" {
 		return nil, fmt.Errorf("recovered Postgres requires a UID for isolated personal access")
 	}
-	instances := defaultInstances
+	instances := DesiredInstances(postgres.Spec.HighAvailability)
 	minSync, maxSync := 0, 0
 	if postgres.Spec.HighAvailability {
-		instances = haInstances
 		minSync, maxSync = 1, 1
 	}
 

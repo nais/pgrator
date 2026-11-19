@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	rcmonitoring "github.com/nais/pgrator/internal/resourcecreator/postgresmonitoring"
-	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
 	"github.com/nais/pgrator/internal/synchronizer/reconciler"
 	"github.com/nais/pgrator/pkg/api"
@@ -27,14 +26,18 @@ import (
 type ensurePostgresAlerts struct {
 	postgres *v1.Postgres
 	rule     *monitoringv1.PrometheusRule
+	options  rcmonitoring.Options
+	// keepOwner retains a deleting Postgres as owner until its physical
+	// cleanup is done; it is removed from the inventory right away.
+	keepOwner bool
 }
 
-func newEnsurePostgresAlerts(pg *v1.Postgres) (action.Action, error) {
-	rule, err := rcmonitoring.Rule(pg.Namespace)
+func newEnsurePostgresAlerts(pg *v1.Postgres, options rcmonitoring.Options) (*ensurePostgresAlerts, error) {
+	rule, err := rcmonitoring.Rule(pg.Namespace, options, *pg)
 	if err != nil {
 		return nil, fmt.Errorf("rendering Postgres alerts: %w", err)
 	}
-	return &ensurePostgresAlerts{postgres: pg, rule: rule}, nil
+	return &ensurePostgresAlerts{postgres: pg, rule: rule, options: options}, nil
 }
 
 func (a *ensurePostgresAlerts) GetObject() client.Object { return a.rule }
@@ -49,18 +52,30 @@ func (a *ensurePostgresAlerts) Do(ctx context.Context, c client.Client, _ *runti
 	if err := c.List(ctx, postgres, client.InNamespace(a.postgres.Namespace)); err != nil {
 		return err
 	}
+	// Prepare may just have set this database's initialized milestone; use it
+	// instead of a cached list that has not caught up.
+	for i := range postgres.Items {
+		if postgres.Items[i].UID == a.postgres.UID {
+			postgres.Items[i] = *a.postgres.DeepCopy()
+		}
+	}
+	desired, err := rcmonitoring.Rule(a.postgres.Namespace, a.options, postgres.Items...)
+	if err != nil {
+		return err
+	}
+	releasing := !a.postgres.DeletionTimestamp.IsZero() && !a.keepOwner
 	owners := make([]metav1.OwnerReference, 0, len(postgres.Items))
 	for _, pg := range postgres.Items {
-		// The deletion path invokes this only after its physical children are
-		// gone. Keep other deleting parents until they reach their own cleanup.
-		if pg.UID == a.postgres.UID && !a.postgres.DeletionTimestamp.IsZero() {
+		// Release this owner only after its physical cleanup. Other deleting
+		// parents stay until they reach their own cleanup.
+		if pg.UID == a.postgres.UID && releasing {
 			continue
 		}
 		owners = append(owners, metav1.OwnerReference{APIVersion: v1.GroupVersion.String(), Kind: postgresKind, Name: pg.Name, UID: pg.UID})
 	}
 	slices.SortFunc(owners, func(a, b metav1.OwnerReference) int { return strings.Compare(a.Name, b.Name) })
 	current := &monitoringv1.PrometheusRule{}
-	err := c.Get(ctx, client.ObjectKeyFromObject(a.rule), current)
+	err = c.Get(ctx, client.ObjectKeyFromObject(a.rule), current)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -68,7 +83,7 @@ func (a *ensurePostgresAlerts) Do(ctx context.Context, c client.Client, _ *runti
 		if len(owners) == 0 {
 			return nil
 		}
-		created := a.rule.DeepCopy()
+		created := desired.DeepCopy()
 		created.OwnerReferences = owners
 		return c.Create(ctx, created)
 	}
@@ -76,7 +91,7 @@ func (a *ensurePostgresAlerts) Do(ctx context.Context, c client.Client, _ *runti
 	// a cached namespace list may not yet include a concurrently added owner.
 	for _, owner := range current.OwnerReferences {
 		if owner.APIVersion != v1.GroupVersion.String() || owner.Kind != postgresKind ||
-			(owner.UID == a.postgres.UID && !a.postgres.DeletionTimestamp.IsZero()) {
+			(owner.UID == a.postgres.UID && releasing) {
 			continue
 		}
 		if !slices.ContainsFunc(owners, func(candidate metav1.OwnerReference) bool { return candidate.UID == owner.UID }) {
@@ -103,11 +118,15 @@ func (a *ensurePostgresAlerts) Do(ctx context.Context, c client.Client, _ *runti
 	// Non-controller references allow the rule to survive deletion of any
 	// single database. GC also covers concurrent deletion of the last parents.
 	current.OwnerReferences = owners
-	current.Spec = *a.rule.Spec.DeepCopy()
+	current.Spec = *desired.Spec.DeepCopy()
 	if equality.Semantic.DeepEqual(original, current) {
 		return nil
 	}
 	return c.Patch(ctx, current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func (r *PostgresClusterReconciler) alertOptions() rcmonitoring.Options {
+	return rcmonitoring.Options{BackupsEnabled: r.Config != nil && r.Config.CNPG.WalBucketPrefix != ""}
 }
 
 func postgresAlertsWatch() reconciler.RelationshipWatch {

@@ -290,3 +290,72 @@ tests:
         exp_samples:
           - labels: 'ALERTS{alertname="PostgresQueryMetricsMissing",alertstate="firing",severity="warning",namespace="team",postgres="orders",pod="p1"}'
             value: 1
+
+  - name: An initialized database with no pods or metrics is down
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresClusterIsDown",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresClusterIsDown",alertstate="firing",severity="critical",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: Provisioning and PITR get their own warnings, not outage alerts
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresProvisioningTooLong",alertstate="firing"}'
+        eval_time: 2h
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresProvisioningTooLong",alertstate="firing",severity="warning",namespace="team",postgres="fresh"}'
+            value: 1
+      - expr: 'ALERTS{alertname="PostgresRecoveryTooLong",alertstate="firing"}'
+        eval_time: 7h
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresRecoveryTooLong",alertstate="firing",severity="warning",namespace="team",postgres="restoring"}'
+            value: 1
+      - expr: 'ALERTS{alertname="PostgresClusterIsDown",alertstate="firing",postgres=~"fresh|restoring"}'
+        eval_time: 7h
+        exp_samples: []
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: PostgresRecoveryTooLong
+        exp_alerts: []
+
+  - name: Missing replicas are counted against the configured instances
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_is_wal_receiver_up{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+    promql_expr_test:
+      # HA orders wants 3 instances: 1 receiving standby < 2.
+      - expr: 'ALERTS{alertname="PostgresMissingClusterInstance",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresMissingClusterInstance",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: Backup metrics present for an initialized database
+    interval: 1m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="team",postgres="orders",pod="p1"}'
+        values: '1000x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresBackupMetricsMissing
+        exp_alerts: []
+
+  - name: Backup metrics missing for an initialized database
+    interval: 1m
+    input_series: []
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresBackupMetricsMissing",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresBackupMetricsMissing",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
