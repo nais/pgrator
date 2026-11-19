@@ -61,7 +61,7 @@ func TestBindingSelectedBranchConnection(t *testing.T) {
 			r := &PostgresBindingReconciler{Scheme: testScheme, Recorder: recorder}
 			prepared, _, err := r.Prepare(t.Context(), reader, obj)
 			requireNoError(t, err)
-			requireEqual(t, prepared.Branch, v1.PostgresBranchObjectName("orders", tt.want), "selected physical branch")
+			requireEqual(t, prepared.PhysicalName, v1.PostgresBranchObjectName("orders", tt.want), "selected physical branch")
 			requireNotNil(t, prepared.Snapshot, "selected branch credentials")
 			actions, _, err := r.Update(obj, prepared, relatedobjectsmap.NewRelatedObjectsMap(testScheme))
 			requireNoError(t, err)
@@ -70,10 +70,10 @@ func TestBindingSelectedBranchConnection(t *testing.T) {
 				switch resource := a.GetObject().(type) {
 				case *corev1.Secret:
 					found = true
-					requireEqual(t, resource.StringData["READ_PGHOST"], rccnpg.PoolerNameFor(prepared.Branch)+".team", "selected host")
+					requireEqual(t, resource.StringData["READ_PGHOST"], rccnpg.PoolerNameFor(prepared.PhysicalName)+".team", "selected host")
 					requireEqual(t, string(resource.Data["ca.crt"]), string(certificates[tt.want]), "selected CA")
 				case *cnpgv1.DatabaseRole:
-					requireEqual(t, resource.Spec.ClusterRef.Name, rccnpg.ClusterNameFor(prepared.Branch), "selected role cluster")
+					requireEqual(t, resource.Spec.ClusterRef.Name, rccnpg.ClusterNameFor(prepared.PhysicalName), "selected role cluster")
 				}
 			}
 			requireTrue(t, found, "connection Secret should be published")
@@ -163,7 +163,7 @@ func TestExplicitBranchWaitDoesNotKeepAnotherBranchConnection(t *testing.T) {
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "consumer", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
-	prepared := PostgresBindingPreparedData{Branch: v1.PostgresBranchObjectName("orders", "pr-123")}
+	prepared := PostgresBindingPreparedData{PhysicalName: v1.PostgresBranchObjectName("orders", "pr-123")}
 	for _, branch := range []string{"main", "pr-123"} {
 		t.Run(branch, func(t *testing.T) {
 			related := relatedobjectsmap.NewRelatedObjectsMap(testScheme)

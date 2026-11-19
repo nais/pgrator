@@ -6,8 +6,7 @@ Kubernetes operator for the [nais](https://nais.io) platform that manages **Post
 
 | CRD               | API group    | Backend                                   | Creates                                                                                  |
 |-------------------|--------------|-------------------------------------------|------------------------------------------------------------------------------------------|
-| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Logical database; creates the default `PostgresBranch` |
-| `PostgresBranch`  | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Independent CNPG `Cluster`, `Pooler`, network and optional WAL archive/backup resources |
+| `Postgres`        | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | CNPG `Cluster`, `Pooler`, network and optional WAL archive/backup resources |
 | `PostgresBinding` | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Workload database roles, connection/certificate Secrets and NetworkPolicies |
 | `PostgresAccess`  | `nais.io/v1` | [CloudNativePG](https://cloudnative-pg.io) | Time-limited personal role, credentials, relay mapping and database ingress policy |
 | `Valkey`          | `nais.io/v1` | [Aiven](https://aiven.io)                  | Aiven Valkey instance + ServiceIntegration (metrics) |
@@ -55,21 +54,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed information about project st
 
 ### Postgres
 
-`Postgres` is the logical database. Pgrator creates its default `main` `PostgresBranch`; each branch is an independent, writable CNPG cluster with its own data history. A recovery branch uses an immutable `bootstrap.recovery.sourceBranch` (local name) and UTC `targetTime` to restore from another branch's archive. Recovery does not merge data or switch the active branch.
+`Postgres` directly owns its CNPG `Cluster`, `Pooler`, roles, network policies and, when WAL archiving is enabled, its archive bucket and backups. Physical names keep the historical `main` component (see [ADR 0007](doc/adr/0007-name-physical-postgres-resources-branches.md)), and pods keep the `postgres.nais.io/branch: main` label used by metrics and Console. Branches are no longer a concept: databases created under the earlier branch model must have completed adoption with the previous release; a database without an ownership checkpoint, or with an unfinished adoption, is rejected.
 
-If CNPG reports an unrecoverable recovery Cluster and a permanently failed `full-recovery` Job controlled by that Cluster, pgrator persists `RecoveryFailed=True` with reason `Unrecoverable`, the Cluster identity, original target, and CNPG phase/reason. CNPG can report `Initialized=True` before recovery finishes, so initialization alone does not prove success. Jobs are observed read-only; pgrator neither owns nor retries them. It also sets `Ready=False` and `reconcilePhase: Failed`. This terminal condition stops resource reconciliation without pruning the failed Cluster or its supporting resources, even if the source archive disappears. Deleting the failed Cluster does not retry recovery. To request another recovery, create a new branch with an explicit target; pgrator never adjusts the timestamp automatically. Ordinary readiness failures and later outages without recovery-job failure are not terminal recovery failures; branches with a recorded `RecoveryCompleted` milestone retain their successful status. Failed branches cannot be activated, but can be deleted subject to the normal branch lifecycle protections; source archives remain protected until dependent branches are deleted or detached.
+Point-in-time recovery creates a new, independent `Postgres` from a source in the same namespace through the immutable `spec.recovery` (see [postgres-pitr.md](doc/postgres-pitr.md)). It does not modify the source or reconnect workloads.
 
-Branch names are local to a Postgres: `Postgres.spec.activeBranch`, `status.activeBranch` and recovery `sourceBranch` use local names. Kubernetes `PostgresBranch.metadata.name` is a deterministic, hashed object name from `v1.PostgresBranchObjectName(postgres, branch)`; `spec.postgres` and `spec.branchName` must match and are immutable. `PostgresAccess.spec.postgresBranch` refers to this **object name**, not the local name. See [ADR 0007](doc/adr/0007-name-physical-postgres-resources-branches.md).
+If CNPG reports an unrecoverable recovery Cluster and a permanently failed `full-recovery` Job controlled by that Cluster, pgrator persists `RecoveryFailed=True` with reason `Unrecoverable`, the Cluster identity, original target, and CNPG phase/reason. CNPG can report `Initialized=True` before recovery finishes, so initialization alone does not prove success. Jobs are observed read-only; pgrator neither owns nor retries them. It also sets `Ready=False` and `reconcilePhase: Failed`. This terminal condition stops resource reconciliation without pruning the failed Cluster or its supporting resources, even if the source archive disappears. Deleting the failed Cluster does not retry recovery. To request another recovery, create a new `Postgres` with an explicit target; pgrator never adjusts the timestamp automatically. Ordinary readiness failures and later outages without recovery-job failure are not terminal recovery failures; databases with a recorded `RecoveryCompleted` milestone retain their successful status. A source cannot be deleted while recoveries still depend on its archive.
 
-`spec.activeBranch` requests a selection; `status.activeBranch` records the branch pgrator has selected. Without an explicit request, `main` is selected initially and an existing selection is retained. For an explicit request, pgrator checks that the branch identity matches and neither it nor its CNPG cluster is terminating, and that the cluster is initialized and has a Ready condition. An unready request fails reconciliation instead of updating observed status. Bindings without an explicit branch follow the observed selection, not a pending request. **Do not treat that status gate as an atomic cutover guarantee:** credential publication and workload reconnection are asynchronous, and admission and reconciliation are not atomic with branch deletion. Verify dependent bindings and connections during activation.
+Deprecated fields, kept for existing objects: `Postgres.spec.activeBranch`, `status.activeBranch` and `PostgresBinding.spec.branch` accept only `main` (or empty); `PostgresAccess.spec.postgresBranch` is an immutable legacy reference, new accesses use `spec.postgres`.
 
-`PostgresBinding` supplies workloads with a stable logical connection Secret for the selected branch. An Application or Naisjob can set `spec.uses.postgres[].branch` to an existing local branch name; Naiserator copies it to `PostgresBinding.spec.branch`. Omitting it follows the observed active branch. Explicit `branch: main` pins `main`, even after activation of another branch. Missing or terminating explicit branches wait without fallback, and stale connection Secrets/network access are withdrawn. Branch selection does not create a branch, change Secret/mount names or enable multiple branches of the same Postgres in one workload. Inactive branches may be deleted even while workloads or bindings reference them, provided another non-terminating branch remains. The CLI warns and lists the referring apps/jobs before confirmation, including with `--yes`; deleting a selected branch makes those connections unavailable without fallback. Create/delete/activate requests through the API are recorded in the activity log. Active/requested branches and recovery archives still needed for restore remain protected. Delete the whole Postgres to remove its last branch. Once another branch is active, deleting inactive `main` does not silently create a new empty `main`, even if the activation request is later omitted. Branches must be created and cleaned up separately; there is no branch TTL.
-
-Rollout order for branch selection: publish the shared API types; install the updated pgrator `PostgresBinding` CRD/controller and liberator workload CRDs; deploy the branch-aware API; then deploy Naiserator using the new liberator dependency. For the deletion-policy change, make the warning-capable CLI available before removing reference guards in the API/controller. API clients should query `PostgresBranch.workloads` before deleting; older clients can delete without displaying the warning. Only then use `branch` in workload manifests. Older CRDs can prune the field and older Naiserator versions can ignore it, causing a workload to follow the active branch instead of the intended branch. No new Helm values or feature flags are required.
+`PostgresBinding` supplies workloads with a stable connection Secret, NetworkPolicies and DatabaseRoles for a `Postgres`.
 
 #### Application database and extensions
 
-Every branch gets a CNPG `Database` named `<cluster-name>-app` that declares the `app` database created at bootstrap (owner `app`, `databaseReclaimPolicy: retain`). Only name, owner and requested extensions are declared, so adopting existing or recovered databases changes nothing else. `spec.extensions` lists extensions for it, and all are activated with `CREATE EXTENSION` in `app`. Names are SQL extension names and limited to an allowlist: most extensions bundled in the CNPG `standard` image (PostgreSQL contrib and `vector`) plus `postgis` and `timescaledb`. Contrib extensions that reach outside the database or modify storage (`dblink`, `postgres_fdw`, `file_fdw`, `pg_surgery`), and deprecated or example ones (`xml2`, `intagg`, `refint`, `autoinc`, `insert_username`, `moddatetime`, `dict_int`, `dict_xsyn`, `uuid-ossp`), are excluded. `postgis` and `timescaledb` are also mounted from the CNPG image catalog (`timescaledb` from its `timescaledb-oss` entry), and `timescaledb` is additionally added to `shared_preload_libraries` (ahead of the libraries CNPG manages). Removing an entry makes CNPG drop the extension as `postgres` (`ensure: absent`, `DROP EXTENSION` without `CASCADE`), so no tenant privileges are needed. `postgis` and `timescaledb` stay mounted, and `timescaledb` preloaded, until the `Database` reports the drop applied for its current generation; only then are the entry, image and library removed. The drop fails, and CNPG retries it, while other objects depend on the extension: remove those (e.g. hypertables or `geometry` columns) or re-add the entry. Adding `timescaledb` to an existing cluster, or completing its removal, restarts its pods. `pg_stat_statements` and `pgaudit` are not in the allowlist because CNPG already manages them. Multiple databases are not supported.
+Every database gets a CNPG `Database` named `<cluster-name>-app` that declares the `app` database created at bootstrap (owner `app`, `databaseReclaimPolicy: retain`). Only name, owner and requested extensions are declared, so adopting existing or recovered databases changes nothing else. `spec.extensions` lists extensions for it, and all are activated with `CREATE EXTENSION` in `app`. Names are SQL extension names and limited to an allowlist: most extensions bundled in the CNPG `standard` image (PostgreSQL contrib and `vector`) plus `postgis` and `timescaledb`. Contrib extensions that reach outside the database or modify storage (`dblink`, `postgres_fdw`, `file_fdw`, `pg_surgery`), and deprecated or example ones (`xml2`, `intagg`, `refint`, `autoinc`, `insert_username`, `moddatetime`, `dict_int`, `dict_xsyn`, `uuid-ossp`), are excluded. `postgis` and `timescaledb` are also mounted from the CNPG image catalog (`timescaledb` from its `timescaledb-oss` entry), and `timescaledb` is additionally added to `shared_preload_libraries` (ahead of the libraries CNPG manages). Removing an entry makes CNPG drop the extension as `postgres` (`ensure: absent`, `DROP EXTENSION` without `CASCADE`), so no tenant privileges are needed. `postgis` and `timescaledb` stay mounted, and `timescaledb` preloaded, until the `Database` reports the drop applied for its current generation; only then are the entry, image and library removed. The drop fails, and CNPG retries it, while other objects depend on the extension: remove those (e.g. hypertables or `geometry` columns) or re-add the entry. Adding `timescaledb` to an existing cluster, or completing its removal, restarts its pods. `pg_stat_statements` and `pgaudit` are not in the allowlist because CNPG already manages them. Multiple databases are not supported.
 
 #### Automatic execution plans
 
@@ -100,16 +97,16 @@ credential (`admin`, `read`, `readwrite`), `<credential>.tls.crt`,
 format, not a different key algorithm; EC certificates continue to use EC keys.
 Both representations are published in the same validated snapshot and rotate
 with the client certificate. Incomplete or invalid source material does not
-replace the last complete snapshot for the same branch.
+replace the last complete snapshot.
 
 Naiserator owns the workload mount paths and exposes a role-prefixed `PGJDBCURL`
 using the DER file. Existing PEM files and `PGSSLKEY` remain unchanged.
 
 #### Personal access
 
-`PostgresAccess` selects one branch independently of the active workload branch. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry and deletion remove transport resources and credentials, disable SQL login and the password, and remove role memberships. Pgrator waits for CNPG to apply the inactive role configuration before deleting its `DatabaseRole` resource. `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Cleanup can remain pending while CNPG is unavailable; this is not a hard cutoff for existing SQL sessions. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
+`PostgresAccess` grants a person time-limited access to one `Postgres`. It creates a short-lived password, a CNPG `DatabaseRole` (PostgreSQL role name is the authenticated email), an owned `RelayAccess` and token Secret, and a database-ingress policy. Its Ready condition requires the role applied at the current generation, a persisted token and the **owned** relay mapping's published endpoint; Ready does not establish SQL connectivity. The relay operator publishes the public endpoint after persisting its egress policy, and pgrator copies that endpoint into `PostgresAccess.status.relayEndpoint` for the API's owner-only connection response. Expiry and deletion remove transport resources and credentials, disable SQL login and the password, and remove role memberships. Pgrator waits for CNPG to apply the inactive role configuration before deleting its `DatabaseRole` resource. `ReclaimPolicy: Retain` preserves the PostgreSQL role and its objects. Cleanup can remain pending while CNPG is unavailable; this is not a hard cutoff for existing SQL sessions. Existing roles created under older naming are not migrated or re-owned automatically. See [ADR 0005](doc/adr/0005-personal-postgres-access.md) for identity history and [ADR 0006](doc/adr/0006-relay-backed-personal-postgres-access.md) for relay transport.
 
-The [generated CRD documentation](doc/README.md) describes public fields; `PostgresBranch` is currently an internal API kind, not a user-authored manifest.
+The [generated CRD documentation](doc/README.md) describes public fields.
 
 `spec.accessLevel` supports `read`, `readwrite`, `admin` and `maintain`, plus
 the deprecated `readwritecreate` level for compatibility. Personal `admin` grants
@@ -138,35 +135,35 @@ PostgreSQL 17 or newer. This level is not available to applications through
 application database owner, while `maintain` grants monitoring and maintenance
 of the PostgreSQL instance.
 
-#### Why every branch has a `-personal-access` DatabaseRole
+#### Why every database has a `-personal-access` DatabaseRole
 
-The PostgresBranch controller creates a CNPG `DatabaseRole` named
-`<cluster-name>-personal-access` for **every branch**, even when nobody has
-requested personal access. This is a branch-owned authentication group, not a
-`PostgresAccess` or a personal user. Its SQL name is `nais_pa_<branch-hash>`;
+Pgrator creates a CNPG `DatabaseRole` named
+`<cluster-name>-personal-access` for **every database**, even when nobody has
+requested personal access. This is a database-owned authentication group, not a
+`PostgresAccess` or a personal user. Its SQL name is `nais_pa_<hash>`;
 it has `NOLOGIN`, no password and no database privileges.
 
 When a person requests a `PostgresAccess`, that controller creates the user's
 DatabaseRole and grants membership in:
 
-- the branch's authentication group, allowing TLS/SCRAM password authentication
+- the database's authentication group, allowing TLS/SCRAM password authentication
   through the Cluster's `pg_hba` rule; and
 - the selected privilege group (`app_read`, `app_readwrite` or the legacy
   `app_readwritecreate`), the `app` owner role for `admin`, or directly
   `pg_monitor` and `pg_maintain` for `maintain`, determining what the user may
   do in the database or instance.
 
-The authentication group must be unique per branch because recovery copies
+The authentication group must be unique per database because recovery copies
 SQL roles, memberships and passwords from the source. The restored cluster's
 `pg_hba` rule requires its **own** group, so copied personal credentials do not
 automatically grant password access to the destination. A new `PostgresAccess`
-targeting that branch grants the required membership.
+targeting that database grants the required membership.
 
 Unlike the privilege groups created by `postInitSQL`, this group is managed by
 a separate DatabaseRole: bootstrap SQL runs only for `initdb`, not recovery.
 Putting it only in bootstrap SQL would copy the source group during restore
 without creating the destination group. The DatabaseRole covers new, existing
-and recovered clusters and is controller-owned by the branch with
+and recovered clusters and is controller-owned by the `Postgres` with
 `ReclaimPolicy: Delete`; the user's access-owned DatabaseRole uses `Retain`.
 
 An event such as `Updated DatabaseRole ...-personal-access` concerns this group,
@@ -175,7 +172,7 @@ it can also appear when the group configuration is unchanged.
 
 Implementation entry points:
 - [`createPersonalAccessGroupRole`](internal/controller/postgresbranch_controller.go)
-  creates the branch-owned group.
+  creates the group (in the renderer shared with the retired branch controller).
 - [`PersonalAccessRole` and `CreateCluster`](internal/resourcecreator/cnpg/cnpg.go)
   define its SQL name and authentication rule; `postInitSQL` defines the bootstrap
   privilege groups.
