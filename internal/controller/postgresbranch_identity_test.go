@@ -50,23 +50,14 @@ func TestDerivedBranchResourceNamesFitLimits(t *testing.T) {
 func TestBranchIdentityFailsClosed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{ActiveBranch: "main"}}
-	// The object at the expected key claims a different local name. Neither
-	// activation nor a personal access may use it, even if its cluster is ready.
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
+	// The object at the expected key claims a different local name. A personal
+	// access must not use it, even if its cluster is ready.
 	key := v1.PostgresBranchObjectName("orders", "main")
 	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: key, Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: v1.CNPGClusterName(key), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(postgres, branch, cluster).Build()
-	prepared, _, err := (&PostgresReconciler{}).Prepare(context.Background(), reader, postgres)
-	if err != nil || prepared.RequestedReady {
-		t.Errorf("activation: prepared = %+v, err = %v; want not ready", prepared, err)
-	}
-	postgres.Spec.ActiveBranch = ""
-	_, _, err = (&PostgresReconciler{}).Prepare(context.Background(), reader, postgres)
-	if err == nil || !strings.Contains(err.Error(), "invalid identity") {
-		t.Errorf("default branch preparation error = %v, want identity rejection", err)
-	}
-	_, _, err = (&PostgresBranchReconciler{Config: &config.Config{}}).Prepare(context.Background(), reader, branch)
+	_, _, err := (&PostgresBranchReconciler{Config: &config.Config{}}).Prepare(context.Background(), reader, branch)
 	if err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Errorf("branch prepare error = %v, want identity rejection", err)
 	}

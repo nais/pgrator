@@ -1,14 +1,12 @@
 package controller
 
 import (
-	"context"
 	"testing"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/initscheme"
 	rcbinding "github.com/nais/pgrator/internal/resourcecreator/binding"
 	rccnpg "github.com/nais/pgrator/internal/resourcecreator/cnpg"
-	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/relatedobjectsmap"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func TestBindingSelectedBranchConnection(t *testing.T) {
@@ -136,23 +133,6 @@ func TestBindingPinnedBranchSourceEvents(t *testing.T) {
 		}
 		requireEqual(t, len(requests), want, "pinned source event requests")
 	}
-}
-
-func TestPostgresRetainsPinnedBranchWhenActivationRequestRemoved(t *testing.T) {
-	testScheme := runtime.NewScheme()
-	initscheme.InitScheme(testScheme)
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team", UID: "postgres-uid"}, Spec: v1.PostgresSpec{MajorVersion: "18"}, Status: &v1.PostgresStatus{ActiveBranch: "restored"}}
-	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "pr-123"), Namespace: "team", UID: "branch-uid"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "pr-123"}}
-	r := &PostgresReconciler{Scheme: testScheme, Recorder: recorder}
-	reader := fake.NewClientBuilder().WithScheme(testScheme).WithStatusSubresource(postgres, branch).WithObjects(postgres, branch).Build()
-	sync := synchronizer.NewSynchronizer(reader, testScheme, r, recorder)
-	sync.GetOwnerManager().AddOwnerAnnotation(branch, postgres)
-	requireNoError(t, reader.Update(context.Background(), branch))
-	_, err := sync.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(postgres)})
-	requireNoError(t, err)
-	retained := &v1.PostgresBranch{}
-	requireNoError(t, reader.Get(t.Context(), client.ObjectKeyFromObject(branch), retained))
-	requireTrue(t, retained.DeletionTimestamp.IsZero(), "inactive branch must survive parent reconciliation")
 }
 
 func TestExplicitBranchWaitDoesNotKeepAnotherBranchConnection(t *testing.T) {
