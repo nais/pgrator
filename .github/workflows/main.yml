@@ -26,6 +26,7 @@ jobs:
         mise-task:
           - check:lint
           - check:vet
+          - check:postgres-alerts
           - check:deadcode
           - check:vuln
           - ci:fmt

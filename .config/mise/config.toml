@@ -26,7 +26,13 @@ go = """
 helm = "latest"
 yq = "4.50.1"
 ctlptl = "latest"
+promtool = "3.16.0"
 
 [tasks."generate:external-crds"]
 description = "Generate external CRDs"
 run = [{ "task" = "generate:cnrm-crds" }, { "task" = "generate:other-crds" }]
+
+[tasks."check:postgres-alerts"]
+description = "Validate and evaluate rendered Postgres alerts with promtool"
+env = { PGRATOR_REQUIRE_PROMTOOL = "1" }
+run = "go test ./internal/resourcecreator/postgresmonitoring -run TestPostgresAlertRules -count=1"

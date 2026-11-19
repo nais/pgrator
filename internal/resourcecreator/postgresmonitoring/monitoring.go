@@ -32,6 +32,9 @@ func Rule(namespace string) (*monitoringv1.PrometheusRule, error) {
 	for g := range rule.Spec.Groups {
 		for r := range rule.Spec.Groups[g].Rules {
 			alert := &rule.Spec.Groups[g].Rules[r]
+			if alert.Alert == "" {
+				continue // recording rule
+			}
 			if alert.Annotations == nil {
 				alert.Annotations = map[string]string{}
 			}
