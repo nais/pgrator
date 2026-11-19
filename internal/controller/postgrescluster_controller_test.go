@@ -92,6 +92,25 @@ func TestPostgresInitializedMilestoneSurvivesOutage(t *testing.T) {
 	}
 }
 
+func TestPostgresObservesClusterConfiguration(t *testing.T) {
+	r, c, pg, _, _ := directOwnershipFixture(t, false)
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(pg), pg))
+	pg.Status.Configuration = &v1.PostgresConfiguration{Parameters: map[string]string{"obsolete": "old"}}
+	cluster := &cnpgv1.Cluster{}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: pg.Status.ClusterName}, cluster))
+	for _, parameters := range []map[string]string{{"work_mem": "8MB"}, nil} {
+		cluster.Spec.PostgresConfiguration.Parameters = parameters
+		requireNoError(t, c.Update(t.Context(), cluster))
+		_, _, err := r.Prepare(t.Context(), c, pg)
+		requireNoError(t, err)
+		want := map[string]string{}
+		maps.Copy(want, parameters)
+		if pg.Status.Configuration == nil || !maps.Equal(pg.Status.Configuration.Parameters, want) {
+			t.Errorf("configuration = %+v, want parameters %v", pg.Status.Configuration, want)
+		}
+	}
+}
+
 func TestDirectOwnershipRejectsIncompleteMigration(t *testing.T) {
 	for _, state := range []string{"no checkpoint", "adopting", "missing cluster", "replaced cluster"} {
 		t.Run(state, func(t *testing.T) {
@@ -221,7 +240,8 @@ func TestPostgresDirectProvisioningCreatesNoBranch(t *testing.T) {
 	if !physicalControlledBy(cluster, pg) {
 		t.Fatal("cluster not directly owned")
 	}
-	if err := c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.PostgresPhysicalName(pg.Name)}, &v1.PostgresBranch{}); !apierrors.IsNotFound(err) {
+	// The retired CRD is not installed; either way no branch may exist.
+	if err := c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.PostgresPhysicalName(pg.Name)}, &v1.PostgresBranch{}); !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 		t.Fatalf("created a synthetic branch: %v", err)
 	}
 }
@@ -271,13 +291,14 @@ func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler,
 		cfg.CNPG.WalBucketPrefix = "nais-wal-dev"
 	}
 	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "test", UID: "postgres-uid", Finalizers: []string{"postgres.nais.io"}}, Spec: v1.PostgresSpec{MajorVersion: "18"}, Status: &v1.PostgresStatus{ActiveBranch: "main", ClusterName: v1.CNPGClusterName(v1.PostgresPhysicalName("orders")), Ownership: &v1.PostgresOwnership{Phase: ownershipManaged, LegacyBranchUID: "historical-branch-uid"}}}
-	// This is only an in-memory physical-name adapter for the shared renderer.
-	// There is no Kubernetes branch object in the client or fixture.
-	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: "main"}}
+	// legacyBranch is the retired object a database may have been adopted from;
+	// only tests of unfinished adoption create it.
+	legacyBranch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: "main"}}
+	identity := physicalIdentity{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Postgres: pg.Name}
 	r := &PostgresClusterReconciler{Config: cfg, Scheme: scheme.Scheme, Recorder: recorder}
-	prep := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: "team-project"}
+	prep := physicalInputs{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: "team-project"}
 	related := relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme)
-	planned, _, err := r.legacy().physicalActions(identity, pg, prep, related)
+	planned, err := r.physical().physicalActions(identity, pg, prep, related)
 	requireNoError(t, err)
 	for _, a := range planned {
 		if cluster, ok := a.GetObject().(*cnpgv1.Cluster); ok {
@@ -285,7 +306,7 @@ func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler,
 		}
 		related.Insert(a.GetObject())
 	}
-	planned, _, err = r.legacy().physicalActions(identity, pg, prep, related)
+	planned, err = r.physical().physicalActions(identity, pg, prep, related)
 	requireNoError(t, err)
 	objects := make([]client.Object, 0, len(planned)+2)
 	children := make([]client.Object, 0, len(planned))
@@ -313,5 +334,5 @@ func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler,
 	requireNoError(t, r.checkInventory(pg.Status.Ownership, children))
 	objects = append(objects, pg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: pg.Namespace, Labels: map[string]string{ProjectIDLabel: "team-project"}}})
 	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&v1.Postgres{}, &v1.PostgresBinding{}, &cnpgv1.Cluster{}).WithObjects(objects...).Build()
-	return r, c, pg, identity, children
+	return r, c, pg, legacyBranch, children
 }

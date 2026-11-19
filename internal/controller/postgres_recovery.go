@@ -33,7 +33,7 @@ func (r *PostgresClusterReconciler) prepareDirectRecovery(ctx context.Context, r
 	if recoveryFinished(pg, p.Cluster) {
 		return nil
 	}
-	if !r.legacy().walArchivingEnabled() {
+	if !r.physical().walArchivingEnabled() {
 		return fmt.Errorf("recovery requires WAL archiving")
 	}
 	if p.Cluster != nil {

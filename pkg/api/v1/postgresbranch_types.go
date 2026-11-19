@@ -63,13 +63,14 @@ type PostgresBranchStatus struct {
 // PostgresBranchConfiguration describes explicitly configured PostgreSQL settings.
 type PostgresBranchConfiguration = PostgresConfiguration
 
-// LegacyPostgresTypeMeta supports the deprecated rendering/test identity without
-// embedding metav1.TypeMeta, which controller-gen treats as a CRD root regardless
+// LegacyPostgresTypeMeta lets the retired PostgresBranch type avoid embedding
+// metav1.TypeMeta, which controller-gen treats as a CRD root regardless
 // of object:root=false. It must not be used by new API resources.
 type LegacyPostgresTypeMeta metav1.TypeMeta
 
-// PostgresBranch is retained temporarily as a physical-rendering identity and
-// for historical controller tests. It is not a published Kubernetes resource.
+// PostgresBranch is retired and not a published Kubernetes resource. The type is
+// kept only for API-module consumers that still decode legacy references; pgrator
+// itself no longer uses it.
 // +kubebuilder:object:root=false
 type PostgresBranch struct {
 	LegacyPostgresTypeMeta `json:",inline"`

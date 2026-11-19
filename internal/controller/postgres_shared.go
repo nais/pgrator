@@ -37,10 +37,6 @@ func observedActiveBranch(postgres *v1.Postgres) string {
 	return v1.DefaultBranchName
 }
 
-func validBranchIdentity(branch *v1.PostgresBranch) bool {
-	return branch.Name == v1.PostgresBranchObjectName(branch.Spec.Postgres, branch.Spec.BranchName)
-}
-
 func clusterConditionGetter(obj client.Object, scheme *runtime.Scheme) []meta_v1.Condition {
 	cluster, ok := obj.(*cnpgv1.Cluster)
 	if !ok {

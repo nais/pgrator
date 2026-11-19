@@ -1,0 +1,37 @@
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Pooler
+  metadata:
+    name: pg-mydb-main-6bc4781b-pooler
+    namespace: myteam
+    labels:
+      postgres.nais.io/name: mydb-main-6bc4781b
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    cluster:
+      name: pg-mydb-main-6bc4781b
+    type: rw
+    instances: 2
+    template:
+      metadata:
+        labels:
+          apiserver-access: enabled
+          postgres.nais.io/name: mydb
+      spec:
+        containers:
+          - name: pgbouncer
+        tolerations:
+          - effect: NoSchedule
+            key: dedicated
+            operator: Equal
+            value: postgres
+    pgbouncer:
+      poolMode: transaction
