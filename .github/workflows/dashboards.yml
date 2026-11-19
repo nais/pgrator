@@ -24,11 +24,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
-        with:
-          install: false
-          cache: false
-      - name: Install dashboard dependencies
-        run: make -C grafana install
-      - name: Check formatting and generated resources
-        run: make -C grafana check
+      - name: Validate dashboard resources
+        run: |
+          set -euo pipefail
+          for f in grafana/*.json; do
+            jq -e '.apiVersion == "dashboard.grafana.app/v1" and .kind == "Dashboard"
+              and (.metadata.name | type == "string") and .metadata.name == .spec.uid' "$f" > /dev/null \
+              || { echo "::error file=$f::not a dashboard.grafana.app/v1 Dashboard whose metadata.name equals spec.uid"; exit 1; }
+          done

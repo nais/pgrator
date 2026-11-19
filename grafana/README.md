@@ -11,44 +11,22 @@ These are separate from Console metrics and the legacy postgres_exporter dashboa
 The definitions were moved from `nais/dashboards` commit
 `dafce1a1b00417ea032e387aec5265058b6322e2` without changing their contents or UIDs.
 The central Git Sync connection is managed manually and reads `main` under
-`grafana/generated/`; see [setup and source changes](MIGRATION.md).
+`grafana/`; see [setup and source changes](MIGRATION.md).
 No provisioning Job, Helm release or component deployment is needed.
 
-## Develop and validate
+## Change a dashboard
 
-Requires `mise`, `make`, Git and network access to public tool/dependency releases.
-No kubecontext, Grafana login or production credentials are needed:
+The JSON files in this directory are the source: `dashboard.grafana.app/v1`
+resources whose `metadata.name` equals the dashboard UID. Edit them directly, or
+edit a copy in a scratch Grafana dashboard and paste the exported JSON back into
+`spec`. Git Sync is read-only, so changes made in the synced dashboards are not
+written back and are overwritten on the next sync. Keep UIDs and filenames stable
+so links survive.
 
-```sh
-make -C grafana install
-make -C grafana fmt
-make -C grafana compile
-make -C grafana check
-```
+The `Dashboard checks` workflow only validates the resource wrapper. Changes
+confined to `grafana/**` skip the ordinary build/deploy and E2E workflows.
 
-Run from the repository root. `install` restores Jsonnet dependencies from
-`jsonnetfile.lock.json`; commit deliberate dependency/lockfile updates together.
-Grafonnet is pinned to the same commit used before migration. No Grizzly dependency
-or second publishing command is needed. `vendor/` is ignored.
-
-`src/` is the source of truth. `src/main.libsonnet` wraps both dashboards as
-`dashboard.grafana.app/v1` resources. Commit generated JSON under `generated/`
-with its source; never edit generated resources or copies in Grafana by hand.
-`check` checks formatting and compares a temporary compilation with `generated/`.
-It does not fix files and catches missing/extra generated resources as well.
-
-The Makefile runs pinned go-jsonnet 0.21.0 and jsonnet-bundler 0.6.0 with
-`mise --no-config`: operator tooling, environment hooks and Go/Helm tasks are not
-loaded. The separate `Dashboard checks` workflow does only installation and
-read-only checks, with `contents: read` and no deployment credentials.
-
-Changes confined to `grafana/**`, `.github/workflows/dashboards.yml` and the
-existing ignored Markdown paths do not start the ordinary build/deploy or E2E
-workflows. Mixed operator/dashboard changes still run both workflows. The initial
-change to those workflow filters is itself a normal workflow change; it is not
-exempted. Existing local Lefthook operator checks are unchanged.
-
-Generation checks do not prove PromQL semantics, datasource coverage or rendering.
+CI does not prove PromQL semantics, datasource coverage or rendering.
 When changing queries, verify missing/zero/partial data, deduplication and filter
 isolation with synthetic data, then use an isolated Grafana preview. Live checks
 require separately approved access and read-only datasource calls. Do not fetch
@@ -115,11 +93,11 @@ these mappings in 13.2.2, so neither is a replacement for this sentinel.
 
 Tenant/environment detail sections show reported inventory and Nais resource
 history. The overview intentionally ignores detail filters and uses all configured
-sources/environments. Its source snapshot lives in `src/monitoring-sources.libsonnet`
-and was validated against eight then-provisioned central datasources. It is not
-a canonical tenant registry. Recheck provisioning before publishing changes:
-new sources appear automatically in selectors, but enter combined totals only
-after the explicit snapshot is updated and validated. Fleet has no snapshot
+sources/environments: each of its four panels has one Mixed target per tenant
+datasource (eight, validated against the then-provisioned central datasources).
+It is not a canonical tenant registry. New sources appear automatically in
+selectors, but enter combined totals only after a target is added to each
+overview panel. Fleet has no snapshot
 aggregation dependency.
 
 - **Nais Postgres:** `pgrator_resource_info`, deduplicated by environment,
