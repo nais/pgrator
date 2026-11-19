@@ -196,3 +196,97 @@ tests:
         exp_samples:
           - labels: 'ALERTS{alertname="PostgresCpuAboveRequest",alertstate="firing",severity="info",namespace="team",postgres="orders",pod="p1"}'
             value: 1
+
+  - name: Healthy standbys without a healthy primary
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_collector_fencing_on{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresNoWritablePrimary",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresNoWritablePrimary",alertstate="firing",severity="critical",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: A healthy primary is writable
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresNoWritablePrimary
+        exp_alerts: []
+
+  - name: Steady disk growth predicts exhaustion
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x120'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="team",pod="p1",persistentvolumeclaim="p1"}'
+        values: '1x120'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="team",persistentvolumeclaim="p1"}'
+        values: '1000x120'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="team",persistentvolumeclaim="p1"}'
+        values: '700+2x120'
+      - series: 'kubelet_volume_stats_available_bytes{namespace="team",persistentvolumeclaim="p1"}'
+        values: '300-2x120'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresDiskFillingUp",alertstate="firing"}'
+        eval_time: 90m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresDiskFillingUp",alertstate="firing",severity="warning",namespace="team",postgres="orders",pod="p1",persistentvolumeclaim="p1"}'
+            value: 1
+
+  - name: A database with no backup after a day
+    interval: 1m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x1600'
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: PostgresBackupNeverSucceeded
+        exp_alerts: []
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresBackupNeverSucceeded",alertstate="firing"}'
+        eval_time: 26h
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresBackupNeverSucceeded",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: An up instance without query metrics
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p1"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x30'
+      - series: 'cnpg_collector_up{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_replication_in_recovery{namespace="team",postgres="orders",pod="p2"}'
+        values: '1x30'
+      - series: 'cnpg_pg_stat_activity_count{namespace="team",postgres="orders",pod="p2",backend_type="client backend"}'
+        values: '1x30'
+      - series: 'cnpg_pg_settings_setting{namespace="team",postgres="orders",pod="p2",name="max_connections"}'
+        values: '100x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PostgresQueryMetricsMissing",alertstate="firing"}'
+        eval_time: 20m
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresQueryMetricsMissing",alertstate="firing",severity="warning",namespace="team",postgres="orders",pod="p1"}'
+            value: 1

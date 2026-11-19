@@ -200,3 +200,69 @@ spec:
             summary: PostgreSQL `{{ $labels.postgres }}` backup is stale
             description: The last successful backup of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} old. Backups run nightly.
             action: "Verify scheduled backups, the Barman plugin and backup bucket access."
+
+        - alert: PostgresNoWritablePrimary
+          expr: |
+            group by (namespace, postgres) (
+              (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 1)
+              and on (namespace, pod) (cnpg_collector_up{namespace="__NAMESPACE__"} == 1)
+            )
+            unless on (namespace, postgres)
+            (
+              (max by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__", postgres!=""}) == 0)
+              and on (namespace, pod) (cnpg_collector_up{namespace="__NAMESPACE__"} == 1)
+              unless on (namespace, pod) (cnpg_collector_fencing_on{namespace="__NAMESPACE__"} == 1)
+            )
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` has no writable primary
+            description: Standbys of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` are healthy, but no instance is a healthy, unfenced primary. Writes fail.
+            action: "Check CNPG primary election, fencing and failover status, and pod events of the former primary."
+
+        - alert: PostgresDiskFillingUp
+          expr: |
+            (predict_linear(nais_postgres_volume_available_bytes{namespace="__NAMESPACE__"}[6h], 4 * 3600) < 0)
+            and on (namespace, pod, persistentvolumeclaim)
+            (nais_postgres_volume_usage_ratio{namespace="__NAMESPACE__"} > 0.7)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` disk is filling up
+            description: At the growth rate of the last 6 hours, disk `{{ $labels.persistentvolumeclaim }}` in `{{ $labels.namespace }}` fills up within 4 hours.
+            action: "Check what is growing (data, WAL, temporary files) and increase the disk size of the Postgres resource if the growth is expected."
+
+        - alert: PostgresBackupNeverSucceeded
+          expr: |
+            max by (namespace, postgres) (
+              barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="__NAMESPACE__", postgres!=""}
+            ) == 0
+          for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` has never been backed up
+            description: No successful backup of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` has been reported for 24 hours. The first backup normally runs right after creation.
+            action: "Check the ScheduledBackup and Backup status, the Barman plugin and backup bucket access."
+
+        - alert: PostgresQueryMetricsMissing
+          expr: |
+            group by (namespace, postgres, pod) (
+              (cnpg_collector_up{namespace="__NAMESPACE__", postgres!=""} == 1)
+              unless on (namespace, pod) (cnpg_collector_fencing_on{namespace="__NAMESPACE__"} == 1)
+            )
+            unless on (namespace, postgres, pod)
+            (
+              group by (namespace, postgres, pod) (cnpg_pg_replication_in_recovery{namespace="__NAMESPACE__"})
+              and on (namespace, postgres, pod) group by (namespace, postgres, pod) (cnpg_pg_stat_activity_count{namespace="__NAMESPACE__"})
+              and on (namespace, postgres, pod) group by (namespace, postgres, pod) (cnpg_pg_settings_setting{namespace="__NAMESPACE__", name="max_connections"})
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` is missing monitoring metrics
+            description: Instance `{{ $labels.pod }}` in `{{ $labels.namespace }}` is up, but replication, activity or settings metrics are missing, so replica and connection alerts cannot evaluate.
+            action: "Check the CNPG monitoring query ConfigMap and exporter errors for the instance."
