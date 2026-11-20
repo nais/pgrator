@@ -107,6 +107,13 @@ type PostgresSpec struct {
 	// +optional
 	HighAvailability bool `json:"highAvailability,omitempty"`
 
+	// AutoExplain logs JSON execution plans for statements taking at least one second.
+	// Includes actual row counts and buffer usage, with per-node timing and parameter
+	// values disabled. Adds instrumentation overhead. Enabling or disabling it on
+	// an existing cluster requires a rolling restart.
+	// +optional
+	AutoExplain bool `json:"autoExplain,omitempty"`
+
 	// Extensions to activate in the application database. Removing an entry drops the extension
 	// (without CASCADE); postgis and timescaledb stay mounted and preloaded until the drop
 	// succeeds. The drop fails, and is retried, while other objects depend on the extension.

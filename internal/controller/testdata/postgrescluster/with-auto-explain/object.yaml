@@ -1,0 +1,13 @@
+apiVersion: nais.io/v1
+kind: Postgres
+metadata:
+  name: mydb
+  namespace: myteam
+  uid: database-uid
+spec:
+  majorVersion: "18"
+  autoExplain: true
+  resources:
+    diskSize: 10Gi
+    cpu: 100m
+    memory: 512Mi
