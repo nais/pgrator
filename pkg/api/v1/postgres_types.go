@@ -38,17 +38,10 @@ type PostgresExtension struct {
 	Name string `json:"name"`
 }
 
-// PostgresBackupPolicy controls the continuous backup of a Postgres: WAL archiving
-// and nightly base backups. Without this section backups are enabled and kept for
-// 7 days.
-// +kubebuilder:validation:XValidation:rule="!(self.disabled && has(self.retentionDays))",message="retentionDays cannot be combined with disabled"
+// PostgresBackupPolicy configures the continuous backup of a Postgres: WAL
+// archiving and nightly base backups. Backups are always on; without this
+// section they are kept for 7 days.
 type PostgresBackupPolicy struct {
-	// Disabled opts out of WAL archiving and nightly backups. Point-in-time recovery,
-	// restore and recovery branches are not available while backups are disabled.
-	// Existing archive contents are left in place until they expire.
-	// +optional
-	Disabled bool `json:"disabled,omitempty"`
-
 	// RetentionDays is how many days back in time the database can be recovered to.
 	// Older backups and WAL are removed. Allowed range is 2 to 30 days.
 	// Defaults to 7 when omitted.
@@ -119,7 +112,7 @@ type PostgresSpec struct {
 	// +kubebuilder:validation:Enum="18"
 	MajorVersion string `json:"majorVersion"`
 
-	// Backup configures retention for, or opts out of, continuous backup.
+	// Backup configures continuous backup.
 	// +optional
 	Backup *PostgresBackupPolicy `json:"backup,omitempty"`
 
@@ -143,11 +136,6 @@ type PostgresSpec struct {
 	// When omitted, pgrator retains the current active branch.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
-}
-
-// BackupDisabled reports whether the Postgres has opted out of continuous backup.
-func (s PostgresSpec) BackupDisabled() bool {
-	return s.Backup != nil && s.Backup.Disabled
 }
 
 // DefaultBackupRetentionDays applies when spec.backup.retentionDays is omitted.

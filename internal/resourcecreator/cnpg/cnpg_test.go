@@ -467,32 +467,3 @@ func TestRemovedExtensionIsDroppedBeforeImageAndPreloadAreRemoved(t *testing.T) 
 		})
 	}
 }
-
-func TestCreateClusterArchivingDisabledKeepsIdentityButNotPlugin(t *testing.T) {
-	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Spec: v1.PostgresSpec{MajorVersion: "18"}}
-	scheme := runtime.NewScheme()
-	if err := v1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	wal := WALArchive{GSAName: "gsa", TeamProjectID: "proj", BucketName: "bucket"}
-
-	enabled, err := CreateCluster(scheme, pg, &config.Config{}, wal, nil, nil)
-	if err != nil {
-		t.Fatalf("CreateCluster() error = %v", err)
-	}
-	if len(enabled.Spec.Plugins) != 1 {
-		t.Fatalf("plugins with archiving = %d, want 1", len(enabled.Spec.Plugins))
-	}
-
-	wal.ArchivingDisabled = true
-	disabled, err := CreateCluster(scheme, pg, &config.Config{}, wal, nil, nil)
-	if err != nil {
-		t.Fatalf("CreateCluster() error = %v", err)
-	}
-	if len(disabled.Spec.Plugins) != 0 {
-		t.Errorf("plugins without archiving = %v, want none", disabled.Spec.Plugins)
-	}
-	if disabled.Spec.ServiceAccountTemplate == nil {
-		t.Error("workload identity was dropped; the existing archive could no longer be read")
-	}
-}
