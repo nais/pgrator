@@ -374,7 +374,7 @@ tests:
           - labels: 'ALERTS{alertname="PostgresBackupRetentionNotEnforced",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
             value: 1
 
-  - name: An oldest backup within retention plus the cleanup lag is healthy
+  - name: An oldest backup well within retention is healthy
     interval: 1m
     input_series:
       # At 240h this is 2.5 days old, far inside the 7 + 3 day allowance.
@@ -385,11 +385,11 @@ tests:
         alertname: PostgresBackupRetentionNotEnforced
         exp_alerts: []
 
-  - name: Cleanup lag after a nightly backup is not an alert
+  - name: The backup preceding the window is not an alert
     interval: 1m
     input_series:
-      # Positive timestamp, 9.5 days old at 240h: 7 days of retention, one missed
-      # night and cleanup lag. Without the three day allowance this would fire.
+      # Positive timestamp, 9.5 days old at 240h: 7 days of retention plus the
+      # backup preceding the window and a few missed nights. Without the three day allowance this would fire.
       - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
         values: '43200x14500'
     alert_rule_test:

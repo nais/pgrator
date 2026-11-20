@@ -43,8 +43,9 @@ type PostgresExtension struct {
 // section they are kept for 7 days.
 type PostgresBackupPolicy struct {
 	// RetentionDays is how many days back in time the database can be recovered to.
-	// Older backups and WAL are removed by barman, after the next backup completes, so data may
-	// be kept somewhat longer. Allowed range is 2 to 30 days.
+	// Older backups and WAL are removed by barman, which checks periodically. The backup
+	// preceding the window is kept, so data up to a day older may remain. Allowed range is
+	// 2 to 30 days.
 	// Defaults to 7 when omitted.
 	// +kubebuilder:validation:Minimum=2
 	// +kubebuilder:validation:Maximum=30

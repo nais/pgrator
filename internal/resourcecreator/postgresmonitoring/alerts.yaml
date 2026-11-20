@@ -217,7 +217,7 @@ spec:
           annotations:
             summary: PostgreSQL `{{ $labels.postgres }}` is not removing old backups
             description: The oldest recoverable point of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} old, which is more than three days beyond its retention. Barman is expected to remove older backups and WAL, so the backup bucket keeps growing.
-            action: "Check the Barman plugin logs for retention errors and that nightly backups succeed; retention only runs after a completed backup."
+            action: "Check the Barman plugin logs for retention errors, that nightly backups succeed and that the instance service account may delete bucket objects; retention runs periodically on the primary and cannot delete without bucket permissions."
 
         - alert: PostgresNoWritablePrimary
           expr: |
