@@ -208,6 +208,9 @@ type WALArchive struct {
 	TeamProjectID string
 	// BucketName is the barman-cloud ObjectStore (and bucket) name.
 	BucketName string
+	// ArchivingDisabled keeps the bucket and identity in place, for reading an
+	// existing archive, but stops the cluster from archiving WAL to it.
+	ArchivingDisabled bool
 }
 
 // RecoverySource describes the archive CNPG uses to bootstrap a recovered
@@ -421,15 +424,17 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			},
 		}
 
-		cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
-			{
-				Name:          BarmanPluginName,
-				Enabled:       new(true),
-				IsWALArchiver: new(true),
-				Parameters: map[string]string{
-					"barmanObjectName": wal.BucketName,
+		if !wal.ArchivingDisabled {
+			cluster.Spec.Plugins = []cnpgv1.PluginConfiguration{
+				{
+					Name:          BarmanPluginName,
+					Enabled:       new(true),
+					IsWALArchiver: new(true),
+					Parameters: map[string]string{
+						"barmanObjectName": wal.BucketName,
+					},
 				},
-			},
+			}
 		}
 	}
 	if recovery != nil {

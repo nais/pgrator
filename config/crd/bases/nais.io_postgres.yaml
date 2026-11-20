@@ -65,6 +65,29 @@ spec:
                   ActiveBranch selects the local branch name within this Postgres for normal workloads.
                   When omitted, pgrator retains the current active branch.
                 type: string
+              backup:
+                description: Backup configures retention for, or opts out of, continuous
+                  backup.
+                properties:
+                  disabled:
+                    description: |-
+                      Disabled opts out of WAL archiving and nightly backups. Point-in-time recovery,
+                      restore and recovery branches are not available while backups are disabled.
+                      Existing archive contents are left in place until they expire.
+                    type: boolean
+                  retentionDays:
+                    description: |-
+                      RetentionDays is how many days back in time the database can be recovered to.
+                      Older backups and WAL are removed. Allowed range is 2 to 30 days.
+                      Defaults to 7 when omitted.
+                    format: int32
+                    maximum: 30
+                    minimum: 2
+                    type: integer
+                type: object
+                x-kubernetes-validations:
+                - message: retentionDays cannot be combined with disabled
+                  rule: '!(self.disabled && has(self.retentionDays))'
               extensions:
                 description: |-
                   Extensions to activate in the application database. Removing an entry drops the extension

@@ -528,6 +528,9 @@ func (r *PostgresBranchReconciler) prepareRecovery(ctx context.Context, reader c
 	} else if completedRecoveryClusterUID(obj) != "" {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovered Cluster %q disappeared; refusing to bootstrap from the original recovery source", rccnpg.ClusterNameFor(obj.GetName()))
 	}
+	if prepared.PostgresSpec.BackupDisabled() {
+		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("recovery requires backups, which are disabled in spec.backup")
+	}
 	source := &v1.PostgresBranch{}
 	if err := reader.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: sourceName}, source); err != nil {
 		return PostgresBranchPreparedData{}, ctrl.Result{}, fmt.Errorf("getting recovery source branch %q: %w", recovery.SourceBranch, err)
@@ -819,6 +822,8 @@ func (r *PostgresBranchReconciler) walArchive(instance *v1.PostgresBranch, prepa
 		GSAName:       gsaNameFor(instance.GetName()),
 		TeamProjectID: prepared.TeamGoogleProjectID,
 		BucketName:    r.bucketName(instance, prepared),
+
+		ArchivingDisabled: prepared.PostgresSpec.BackupDisabled(),
 	}
 }
 
@@ -980,7 +985,7 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, owner
 		Labels: map[string]string{
 			rcstorage.OwnerNameLabel: instance.GetName(),
 		},
-	})
+	}, prepared.PostgresSpec.BackupRetentionDays())
 	if err := controllerutil.SetControllerReference(owner, objectStore, r.Scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on ObjectStore: %w", err)
 	}
@@ -995,7 +1000,7 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, owner
 		Namespace: instance.GetNamespace(),
 	}}
 	existingCluster, _ := relatedObjects.GetMatching(cluster).(*cnpgv1.Cluster)
-	if continuousArchivingReady(existingCluster) || relatedObjects.GetMatching(backup) != nil {
+	if !wal.ArchivingDisabled && (continuousArchivingReady(existingCluster) || relatedObjects.GetMatching(backup) != nil) {
 		backup, err := rccnpg.CreateScheduledBackup(r.Scheme, specSource)
 		if err != nil {
 			return nil, fmt.Errorf("creating ScheduledBackup spec: %w", err)

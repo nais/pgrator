@@ -36,6 +36,9 @@ func (r *PostgresClusterReconciler) prepareDirectRecovery(ctx context.Context, r
 	if !r.legacy().walArchivingEnabled() {
 		return fmt.Errorf("recovery requires WAL archiving")
 	}
+	if pg.Spec.BackupDisabled() {
+		return fmt.Errorf("recovery requires backups, which are disabled in spec.backup")
+	}
 	if p.Cluster != nil {
 		// A successful own backup proves bootstrap already finished even if the
 		// controller missed that transition and observes a later cluster outage.

@@ -26,7 +26,9 @@ func MinimalObjectStore(bucketName string, objectMeta metav1.ObjectMeta) *barman
 //
 // Swapping to an S3-compatible store later is confined to the credentials block
 // and the destination path scheme.
-func CreateObjectStore(bucketName string, objectMeta metav1.ObjectMeta) *barmanv1.ObjectStore {
+//
+// retentionDays makes barman remove backups and WAL older than the recovery window.
+func CreateObjectStore(bucketName string, objectMeta metav1.ObjectMeta, retentionDays int32) *barmanv1.ObjectStore {
 	objectStore := MinimalObjectStore(bucketName, objectMeta)
 	objectStore.Spec = barmanv1.ObjectStoreSpec{
 		Configuration: api.BarmanObjectStoreConfiguration{
@@ -44,5 +46,6 @@ func CreateObjectStore(bucketName string, objectMeta metav1.ObjectMeta) *barmanv
 			},
 		},
 	}
+	objectStore.Spec.RetentionPolicy = fmt.Sprintf("%dd", retentionDays)
 	return objectStore
 }

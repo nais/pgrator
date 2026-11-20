@@ -8,6 +8,7 @@ object:
     name: wal-bucket-prefix-myteam-mydb-main-6bc4781b-feedab1ebeef
     namespace: myteam
   spec:
+    retentionPolicy: 7d
     configuration:
       destinationPath: gs://wal-bucket-prefix-myteam-mydb-main-6bc4781b-feedab1ebeef
       googleCredentials:

@@ -109,3 +109,14 @@ func TestPostgresAlertRules(t *testing.T) {
 		}
 	}
 }
+
+func TestPostgresAlertInventoryReportsBackupOptOut(t *testing.T) {
+	optedOut := v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "scratch", Namespace: "team"},
+		Spec:       v1.PostgresSpec{Backup: &v1.PostgresBackupPolicy{Disabled: true}},
+	}
+	got := records(t, optedOut)
+	if want := "vector(0)"; got["scratch/nais_postgres_backup_enabled"] != want {
+		t.Errorf("backup_enabled = %q, want %q", got["scratch/nais_postgres_backup_enabled"], want)
+	}
+}
