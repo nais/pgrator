@@ -23,8 +23,3 @@ object:
     location: europe-north1
     uniformBucketLevelAccess: true
     publicAccessPrevention: inherited
-    lifecycleRule:
-      - action:
-          type: Delete
-        condition:
-          age: 14

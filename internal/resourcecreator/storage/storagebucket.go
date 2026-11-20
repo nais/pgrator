@@ -10,11 +10,6 @@ import (
 )
 
 const (
-	// lifecycleMarginDays keeps the bucket lifecycle behind barman's retention
-	// policy, so barman always decides what is removed. The margin covers the base
-	// backup that precedes the recovery window and a few missed nightly backups.
-	lifecycleMarginDays = 7
-
 	// OwnerNameLabel and OwnerNamespaceLabel make the owning Postgres resource
 	// easy to identify in addition to its Kubernetes owner reference.
 	OwnerNameLabel      = "postgres.nais.io/name"
@@ -46,25 +41,15 @@ func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnr
 }
 
 // CreateStorageBucket builds the WAL bucket in the Postgres team's namespace.
-// The lifecycle rule is a backstop that trails barman's retention policy by
-// lifecycleMarginDays.
+// It has no lifecycle rules: barman's retention policy on the ObjectStore owns
+// what is removed, since object age cannot tell which base backup a recovery
+// window still needs.
 func CreateStorageBucket(postgres *v1.Postgres, bucketName, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	bucket := minimalStorageBucket(postgres, bucketName)
-	age := int(postgres.Spec.BackupRetentionDays()) + lifecycleMarginDays
 	bucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
 		Location:                 location,
 		UniformBucketLevelAccess: true,
 		PublicAccessPrevention:   storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
-		LifecycleRules: []storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRule{
-			{
-				Action: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleAction{
-					Type: storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleActionTypeDelete,
-				},
-				Condition: &storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRuleCondition{
-					Age: new(age),
-				},
-			},
-		},
 	}
 	return bucket
 }
