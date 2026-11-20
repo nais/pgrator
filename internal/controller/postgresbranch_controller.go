@@ -980,7 +980,7 @@ func (r *PostgresBranchReconciler) walActions(instance *v1.PostgresBranch, owner
 		Labels: map[string]string{
 			rcstorage.OwnerNameLabel: instance.GetName(),
 		},
-	})
+	}, prepared.PostgresSpec.BackupRetentionDays())
 	if err := controllerutil.SetControllerReference(owner, objectStore, r.Scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on ObjectStore: %w", err)
 	}

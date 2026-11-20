@@ -38,6 +38,21 @@ type PostgresExtension struct {
 	Name string `json:"name"`
 }
 
+// PostgresBackupPolicy configures the continuous backup of a Postgres: WAL
+// archiving and nightly base backups. Backups are always on; without this
+// section they are kept for 7 days.
+type PostgresBackupPolicy struct {
+	// RetentionDays is how many days back in time the database can be recovered to.
+	// Older backups and WAL are removed by barman, which checks periodically. The backup
+	// preceding the window is kept, so data up to a day older may remain. Allowed range is
+	// 2 to 30 days.
+	// Defaults to 7 when omitted.
+	// +kubebuilder:validation:Minimum=2
+	// +kubebuilder:validation:Maximum=30
+	// +optional
+	RetentionDays *int32 `json:"retentionDays,omitempty"`
+}
+
 // PostgresRecovery pins the archive used once to initialize a new Postgres.
 // SourcePostgres is always in the same namespace. The source UID and physical
 // archive identity prevent a deleted and recreated database from becoming a source.
@@ -99,6 +114,10 @@ type PostgresSpec struct {
 	// +kubebuilder:validation:Enum="18"
 	MajorVersion string `json:"majorVersion"`
 
+	// Backup configures continuous backup.
+	// +optional
+	Backup *PostgresBackupPolicy `json:"backup,omitempty"`
+
 	// HighAvailability adds a third instance and enables synchronous replication.
 	//
 	// A cluster always runs a primary and a standby, so failover is available either
@@ -126,6 +145,17 @@ type PostgresSpec struct {
 	// When omitted, pgrator retains the current active branch.
 	// +optional
 	ActiveBranch string `json:"activeBranch,omitempty"`
+}
+
+// DefaultBackupRetentionDays applies when spec.backup.retentionDays is omitted.
+const DefaultBackupRetentionDays int32 = 7
+
+// BackupRetentionDays returns the requested retention, or the default.
+func (s PostgresSpec) BackupRetentionDays() int32 {
+	if s.Backup == nil || s.Backup.RetentionDays == nil {
+		return DefaultBackupRetentionDays
+	}
+	return *s.Backup.RetentionDays
 }
 
 // PostgresStatus defines the observed state of Postgres.

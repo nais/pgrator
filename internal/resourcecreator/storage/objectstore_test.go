@@ -8,12 +8,18 @@ import (
 )
 
 func TestCreateObjectStoreUsesLz4Compression(t *testing.T) {
-	objectStore := CreateObjectStore("wal-bucket", metav1.ObjectMeta{Namespace: "team"})
+	objectStore := CreateObjectStore("wal-bucket", metav1.ObjectMeta{Namespace: "team"}, 7)
 
 	if got := objectStore.Spec.Configuration.Data.Compression; got != api.CompressionTypeLz4 {
 		t.Errorf("base backup compression = %q, want %q", got, api.CompressionTypeLz4)
 	}
 	if got := objectStore.Spec.Configuration.Wal.Compression; got != api.CompressionTypeLz4 {
 		t.Errorf("WAL compression = %q, want %q", got, api.CompressionTypeLz4)
+	}
+}
+
+func TestCreateObjectStoreRetention(t *testing.T) {
+	if got := CreateObjectStore("wal-bucket", metav1.ObjectMeta{Namespace: "team"}, 30).Spec.RetentionPolicy; got != "30d" {
+		t.Errorf("retention policy = %q, want %q", got, "30d")
 	}
 }
