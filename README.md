@@ -74,19 +74,9 @@ Every branch gets a CNPG `Database` named `<cluster-name>-app` that declares the
 #### Automatic execution plans
 
 Set `spec.autoExplain: true` on a `nais.io/v1` `Postgres` to log JSON execution
-plans for statements taking at least one second. Pgrator renders these CNPG
-PostgreSQL parameters:
+plans for statements taking at least one second. 
 
-```yaml
-auto_explain.log_min_duration: "1s"
-auto_explain.log_analyze: "on"
-auto_explain.log_timing: "off"
-auto_explain.log_buffers: "on"
-auto_explain.log_format: "json"
-auto_explain.log_parameter_max_length: "0"
-```
-
-Omitting `autoExplain` or setting it to `false` leaves these parameters unset.
+Omitting `autoExplain` or setting it to `false` leaves the module disabled.
 The module is bundled in the CNPG `standard` image, and CNPG manages preloading
 automatically; no image extension or `spec.extensions` entry is needed. Enabling
 or disabling it on an existing cluster requires a rolling restart.
