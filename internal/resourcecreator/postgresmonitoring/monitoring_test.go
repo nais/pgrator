@@ -10,6 +10,7 @@ import (
 	"time"
 
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -106,6 +107,53 @@ func TestPostgresAlertRules(t *testing.T) {
 	}
 	for _, args := range [][]string{{"check", "rules", rules}, {"test", "rules", tests}} {
 		if output, err := exec.CommandContext(t.Context(), tool, args...).CombinedOutput(); err != nil {
+			t.Fatalf("promtool %v: %v\n%s", args, err, output)
+		}
+	}
+}
+
+// The backup retention alert is a platform alert in the Helm chart, so it is
+// rendered with helm and evaluated with promtool like the per-namespace rule.
+func TestPlatformAlertRules(t *testing.T) {
+	promtool, promtoolErr := exec.LookPath("promtool")
+	helm, helmErr := exec.LookPath("helm")
+	if promtoolErr != nil || helmErr != nil {
+		if os.Getenv("PGRATOR_REQUIRE_PROMTOOL") == "1" {
+			t.Fatal("promtool and helm are required")
+		}
+		t.Skip("promtool or helm not found; run mise run check:postgres-alerts")
+	}
+	chart, err := filepath.Abs("../../../charts/pgrator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := exec.CommandContext(t.Context(), helm, "template", "pgrator", chart, "--namespace", "nais-system", "--show-only", "templates/metrics/prometheus-rules.yaml").Output()
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	rule := &monitoringv1.PrometheusRule{}
+	if err := yaml.Unmarshal(rendered, rule); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := yaml.Marshal(rule.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	rules := filepath.Join(dir, "rules.yaml")
+	if err := os.WriteFile(rules, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("testdata/platform-alerts.test.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := filepath.Join(dir, "platform-alerts.test.yaml")
+	if err := os.WriteFile(tests, []byte(strings.ReplaceAll(string(fixture), "__RULE_FILE__", strconv.Quote(rules))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"check", "rules", rules}, {"test", "rules", tests}} {
+		if output, err := exec.CommandContext(t.Context(), promtool, args...).CombinedOutput(); err != nil {
 			t.Fatalf("promtool %v: %v\n%s", args, err, output)
 		}
 	}
