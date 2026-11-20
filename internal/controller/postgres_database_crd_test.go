@@ -103,6 +103,26 @@ func TestPostgresCRDDefaultsUnsetResources(t *testing.T) {
 	}
 }
 
+func TestPostgresCRDPreservesAutoExplain(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		name := "disabled"
+		if enabled {
+			name = "enabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			postgres := &v1.Postgres{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "autoexplain-", Namespace: "default"},
+				Spec:       v1.PostgresSpec{MajorVersion: "18", AutoExplain: enabled},
+			}
+			requireNoError(t, k8sClient.Create(ctx, postgres))
+			t.Cleanup(func() { requireNoError(t, k8sClient.Delete(ctx, postgres)) })
+			if postgres.Spec.AutoExplain != enabled {
+				t.Errorf("autoExplain = %t, want %t", postgres.Spec.AutoExplain, enabled)
+			}
+		})
+	}
+}
+
 func TestDatabaseConditionGetter(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)

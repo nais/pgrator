@@ -1,0 +1,17 @@
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: pg-mydb-main-6bc4781b
+    namespace: myteam
+  spec:
+    postgresql:
+      parameters:
+        auto_explain.log_min_duration: "1s"
+        auto_explain.log_analyze: "on"
+        auto_explain.log_timing: "off"
+        auto_explain.log_buffers: "on"
+        auto_explain.log_format: "json"
+        auto_explain.log_parameter_max_length: "0"

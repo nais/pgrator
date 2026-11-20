@@ -189,13 +189,73 @@ func TestRecoveryBootstrapPreservesInstantInUTC(t *testing.T) {
 }
 
 func TestAuditConfigurationExemptsApplicationRoles(t *testing.T) {
-	parameters := makePostgresParameters(resource.MustParse("512Mi"))
+	parameters := makePostgresParameters(resource.MustParse("512Mi"), false)
 	if got, want := parameters["pgaudit.log"], "read,write,ddl,role"; got != want {
 		t.Errorf("pgaudit.log = %q, want %q", got, want)
 	}
 
 	assertSQLContains(t, postInitSQL(), "ALTER ROLE postgres SET pgaudit.log = 'none'")
 	assertSQLContains(t, postInitApplicationSQL(), "ALTER ROLE app SET pgaudit.log = 'none'")
+}
+
+func TestCreateClusterAutoExplain(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	postgres := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"},
+		Spec:       v1.PostgresSpec{MajorVersion: "18"},
+	}
+	wantAutoExplain := map[string]string{
+		"auto_explain.log_min_duration":         "1s",
+		"auto_explain.log_analyze":              "on",
+		"auto_explain.log_timing":               "off",
+		"auto_explain.log_buffers":              "on",
+		"auto_explain.log_format":               "json",
+		"auto_explain.log_parameter_max_length": "0",
+	}
+	var baseline map[string]string
+	for _, tt := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "omitted"},
+		{name: "enabled", enabled: true},
+		{name: "disabled after enabling"},
+		{name: "enabled again", enabled: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			postgres.Spec.AutoExplain = tt.enabled
+			cluster, err := CreateCluster(scheme, postgres, &config.Config{}, WALArchive{}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parameters := cluster.Spec.PostgresConfiguration.Parameters
+			gotAutoExplain := make(map[string]string)
+			for key, value := range parameters {
+				if strings.HasPrefix(key, "auto_explain.") {
+					gotAutoExplain[key] = value
+					delete(parameters, key)
+				}
+			}
+			if tt.enabled {
+				if !reflect.DeepEqual(gotAutoExplain, wantAutoExplain) {
+					t.Errorf("auto_explain parameters = %v, want %v", gotAutoExplain, wantAutoExplain)
+				}
+			} else if len(gotAutoExplain) != 0 {
+				t.Errorf("disabled auto_explain parameters = %v, want none", gotAutoExplain)
+			}
+			if baseline == nil {
+				baseline = parameters
+			} else if !reflect.DeepEqual(parameters, baseline) {
+				t.Errorf("other PostgreSQL parameters changed: got %v, want %v", parameters, baseline)
+			}
+			if len(cluster.Spec.PostgresConfiguration.Extensions) != 0 || len(cluster.Spec.PostgresConfiguration.AdditionalLibraries) != 0 {
+				t.Error("auto_explain must not require an image extension or explicit preload library")
+			}
+		})
+	}
 }
 
 func TestReadWriteCreateRoleHasExplicitCreatePrivilege(t *testing.T) {
