@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	v1 "github.com/nais/pgrator/pkg/api/v1"
@@ -23,6 +25,13 @@ func TestCreateStorageBucketLeavesRetentionToBarman(t *testing.T) {
 
 			if len(bucket.Spec.LifecycleRules) != 0 {
 				t.Errorf("bucket lifecycle rules = %v, want none; barman's retention policy owns deletion", bucket.Spec.LifecycleRules)
+			}
+			spec, err := json.Marshal(bucket.Spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(spec), `"lifecycleRule":[]`) {
+				t.Errorf("bucket spec = %s, want an explicit empty lifecycleRule so Config Connector clears rules on existing buckets", spec)
 			}
 		})
 	}

@@ -43,13 +43,15 @@ func minimalStorageBucket(postgres *v1.Postgres, bucketName string) *storage_cnr
 // CreateStorageBucket builds the WAL bucket in the Postgres team's namespace.
 // It has no lifecycle rules: barman's retention policy on the ObjectStore owns
 // what is removed, since object age cannot tell which base backup a recovery
-// window still needs.
+// window still needs. The empty rule list is explicit, so that Config Connector
+// also clears lifecycle rules left on existing buckets by earlier versions.
 func CreateStorageBucket(postgres *v1.Postgres, bucketName, location string) *storage_cnrm_cloud_google_com_v1beta1.StorageBucket {
 	bucket := minimalStorageBucket(postgres, bucketName)
 	bucket.Spec = storage_cnrm_cloud_google_com_v1beta1.StorageBucketSpec{
 		Location:                 location,
 		UniformBucketLevelAccess: true,
 		PublicAccessPrevention:   storage_cnrm_cloud_google_com_v1beta1.PublicAccessPreventionInherited,
+		LifecycleRules:           []storage_cnrm_cloud_google_com_v1beta1.StorageBucketLifecycleRule{},
 	}
 	return bucket
 }

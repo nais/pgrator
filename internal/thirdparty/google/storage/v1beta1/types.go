@@ -62,11 +62,13 @@ const (
 )
 
 type StorageBucketSpec struct {
-	ResourceID               string                       `json:"resourceID,omitempty"`
-	Location                 string                       `json:"location"`
-	UniformBucketLevelAccess bool                         `json:"uniformBucketLevelAccess,omitempty"`
-	RetentionPolicy          *RetentionPolicy             `json:"retentionPolicy,omitempty"`
-	LifecycleRules           []StorageBucketLifecycleRule `json:"lifecycleRule,omitempty"`
+	ResourceID               string           `json:"resourceID,omitempty"`
+	Location                 string           `json:"location"`
+	UniformBucketLevelAccess bool             `json:"uniformBucketLevelAccess,omitempty"`
+	RetentionPolicy          *RetentionPolicy `json:"retentionPolicy,omitempty"`
+	// LifecycleRules is serialized even when empty: Config Connector leaves an
+	// omitted field to whoever last set it, but clears the rules for an empty list.
+	LifecycleRules []StorageBucketLifecycleRule `json:"lifecycleRule"`
 	// +kubebuilder:validation:Enum=inherited;enforced
 	PublicAccessPrevention PublicAccessPrevention `json:"publicAccessPrevention,omitempty"`
 	SoftDeletePolicy       *SoftDeletePolicy      `json:"softDeletePolicy,omitempty"`
