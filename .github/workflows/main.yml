@@ -35,7 +35,7 @@ jobs:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
@@ -51,7 +51,7 @@ jobs:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
@@ -70,7 +70,7 @@ jobs:
         with:
           path: pgrator
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: pgrator/go.mod
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
@@ -124,7 +124,7 @@ jobs:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
@@ -184,7 +184,7 @@ jobs:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5.0.1
