@@ -100,7 +100,6 @@ Pgrator reconciles one `PrometheusRule`, `nais-postgres-alerts`, in each namespa
 with a Postgres. All databases in the namespace share it; removing one database
 keeps the rule, and deleting the last removes it. Changes to platform alert
 expressions and thresholds overwrite local rule edits.
->>>>>>> main
 
 #### Workload private-key formats
 
