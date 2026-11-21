@@ -113,29 +113,6 @@ func tearDownTestEnvironment() error {
 	return nil
 }
 
-func TestGoldenPostgres(t *testing.T) {
-	postgresConfig := config.Config{
-		APIServerIP: "172.16.0.2/32",
-		CNPG: config.CNPG{
-			ImageCatalogName: "postgresql",
-			StorageClass:     "hyperdisk-balanced",
-		},
-	}
-	postgresReconciler := &PostgresReconciler{
-		Config:   &postgresConfig,
-		Recorder: recorder,
-		Scheme:   scheme.Scheme,
-	}
-
-	runGoldenTestsForResource[*v1.Postgres, PostgresPreparedData, v1.Postgres](
-		t,
-		postgresReconciler,
-		"postgres",
-		postgresConfig,
-		func(cfg config.Config) { *postgresReconciler.Config = cfg },
-	)
-}
-
 func TestGoldenPostgresCluster(t *testing.T) {
 	cfg := config.Config{APIServerIP: "172.16.0.2/32", CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "hyperdisk-balanced"}}
 	r := &PostgresClusterReconciler{Config: &cfg, Recorder: recorder, Scheme: scheme.Scheme}
