@@ -1,0 +1,9 @@
+# The live reconciler first persists its finalizer on the Postgres.
+action: protectPostgres
+matcher: Subset
+object:
+  apiVersion: nais.io/v1
+  kind: Postgres
+  metadata:
+    name: mydb
+    namespace: myteam

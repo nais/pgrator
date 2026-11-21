@@ -1,0 +1,54 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: pg-mydb-main-6bc4781b
+    namespace: myteam
+    annotations:
+      postgres.nais.io/readwritecreate-capable: "true"
+    labels:
+      postgres.nais.io/name: mydb
+      postgres.nais.io/branch: main
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    inheritedMetadata:
+      labels:
+        logs.nais.io/flow-default: "false"
+        logs.nais.io/flow-cnpg: "true"
+        kyverno.policy.exclusion.nais.io/restrict-volume-types: "true"
+    instances: 2
+    imageCatalogRef:
+      apiGroup: postgresql.cnpg.io
+      kind: ClusterImageCatalog
+      name: postgresql
+      major: 18
+    enableSuperuserAccess: false
+    storage:
+      storageClass: hyperdisk-balanced
+      size: 10Gi
+    bootstrap:
+      initdb:
+        database: app
+        owner: app
+    postgresql:
+      pg_hba:
+        - hostssl all all ${podselector:pooler} cert map=pooler
+        - hostssl all +nais_pa_91d946cd13884246 all scram-sha-256
+        - hostssl all all all cert
+        - hostnossl all all all reject
+      pg_ident:
+        - pooler cnpg_pooler_pgbouncer all
+    podSelectorRefs:
+      - name: pooler
+        selector:
+          matchLabels:
+            cnpg.io/poolerName: pg-mydb-main-6bc4781b-pooler

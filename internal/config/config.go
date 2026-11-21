@@ -77,7 +77,7 @@ func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error
 // validateWalBucketPrefixLength makes sure that the configured prefix is not too long
 // The prefix is combined with the UID from the postgres object to create the name of the WAL bucket.
 // The WAL bucket name has a max length of 63 characters (DNS1035LabelMaxLength).
-// See controller.PostgresReconciler::makeStorageBucketName
+// See controller.physicalRenderer.bucketName
 func validateWalBucketPrefixLength(cfg *Config) error {
 	allowedPrefixLength := validation.DNS1035LabelMaxLength - uidLength
 	prefixLength := len(cfg.CNPG.WalBucketPrefix)

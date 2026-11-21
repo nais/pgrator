@@ -59,11 +59,11 @@ var _ reconciler.Reconciler[*v1.Postgres, PostgresClusterPreparedData] = &Postgr
 
 func (r *PostgresClusterReconciler) Name() string      { return "postgres.nais.io" }
 func (r *PostgresClusterReconciler) New() *v1.Postgres { return &v1.Postgres{} }
-func (r *PostgresClusterReconciler) legacy() *PostgresBranchReconciler {
-	return &PostgresBranchReconciler{Config: r.Config, Recorder: r.Recorder, Scheme: r.Scheme}
+func (r *PostgresClusterReconciler) physical() *physicalRenderer {
+	return &physicalRenderer{Config: r.Config, Recorder: r.Recorder, Scheme: r.Scheme}
 }
 func (r *PostgresClusterReconciler) OwnedTypes() []reconciler.OwnedType {
-	return r.legacy().OwnedTypes()
+	return postgresPhysicalOwnedTypes(r.physical().walArchivingEnabled())
 }
 func (r *PostgresClusterReconciler) AdditionalTypes() []client.Object { return nil }
 
@@ -154,7 +154,7 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 			})
 		}
 	}
-	if r.legacy().walArchivingEnabled() {
+	if r.physical().walArchivingEnabled() {
 		namespace := &corev1.Namespace{}
 		if err := reader.Get(ctx, client.ObjectKey{Name: pg.Namespace}, namespace); err != nil {
 			return p, ctrl.Result{}, err
@@ -306,15 +306,16 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 		return nil, ctrl.Result{}, err
 	}
 	actions = append(actions, alerts)
-	identity := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Annotations: maps.Clone(pg.Annotations)}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: v1.DefaultBranchName}}
-	prepared := PostgresBranchPreparedData{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
+	identity := physicalIdentity{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Postgres: pg.Name, CorrelationID: pg.GetCorrelationId()}
+	prepared := physicalInputs{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: p.ProjectID, RecoverySource: p.RecoverySource, RecoverySourceReady: p.RecoverySourceReady}
 	if p.Cluster != nil {
 		prepared.RecoveryClusterUID = p.Cluster.UID
 	}
-	planned, result, err := r.legacy().physicalActions(identity, pg, prepared, related)
+	planned, err := r.physical().physicalActions(identity, pg, prepared, related)
 	if err != nil {
-		return nil, result, err
+		return nil, ctrl.Result{}, err
 	}
+	var result ctrl.Result
 	for i, a := range planned {
 		if existing := related.GetMatching(a.GetObject()); existing != nil && !physicalControlledBy(existing, pg) {
 			return nil, ctrl.Result{}, fmt.Errorf("desired resource %s is controlled by another resource", client.ObjectKeyFromObject(existing))
