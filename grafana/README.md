@@ -4,7 +4,7 @@ Component-owned sources for the provider dashboards on `monitoring.nais.io`:
 
 | Dashboard | UID | Purpose |
 | --- | --- | --- |
-| [Nais Postgres – Fleet](https://monitoring.nais.io/d/nais-postgres-fleet/) | `nais-postgres-fleet` | Observed CNPG branches, operations and resource use |
+| [Nais Postgres – Fleet](https://monitoring.nais.io/d/nais-postgres-fleet/) | `nais-postgres-fleet` | Observed CNPG databases, operations and resource use |
 | [Postgres – Adoption & Capacity](https://monitoring.nais.io/d/nais-postgres-adoption/) | `nais-postgres-adoption` | Reported Nais Postgres/Cloud SQL inventory, teams and trends |
 
 These are separate from Console metrics and the legacy postgres_exporter dashboard.
@@ -40,22 +40,22 @@ datasources, defaults to NAV and refreshes every five minutes. Each tenant repea
 the entire operational section; tenant values are never merged. Inner headings
 are text panels because nested Grafana rows would terminate the repeat scope.
 
-Environment/team/Postgres/branch filters apply to each section. Suggestions come
+Environment/team/Postgres filters apply to each section. Suggestions come
 from the first tenant; All and custom exact values can cover names absent from
 those suggestions. This is not a joined inventory dropdown. Control-plane panels
-are environment-wide inside the tenant and ignore team/Postgres/branch filters.
+are environment-wide inside the tenant and ignore team/Postgres filters.
 
-The existing branch table stays below the summary stats. It includes:
+The database table stays below the summary stats. It includes:
 
 - **PG major:** integer part of CNPG's `cnpg_collector_postgres_version` (18.6 →
   18), not `server_version_num` or a parent's desired version. Every discovered
   pod must report a positive version and all scrapes/pods must agree on major;
   missing, zero, partial or conflicting reports are Unknown.
-- **CPU:** requested cores and observed CPU rate, summed across branch pods.
+- **CPU:** requested cores and observed CPU rate, summed across the database's pods.
 - **Memory:** requests and container working set in binary units.
 - **PVC:** requested storage, actual kubelet filesystem capacity and total
   filesystem bytes used, not SQL table size. Each `pgdata` PVC counts once per
-  branch, including replicas and inactive branches. Environment and namespace
+  database, including replicas. Environment and namespace
   stay in joins; equal names in different scopes are not conflated.
 
 Only the seven resource columns have sum footers, one per tenant and selected
@@ -63,8 +63,8 @@ filters. Version, health signals, percentages and backup ages are not summed.
 There is no combined cross-tenant footprint or separate capacity table. Disk and
 memory/limit graphs remain under Capacity; CPU limits are not table columns.
 
-Resource cells require measurements for all discovered pods/PVCs in the branch.
-Missing/partial measurements, incomplete pod/PVC mapping or ambiguous cross-branch
+Resource cells require measurements for all discovered pods/PVCs of the database.
+Missing/partial measurements, incomplete pod/PVC mapping or ambiguous cross-database
 PVC ownership make the affected cell and footer Unknown, not a partial sum or
 zero. Genuine measured zero stays zero. The query uses a finite negative `-1e30`
 sentinel only in resource-table columns; negative results map to Unknown so the
@@ -74,14 +74,14 @@ these mappings in 13.2.2, so neither is a replacement for this sentinel.
 ### Operational blind spots
 
 - Inventory is currently discovered `up{postgres!=""}` targets, including failed
-  scrapes, not a complete Postgres/branch registry. Databases before discovery and
-  branches whose targets disappear are absent. Unknown is not healthy.
-- Primary/streaming observations do not prove desired HA, active branch, SQL
+  scrapes, not a complete Postgres registry. Databases before discovery and
+  databases whose targets disappear are absent. Unknown is not healthy.
+- Primary/streaming observations do not prove desired HA, SQL
   connectivity, credentials, networking or pooler health. A replica observation
   is not a desired-replica guarantee.
 - Backup metadata comes from `barman_cloud_cloudnative_pg_io_*`, exported by the
   Barman plugin. Legacy CNPG backup timestamps may be zero and are not used.
-  Backup age uses the newest positive timestamp across branch pods; missing/zero
+  Backup age uses the newest positive timestamp across the database's pods; missing/zero
   is Unknown, not 1970. First recoverability point does not prove uninterrupted
   WAL, latest recoverable point, retention or a successful restore.
 - Backup age >36h and disk use at 80%/90% are triage hints, not SLO/RPO or new
@@ -97,12 +97,11 @@ sources/environments: each of its four panels has one Mixed target per tenant
 datasource (eight, validated against the then-provisioned central datasources).
 It is not a canonical tenant registry. New sources appear automatically in
 selectors, but enter combined totals only after a target is added to each
-overview panel. Fleet has no snapshot
-aggregation dependency.
+overview panel. Fleet has no such aggregation dependency.
 
 - **Nais Postgres:** `pgrator_resource_info`, deduplicated by environment,
-  namespace and resource name for `postgres.nais.io` and `postgresbranch.nais.io`
-  separately. Branches/replicas/sessions are not logical Postgres resources.
+  namespace and resource name for `postgres.nais.io`. Replicas/sessions are not
+  separate Postgres resources.
 - **Cloud SQL (all engines):** KCC `configconnector_applied_resources_total` for
   `SQLInstance.sql.cnrm.cloud.google.com`, summed across namespaces and reported
   Ready-condition reasons, with duplicate scrapes deduplicated. This is a
@@ -127,7 +126,7 @@ an adoption share. Watcher event counters are not inventory.
 
 Nais capacity/history uses CNPG postgres-container requests and observed CPU
 rate/working set, plus deduplicated pgdata PVC requests/filesystem bytes used.
-All discovered branches and replicas contribute; environment/namespace stay
+All discovered primaries and replicas contribute; environment/namespace stay
 isolated. Requests are not node allocation, limits or expanded filesystem capacity.
 
 Cloud SQL capacity, PostgreSQL-only comparisons, money and savings are not invented
