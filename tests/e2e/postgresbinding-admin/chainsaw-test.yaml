@@ -4,7 +4,7 @@ metadata:
   name: postgresbinding-admin
 spec:
   description: >-
-    Multiple admin bindings consume the branch-owned durable owner certificate
+    Multiple admin bindings consume the Postgres-owned durable owner certificate
     and publish independent connection Secrets.
   steps:
     - name: Create Postgres
@@ -69,7 +69,7 @@ spec:
                        -o jsonpath='{.data.PGUSER}' | base64 -d)
               test "$user" = "app"
 
-    - name: Another workload can pin the same branch with admin credentials
+    - name: Another workload with the deprecated branch main can use admin credentials
       try:
         - apply:
             resource:

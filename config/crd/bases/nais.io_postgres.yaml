@@ -29,9 +29,6 @@ spec:
     - jsonPath: .spec.resources.memory
       name: Memory
       type: string
-    - jsonPath: .status.activeBranch
-      name: Active branch
-      type: string
     - jsonPath: .status.reconcileTime
       name: Last reconcile
       type: string
@@ -62,8 +59,8 @@ spec:
             properties:
               activeBranch:
                 description: |-
-                  ActiveBranch selects the local branch name within this Postgres for normal workloads.
-                  When omitted, pgrator retains the current active branch.
+                  ActiveBranch is deprecated: branches were retired. Only `main` (or empty)
+                  is accepted; the field is kept so existing manifests stay valid.
                 type: string
               autoExplain:
                 description: |-
@@ -239,14 +236,14 @@ spec:
             description: status defines the observed state of Postgres
             properties:
               activeBranch:
-                description: ActiveBranch is the local branch name currently selected
-                  by pgrator.
+                description: |-
+                  ActiveBranch is deprecated: branches were retired. Pgrator always reports
+                  `main`; the field is kept for existing readers.
                 type: string
               clusterName:
                 description: |-
-                  ClusterName identifies the directly managed CloudNativePG Cluster.
-                  Its presence selects the branchless status model. Older controllers leave
-                  it unset; readers must then resolve physical status through the active branch.
+                  ClusterName identifies the directly managed CloudNativePG Cluster. It is
+                  unset until pgrator has observed or created the cluster.
                 type: string
               conditions:
                 description: |-
@@ -347,8 +344,9 @@ spec:
                       of its controller.
                     type: string
                   legacyBranchUID:
-                    description: LegacyBranchUID pins the previous main branch during
-                      adoption and detach.
+                    description: |-
+                      LegacyBranchUID records the PostgresBranch this database was adopted from,
+                      before branches were retired.
                     type: string
                   phase:
                     description: Phase is Provisioning, Adopting or Managed. This

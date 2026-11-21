@@ -163,7 +163,7 @@ func (r *PostgresAccessReconciler) accessesForPostgres(ctx context.Context, read
 	if err := reader.List(ctx, accesses, client.InNamespace(postgres.Namespace), client.MatchingFields{postgresAccessPostgresIndex: postgres.Name}); err != nil {
 		return nil, fmt.Errorf("listing PostgresAccess resources for Postgres %q: %w", postgres.Name, err)
 	}
-	requests, err := r.accessesForBranchName(ctx, reader, postgres.Namespace, v1.PostgresPhysicalName(postgres.Name))
+	requests, err := r.accessesForPhysicalName(ctx, reader, postgres.Namespace, v1.PostgresPhysicalName(postgres.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -191,10 +191,10 @@ func (r *PostgresAccessReconciler) accessesForCluster(ctx context.Context, reade
 	return requests, nil
 }
 
-func (r *PostgresAccessReconciler) accessesForBranchName(ctx context.Context, reader client.Reader, namespace, instance string) ([]reconcile.Request, error) {
+func (r *PostgresAccessReconciler) accessesForPhysicalName(ctx context.Context, reader client.Reader, namespace, instance string) ([]reconcile.Request, error) {
 	accesses := &v1.PostgresAccessList{}
 	if err := reader.List(ctx, accesses, client.InNamespace(namespace), client.MatchingFields{postgresAccessBranchIndex: instance}); err != nil {
-		return nil, fmt.Errorf("listing PostgresAccess resources for PostgresBranch %q: %w", instance, err)
+		return nil, fmt.Errorf("listing PostgresAccess resources for legacy reference %q: %w", instance, err)
 	}
 	requests := make([]reconcile.Request, 0, len(accesses.Items))
 	for _, access := range accesses.Items {
@@ -311,7 +311,7 @@ func (r *PostgresAccessReconciler) Update(access *v1.PostgresAccess, prepared Po
 		// group role, so CNPG could never apply the DatabaseRole. The access spec
 		// is immutable; fail the access instead of reconciling it forever.
 		r.Recorder.RecordEvent(access, corev1.EventTypeWarning, "UnsupportedAccessLevel",
-			"accessLevel readwritecreate is not available on PostgresBranch %q: its cluster was initialized without the %s group role",
+			"accessLevel readwritecreate is not available on database %q: its cluster was initialized without the %s group role",
 			access.Spec.PhysicalName(), rccnpg.ReadWriteCreateRole)
 		access.GetStatus().(*v1.PostgresAccessStatus).SetCondition(metav1.Condition{
 			Type:               readyCondition,

@@ -38,7 +38,7 @@ func TestBindingActiveRolePreservesIdentityButRetainsSQLRole(t *testing.T) {
 	r, b, before := bindingLifecycleFixture(t)
 	roles := relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme)
 	roles.Insert(before)
-	actions, _, err := r.Update(b, PostgresBindingPreparedData{Branch: v1.PostgresPhysicalName(b.Spec.Postgres)}, roles)
+	actions, _, err := r.Update(b, PostgresBindingPreparedData{PhysicalName: v1.PostgresPhysicalName(b.Spec.Postgres)}, roles)
 	requireNoError(t, err)
 	for _, a := range actions {
 		if role, ok := a.GetObject().(*cnpgv1.DatabaseRole); ok && role.Name == before.Name {
@@ -80,7 +80,7 @@ func TestRemovedCredentialIsRevokedBeforeItsRoleIsPruned(t *testing.T) {
 	b.Spec.Credentials = []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin}
 	related := relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme)
 	related.Insert(role)
-	actions, result, err := r.Update(b, PostgresBindingPreparedData{Branch: v1.PostgresPhysicalName(b.Spec.Postgres)}, related)
+	actions, result, err := r.Update(b, PostgresBindingPreparedData{PhysicalName: v1.PostgresPhysicalName(b.Spec.Postgres)}, related)
 	requireNoError(t, err)
 	if result.IsZero() {
 		t.Fatal("credential removal does not wait for SQL revocation")
