@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/nais/pgrator/internal/config"
-	v1 "github.com/nais/pgrator/pkg/api/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -47,10 +45,10 @@ func TestBucketName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
-			instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: tt.instance, Namespace: tt.namespace}}
+			r := &physicalRenderer{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: tt.prefix}}}
+			instance := physicalIdentity{Name: tt.instance, Namespace: tt.namespace}
 
-			got := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: tt.uid})
+			got := r.bucketName(instance, physicalInputs{PostgresUID: tt.uid})
 			if got != tt.want {
 				t.Errorf("bucketName() = %q, want %q", got, tt.want)
 			}
@@ -62,11 +60,11 @@ func TestBucketName(t *testing.T) {
 }
 
 func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
-	r := &PostgresBranchReconciler{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
+	r := &physicalRenderer{Config: &config.Config{CNPG: config.CNPG{WalBucketPrefix: "nais-wal-dev-nais-dev"}}}
+	instance := physicalIdentity{Name: "mydb", Namespace: "basseng"}
 
-	first := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
-	second := r.bucketName(instance, PostgresBranchPreparedData{PostgresUID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"})
+	first := r.bucketName(instance, physicalInputs{PostgresUID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
+	second := r.bucketName(instance, physicalInputs{PostgresUID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"})
 
 	if first == second {
 		t.Errorf("recreated Postgres reused bucket name %q", first)
@@ -74,10 +72,10 @@ func TestBucketNameChangesWhenPostgresIsRecreated(t *testing.T) {
 }
 
 func TestBucketNameDisabled(t *testing.T) {
-	r := &PostgresBranchReconciler{Config: &config.Config{}}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "basseng"}}
+	r := &physicalRenderer{Config: &config.Config{}}
+	instance := physicalIdentity{Name: "mydb", Namespace: "basseng"}
 
-	if got := r.bucketName(instance, PostgresBranchPreparedData{}); got != "" {
+	if got := r.bucketName(instance, physicalInputs{}); got != "" {
 		t.Errorf("bucketName() = %q, want empty name when WAL archiving is disabled", got)
 	}
 }

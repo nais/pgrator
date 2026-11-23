@@ -171,8 +171,8 @@ not a personal access request. In versions that update children unconditionally,
 it can also appear when the group configuration is unchanged.
 
 Implementation entry points:
-- [`createPersonalAccessGroupRole`](internal/controller/postgresbranch_controller.go)
-  creates the group (in the renderer shared with the retired branch controller).
+- [`createPersonalAccessGroupRole`](internal/controller/postgres_physical.go)
+  creates the group.
 - [`PersonalAccessRole` and `CreateCluster`](internal/resourcecreator/cnpg/cnpg.go)
   define its SQL name and authentication rule; `postInitSQL` defines the bootstrap
   privilege groups.

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/initscheme"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
@@ -165,7 +164,7 @@ func TestDatabaseConditionGetter(t *testing.T) {
 
 func TestDatabaseStatusChangeTriggersReconcile(t *testing.T) {
 	var filter predicate.Predicate
-	for _, ownedType := range (&PostgresBranchReconciler{Config: &config.Config{}}).OwnedTypes() {
+	for _, ownedType := range postgresPhysicalOwnedTypes(false) {
 		if _, ok := ownedType.Type.(*cnpgv1.Database); ok {
 			filter = ownedType.AdditionalPredicate
 		}

@@ -1,0 +1,18 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-mydb-main-6bc4781b
+  namespace: myteam
+  ownerReferences:
+    - apiVersion: nais.io/v1
+      kind: Postgres
+      name: mydb
+      uid: feedab1e-beef-cafe-babe-700d1e100d1e
+      controller: true
+status:
+  conditions:
+    - type: ContinuousArchiving
+      status: "True"
+      reason: ContinuousArchivingSuccess
+      message: WAL archiving is working
+      lastTransitionTime: "2026-01-01T00:00:00Z"

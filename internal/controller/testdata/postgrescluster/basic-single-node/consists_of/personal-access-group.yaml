@@ -1,0 +1,22 @@
+---
+action: createOrUpdate
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: DatabaseRole
+  metadata:
+    name: pg-mydb-main-6bc4781b-personal-access
+    namespace: myteam
+    ownerReferences:
+      - apiVersion: nais.io/v1
+        kind: Postgres
+        name: mydb
+        uid: feedab1e-beef-cafe-babe-700d1e100d1e
+        controller: true
+        blockOwnerDeletion: true
+  spec:
+    cluster:
+      name: pg-mydb-main-6bc4781b
+    databaseRoleReclaimPolicy: delete
+    name: nais_pa_91d946cd13884246
+    disablePassword: true

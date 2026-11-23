@@ -67,9 +67,6 @@ func setupTestEnvironment() error {
 		CRDDirectoryPaths: []string{
 			"../../config/crd/bases",
 			"./testdata/external-crds",
-			// Only historical controller tests install the retired API. Production
-			// manifests and the isolated direct-controller suite must not include it.
-			"./testdata/legacy-crds",
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -117,31 +114,6 @@ func TestGoldenPostgresCluster(t *testing.T) {
 	cfg := config.Config{APIServerIP: "172.16.0.2/32", CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "hyperdisk-balanced"}}
 	r := &PostgresClusterReconciler{Config: &cfg, Recorder: recorder, Scheme: scheme.Scheme}
 	runGoldenTestsForResource[*v1.Postgres, PostgresClusterPreparedData, v1.Postgres](t, r, "postgrescluster", cfg, func(next config.Config) { *r.Config = next })
-}
-
-func TestGoldenPostgresBranch(t *testing.T) {
-	instanceConfig := config.Config{
-		APIServerIP:     "172.16.0.2/32",
-		GoogleProjectID: "cluster-gcp-project",
-		Google:          config.Google{Location: "europe-north1"},
-		CNPG: config.CNPG{
-			ImageCatalogName: "postgresql",
-			StorageClass:     "hyperdisk-balanced",
-		},
-	}
-	postgresBranchReconciler := &PostgresBranchReconciler{
-		Config:   &instanceConfig,
-		Recorder: recorder,
-		Scheme:   scheme.Scheme,
-	}
-
-	runGoldenTestsForResource[*v1.PostgresBranch, PostgresBranchPreparedData, v1.PostgresBranch](
-		t,
-		postgresBranchReconciler,
-		"postgresbranch",
-		instanceConfig,
-		func(cfg config.Config) { *postgresBranchReconciler.Config = cfg },
-	)
 }
 
 func TestGoldenPostgresBinding(t *testing.T) {
