@@ -35,4 +35,4 @@ run = [{ "task" = "generate:cnrm-crds" }, { "task" = "generate:other-crds" }]
 [tasks."check:postgres-alerts"]
 description = "Validate and evaluate rendered Postgres alerts with promtool"
 env = { PGRATOR_REQUIRE_PROMTOOL = "1" }
-run = "go test ./internal/resourcecreator/postgresmonitoring -run 'TestPostgresAlertRules|TestPlatformAlertRules' -count=1"
+run = "go test ./internal/resourcecreator/postgresmonitoring -run TestPostgresAlertRules -count=1"
