@@ -181,11 +181,9 @@ Implementation entry points:
 
 ## Dashboards
 
-The [Postgres dashboards](grafana/README.md) have component-owned Jsonnet sources,
-generated Grafana resources and a separate, credential-free validation workflow.
-Run `make -C grafana install check`; operator tooling and cluster access are not
-required. [Manual Git Sync setup](grafana/MIGRATION.md) documents the central
-connection to `main`. No provisioning Job or Helm release is needed.
+The [Postgres dashboards](grafana/README.md) are plain Grafana dashboard JSON in
+`grafana/`, synced by Grafana Git Sync from `main` ([setup](grafana/MIGRATION.md)).
+No provisioning Job or Helm release is needed.
 
 ## CI/CD
 
