@@ -198,6 +198,30 @@ spec:
             description: The last successful backup of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} old. Backups run nightly.
             action: "Verify scheduled backups, the Barman plugin and backup bucket access."
 
+        # Temporary: this reaches the team owning the database, which cannot act on it.
+        # It belongs with the platform team once kube-state-metrics exposes Postgres
+        # and ObjectStore state to the platform's metrics tenant.
+        - alert: PostgresBackupRetentionNotEnforced
+          expr: |
+            (
+              time() - (
+                max by (namespace, postgres) (
+                  barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="__NAMESPACE__", postgres!=""}
+                ) > 0
+              )
+            )
+            > on (namespace, postgres)
+            (
+              max by (namespace, postgres) (nais_postgres_backup_retention_days{namespace="__NAMESPACE__"}) + 3
+            ) * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: PostgreSQL `{{ $labels.postgres }}` is not removing old backups
+            description: The oldest recoverable point of PostgreSQL `{{ $labels.postgres }}` in `{{ $labels.namespace }}` is {{ $value | humanizeDuration }} old, which is more than three days beyond its retention. Barman is expected to remove older backups and WAL, so the backup bucket keeps growing.
+            action: "Check the Barman plugin logs for retention errors, that nightly backups succeed and that the instance service account may delete bucket objects; retention runs periodically on the primary and cannot delete without bucket permissions."
+
         - alert: PostgresNoWritablePrimary
           expr: |
             group by (namespace, postgres) (

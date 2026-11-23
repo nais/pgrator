@@ -359,3 +359,50 @@ tests:
         exp_samples:
           - labels: 'ALERTS{alertname="PostgresBackupMetricsMissing",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
             value: 1
+
+  - name: Backups older than retention plus three days are not being removed
+    interval: 1m
+    input_series:
+      # Reported only from day 10, where the epoch is exactly retention plus three days old.
+      - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
+        values: '_x14400 1x700'
+    promql_expr_test:
+      # orders keeps 7 days by default; the oldest point is the epoch.
+      - expr: 'ALERTS{alertname="PostgresBackupRetentionNotEnforced",alertstate="firing"}'
+        eval_time: 250h
+        exp_samples:
+          - labels: 'ALERTS{alertname="PostgresBackupRetentionNotEnforced",alertstate="firing",severity="warning",namespace="team",postgres="orders"}'
+            value: 1
+
+  - name: An oldest backup well within retention is healthy
+    interval: 1m
+    input_series:
+      # At 240h this is 2.5 days old, far inside the 7 + 3 day allowance.
+      - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
+        values: '564000x14500'
+    alert_rule_test:
+      - eval_time: 240h
+        alertname: PostgresBackupRetentionNotEnforced
+        exp_alerts: []
+
+  - name: The backup preceding the window is not an alert
+    interval: 1m
+    input_series:
+      # Positive timestamp, 9.5 days old at 240h: 7 days of retention plus the
+      # backup preceding the window and a few missed nights. Without the three day allowance this would fire.
+      - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
+        values: '43200x14500'
+    alert_rule_test:
+      - eval_time: 240h
+        alertname: PostgresBackupRetentionNotEnforced
+        exp_alerts: []
+
+  - name: A missing recoverability point is not a retention problem
+    interval: 1m
+    input_series:
+      - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
+        values: '0x200'
+    alert_rule_test:
+      - eval_time: 150m
+        alertname: PostgresBackupRetentionNotEnforced
+        exp_alerts: []
