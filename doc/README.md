@@ -2,7 +2,7 @@
 
 This directory contains markdown templates for [nais/doc](https://github.com/nais/doc).
 
-These templates are used together with [cmd/docgen](../cmd/docgen) to generate documentation for selected CustomResourceDefinitions (CRDs). `PostgresBranch` is an internal API kind and is excluded from the published documentation. `Postgres` has a standalone schema but is not yet advertised in the aggregate schemas.
+These templates are used together with [cmd/docgen](../cmd/docgen) to generate documentation for selected CustomResourceDefinitions (CRDs). `Postgres` has a standalone schema but is not yet advertised in the aggregate schemas.
 
 ## Structure
 

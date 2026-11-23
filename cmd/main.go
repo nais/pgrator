@@ -109,9 +109,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// The retired branch controller must not be registered. The same leader-
-	// election lease serializes physical reconciliation across pgrator versions.
-
 	postgresBindingReconciler := &controller.PostgresBindingReconciler{
 		Recorder: recorder,
 		Scheme:   scheme,

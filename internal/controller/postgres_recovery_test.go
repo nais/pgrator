@@ -50,13 +50,13 @@ func unacceptedDirectRecoveryFixture(t *testing.T) (*PostgresClusterReconciler, 
 	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "restored", Namespace: source.Namespace, UID: "restored-uid"}, Spec: *source.Spec.DeepCopy()}
 	pg.Spec.Recovery = &v1.PostgresRecovery{SourcePostgres: source.Name, SourceUID: string(source.UID), BucketName: bucket, ServerName: source.Status.ClusterName, TargetTime: metav1.NewTime(time.Now().UTC().Truncate(time.Second).Add(-time.Hour))}
 	requireNoError(t, c.Create(t.Context(), pg))
-	_, _, err := r.Prepare(t.Context(), withoutBranchAPI(t, c), pg)
+	_, _, err := r.Prepare(t.Context(), c, pg)
 	requireNoError(t, err)
 	requireNoError(t, c.Status().Update(t.Context(), pg))
-	return r, withoutBranchAPI(t, c), source, pg
+	return r, c, source, pg
 }
 
-func TestDirectRecoveryPinsSourceWithoutBranchAPI(t *testing.T) {
+func TestDirectRecoveryPinsSource(t *testing.T) {
 	r, c, _, pg := directRecoveryFixture(t)
 	p, _, err := r.Prepare(t.Context(), c, pg)
 	requireNoError(t, err)
@@ -72,9 +72,6 @@ func TestDirectRecoveryPinsSourceWithoutBranchAPI(t *testing.T) {
 	for _, a := range actions {
 		if _, ok := a.GetObject().(*cnpgv1.Cluster); ok {
 			t.Fatal("started recovery before IAM and archive infrastructure were ready")
-		}
-		if _, ok := a.GetObject().(*v1.PostgresBranch); ok {
-			t.Fatal("created a retired branch object")
 		}
 	}
 }
@@ -421,7 +418,7 @@ func TestOwnBackupProvesRecoveryCompletedDespiteLaterOutage(t *testing.T) {
 }
 
 func TestRecoveredDatabasePersonalAccessUsesNewAuthenticationGroup(t *testing.T) {
-	access, _, pg, cluster := accessFixture()
+	access, pg, cluster := accessFixture()
 	adoptAccessFixture(t, pg, cluster)
 	access.Spec.Postgres, access.Spec.PostgresBranch = pg.Name, ""
 	access.Spec.AccessLevel = v1.PostgresAccessLevelRead
@@ -430,7 +427,7 @@ func TestRecoveredDatabasePersonalAccessUsesNewAuthenticationGroup(t *testing.T)
 	pg.Spec.Recovery = &v1.PostgresRecovery{SourcePostgres: "source"}
 	group := rccnpg.PersonalAccessRoleForPostgres(v1.PostgresPhysicalName(pg.Name), pg)
 	metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, rccnpg.PersonalAccessGroupAnnotation, group)
-	c := withoutBranchAPI(t, fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(pg, cluster).Build())
+	c := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(pg, cluster).Build()
 	prepared, _, err := r.Prepare(t.Context(), c, access)
 	requireNoError(t, err)
 	actions, _, err := r.Update(access, prepared, relatedobjectsmap.NewRelatedObjectsMap(r.Scheme))

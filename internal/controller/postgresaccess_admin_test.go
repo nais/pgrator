@@ -24,11 +24,11 @@ import (
 )
 
 func TestPostgresAdminUsesExistingDatabaseOwner(t *testing.T) {
-	a, branch, postgres, cluster := accessFixture()
+	a, postgres, cluster := accessFixture()
 	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	a.Spec.AccessLevel = v1.PostgresAccessLevelAdmin
 	// Existing and restored clusters need no new bootstrap privilege group.
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, cluster).Build()
 	r := makePostgresAccessReconciler()
 	prepared, _, err := r.Prepare(t.Context(), reader, a)
 	requireNoError(t, err)
@@ -39,7 +39,7 @@ func TestPostgresAdminUsesExistingDatabaseOwner(t *testing.T) {
 		if !ok {
 			continue
 		}
-		want := []string{rccnpg.OwnerRole, rccnpg.PersonalAccessRole(branch.Name)}
+		want := []string{rccnpg.OwnerRole, rccnpg.PersonalAccessRole(v1.PostgresPhysicalName("db"))}
 		if role.Spec.Name != a.Spec.Username || !reflect.DeepEqual(role.Spec.InRoles, want) {
 			t.Fatalf("admin must retain personal identity and inherit the existing owner: %+v", role.Spec)
 		}
@@ -49,10 +49,10 @@ func TestPostgresAdminUsesExistingDatabaseOwner(t *testing.T) {
 }
 
 func TestPostgresAdminWaitsForDurableCleanupBeforeGrantingPrivileges(t *testing.T) {
-	a, branch, postgres, cluster := accessFixture()
+	a, postgres, cluster := accessFixture()
 	a.Finalizers = nil
 	a.Spec.AccessLevel = v1.PostgresAccessLevelAdmin
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, branch, postgres, cluster).
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, postgres, cluster).
 		WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 			if obj.GetName() == rcaccess.TokenSecretName(a) {
 				return errors.New("injected failure after role creation")
@@ -72,7 +72,7 @@ func TestPostgresAdminWaitsForDurableCleanupBeforeGrantingPrivileges(t *testing.
 }
 
 func TestPostgresAdminAdmission(t *testing.T) {
-	a, _, _, _ := accessFixture()
+	a, _, _ := accessFixture()
 	a.Name, a.Namespace, a.UID = "admin-admission", postgresAccessValidationNamespace, ""
 	a.Spec.AccessLevel = v1.PostgresAccessLevelAdmin
 	requireNoError(t, k8sClient.Create(t.Context(), a))
@@ -91,7 +91,7 @@ func TestPostgresAdminRevokedBeforeRoleResourceIsDeleted(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
-			a, _, _, _ := accessFixture()
+			a, _, _ := accessFixture()
 			a.Name, a.Namespace, a.UID = "admin-"+name, postgresAccessValidationNamespace, ""
 			a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 			a.Spec.AccessLevel = v1.PostgresAccessLevelAdmin

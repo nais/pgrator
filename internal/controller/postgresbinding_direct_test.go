@@ -30,14 +30,14 @@ func TestBindingCredentialsRemainStableWithoutBranchObjects(t *testing.T) {
 	for _, workload := range []v1.PostgresBindingWorkloadType{v1.PostgresBindingWorkloadTypeApplication, v1.PostgresBindingWorkloadTypeJob} {
 		for _, selected := range []string{"", "main"} {
 			t.Run(fmt.Sprintf("%s/branch=%s", workload, selected), func(t *testing.T) {
-				r, c, pg, b, _ := directOwnershipFixture(t, false)
+				r, c, pg, physicalName, _ := directOwnershipFixture(t, false)
 				binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "consumer", Namespace: pg.Namespace, UID: "binding-uid"}, Spec: v1.PostgresBindingSpec{Postgres: pg.Name, Branch: selected, SecretName: "consumer-connection", Consumer: v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "consumer", Type: workload}}, Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead, v1.PostgresBindingCredentialAdmin}}}
 				cluster := &cnpgv1.Cluster{}
-				requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(b.Name)}, cluster))
+				requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(physicalName)}, cluster))
 				ca, key, caPEM := generateTestCA(t)
 				requireNoError(t, c.Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cluster.GetClientCASecretName(), Namespace: pg.Namespace}, Data: map[string][]byte{"ca.crt": caPEM}}))
 				for _, credential := range binding.Spec.Credentials {
-					roleName := rcbinding.DatabaseRoleName(binding, b.Name, credential)
+					roleName := rcbinding.DatabaseRoleName(binding, physicalName, credential)
 					userName := binding.RoleName(credential)
 					if credential == v1.PostgresBindingCredentialAdmin {
 						roleName = cluster.Name + "-app"
@@ -91,7 +91,7 @@ func TestBindingCredentialsRemainStableWithoutBranchObjects(t *testing.T) {
 func TestBindingDoesNotWithdrawCredentialsOnInvalidDirectTarget(t *testing.T) {
 	for _, issue := range []string{"absent-direct-cluster", "replaced", "foreign-owner", "non-main", "missing observation"} {
 		t.Run(issue, func(t *testing.T) {
-			r, c, pg, b, _ := directOwnershipFixture(t, false)
+			r, c, pg, physicalName, _ := directOwnershipFixture(t, false)
 			for range 2 {
 				s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 				_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
@@ -107,7 +107,7 @@ func TestBindingDoesNotWithdrawCredentialsOnInvalidDirectTarget(t *testing.T) {
 			requireNoError(t, c.Create(t.Context(), secret))
 			before := secret.DeepCopy()
 			cluster := &cnpgv1.Cluster{}
-			requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(b.Name)}, cluster))
+			requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.CNPGClusterName(physicalName)}, cluster))
 			switch issue {
 			case "missing observation":
 				requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(pg), pg))

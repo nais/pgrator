@@ -36,9 +36,9 @@ const (
 	ownershipManaged      = "Managed"
 )
 
-// PostgresClusterReconciler manages already-adopted and newly provisioned
-// databases without the PostgresBranch API. Complete adoption with the previous
-// release first. Shared renderers retain the historical physical identities.
+// PostgresClusterReconciler manages adopted and newly provisioned databases.
+// Databases from releases before direct ownership must complete adoption with
+// such a release first. Physical names keep their historical identities.
 type PostgresClusterReconciler struct {
 	Config   *config.Config
 	Recorder events.Recorder

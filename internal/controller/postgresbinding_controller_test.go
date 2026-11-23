@@ -36,16 +36,16 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName("orders"), Namespace: "team"}}
+	physicalName := v1.PostgresPhysicalName("orders")
 	postgres, cluster := directBindingTarget()
 	cluster.Spec.Certificates = &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}
-	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
+	roleName := rcbinding.DatabaseRoleName(binding, physicalName, v1.PostgresBindingCredentialRead)
 	certSecret := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
 	caCert, caKey, caPEM := generateTestCA(t)
 	certPEM, keyPEM := generateTestClientCert(t, caCert, caKey, binding.RoleName(v1.PostgresBindingCredentialRead))
 
 	t.Run("publishes a complete snapshot", func(t *testing.T) {
-		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance, cluster,
+		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, cluster,
 			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": caPEM}},
 			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": certPEM, "tls.key": keyPEM}},
 		).Build()
@@ -63,14 +63,14 @@ func TestPostgresBindingSnapshot(t *testing.T) {
 			requireEqual(t, string(secret.Data["ca.crt"]), string(caPEM), "CA certificate")
 			requireEqual(t, string(secret.Data["read.tls.crt"]), string(certPEM), "client certificate")
 			requireEqual(t, string(secret.Data["read.tls.key"]), string(keyPEM), "client key")
-			requireEqual(t, secret.StringData["READ_PGHOST"], rccnpg.PoolerNameFor(instance.Name)+".team", "active instance host")
+			requireEqual(t, secret.StringData["READ_PGHOST"], rccnpg.PoolerNameFor(physicalName)+".team", "active instance host")
 			return
 		}
 		t.Fatal("missing stable binding Secret action")
 	})
 
 	t.Run("does not replace a stable secret while source material is incomplete", func(t *testing.T) {
-		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance, cluster,
+		reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, cluster,
 			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orders-ca", Namespace: "team"}, Data: map[string][]byte{"ca.crt": caPEM}},
 			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: certSecret, Namespace: "team"}, Data: map[string][]byte{"tls.crt": certPEM}},
 		).Build()
@@ -320,19 +320,20 @@ func TestUpdateRetainsDatabaseRolesForPreviousInstances(t *testing.T) {
 	}
 }
 
-func TestPrepareBindingDoesNotFallbackToRetiredBranch(t *testing.T) {
+func TestPrepareBindingWaitsForDirectStatus(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
 		Postgres: "orders", SecretName: "reporter-orders-connection",
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialRead},
 	}}
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "restore"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
-	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveBranch: instance.Spec.BranchName}}
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, instance).Build()
+	// Without direct status, a ready cluster of another database must not be used.
+	decoy := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: rccnpg.ClusterNameFor(decoyPhysicalName), Namespace: "team"}}
+	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}, Status: &v1.PostgresStatus{ActiveBranch: "pr-123"}}
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, decoy).Build()
 
 	_, _, err := (&PostgresBindingReconciler{}).Prepare(context.Background(), reader, binding)
 	if err == nil {
-		t.Fatal("used legacy branch instead of waiting for direct status")
+		t.Fatal("used another database instead of waiting for direct status")
 	}
 }
 
@@ -345,16 +346,16 @@ func TestPostgresBindingRelationshipMappers(t *testing.T) {
 	otherBinding := binding.DeepCopy()
 	otherBinding.Name = "unrelated"
 	otherBinding.Spec.Postgres = "other"
-	instance := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName("orders"), Namespace: "team"}}
+	physicalName := v1.PostgresPhysicalName("orders")
 	postgres, cluster := directBindingTarget()
 	cluster.Spec.Certificates = &cnpgv1.CertificatesConfiguration{ClientCASecret: "orders-ca"}
-	roleName := rcbinding.DatabaseRoleName(binding, instance.Name, v1.PostgresBindingCredentialRead)
+	roleName := rcbinding.DatabaseRoleName(binding, physicalName, v1.PostgresBindingCredentialRead)
 	certificateName := (&cnpgv1.DatabaseRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}}).GetClientCertSecretName()
 	r := &PostgresBindingReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 	index := r.Indexes()[0]
 	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).
 		WithIndex(index.Object, index.Field, index.ExtractValue).
-		WithObjects(binding, otherBinding, postgres, instance, cluster).
+		WithObjects(binding, otherBinding, postgres, cluster).
 		Build()
 
 	requests, err := r.bindingsForPostgres(context.Background(), reader, postgres)

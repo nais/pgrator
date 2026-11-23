@@ -30,13 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-func TestDirectOwnershipPreservesResourcesWithoutBranchAPI(t *testing.T) {
+func TestDirectOwnershipPreservesResources(t *testing.T) {
 	for _, wal := range []bool{false, true} {
 		t.Run(fmt.Sprintf("wal=%t", wal), func(t *testing.T) {
 			r, c, pg, _, before := directOwnershipFixture(t, wal)
-			guard := withoutBranchAPI(t, c)
 			for range 3 {
-				s := synchronizer.NewSynchronizer(guard, scheme.Scheme, r, recorder)
+				s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 				_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
 				requireNoError(t, err)
 			}
@@ -132,7 +131,7 @@ func TestDirectOwnershipRejectsIncompleteMigration(t *testing.T) {
 					requireNoError(t, c.Create(t.Context(), cluster))
 				}
 			}
-			s := synchronizer.NewSynchronizer(withoutBranchAPI(t, c), scheme.Scheme, r, recorder)
+			s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 			if _, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)}); err == nil {
 				t.Fatal("accepted unsafe/incomplete migration")
 			}
@@ -156,11 +155,11 @@ func TestDirectOwnershipRequiresDurableCheckpoint(t *testing.T) {
 	}
 }
 
-func TestDirectOwnershipDeletionWithoutBranchAPI(t *testing.T) {
+func TestDirectOwnershipDeletion(t *testing.T) {
 	r, c, pg, _, children := directOwnershipFixture(t, true)
 	requireNoError(t, c.Delete(t.Context(), pg))
 	for range 3 {
-		s := synchronizer.NewSynchronizer(withoutBranchAPI(t, c), scheme.Scheme, r, recorder)
+		s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 		_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
 		requireNoError(t, err)
 	}
@@ -172,23 +171,20 @@ func TestDirectOwnershipDeletionWithoutBranchAPI(t *testing.T) {
 }
 
 func TestDeletingPostgresRejectsPartiallyAdoptedInventory(t *testing.T) {
-	r, c, pg, identity, children := directOwnershipFixture(t, false)
+	r, c, pg, physicalName, children := directOwnershipFixture(t, false)
 	pg.Status.Ownership.Phase = ownershipAdopting
 	requireNoError(t, c.Status().Update(t.Context(), pg))
-	branch := identity.DeepCopy()
-	branch.UID = types.UID(pg.Status.Ownership.LegacyBranchUID)
-	branch.Finalizers = []string{"postgresbranch.nais.io"}
-	requireNoError(t, c.Create(t.Context(), branch))
 	// Simulate a crash after the cluster transfer but before another child was
-	// transferred. That child is absent from the direct owner's live inventory.
+	// transferred. That child is still controlled by the legacy owner and absent
+	// from the direct owner's live inventory.
 	remaining := children[0].DeepCopyObject().(client.Object)
 	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(remaining), remaining))
-	remaining.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: branch.Name, UID: branch.UID, Controller: new(true)}})
+	remaining.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: "PostgresBranch", Name: physicalName, UID: types.UID(pg.Status.Ownership.LegacyBranchUID), Controller: new(true)}})
 	owners := ownership.NewOwnerManager("postgres.nais.io/owner")
 	owners.RemoveOwnerAnnotation(remaining, pg)
 	requireNoError(t, c.Update(t.Context(), remaining))
 	requireNoError(t, c.Delete(t.Context(), pg))
-	s := synchronizer.NewSynchronizer(withoutBranchAPI(t, c), scheme.Scheme, r, recorder)
+	s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 	if _, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)}); err == nil {
 		t.Fatal("started deletion while adoption was unfinished")
 	}
@@ -204,16 +200,12 @@ func TestDeletingPostgresRejectsPartiallyAdoptedInventory(t *testing.T) {
 		requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(got), got))
 		assertSameFunctionalResource(t, original, got)
 	}
-	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(branch), branch))
-	if !slices.Contains(branch.Finalizers, "postgresbranch.nais.io") {
-		t.Fatal("removed legacy branch finalizer")
-	}
 }
 
 func TestDirectOwnershipRetainsArchivesWhenWALDisabled(t *testing.T) {
 	r, c, pg, _, before := directOwnershipFixture(t, true)
 	r.Config.CNPG.WalBucketPrefix = ""
-	s := synchronizer.NewSynchronizer(withoutBranchAPI(t, c), scheme.Scheme, r, recorder)
+	s := synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder)
 	_, err := s.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(pg)})
 	requireNoError(t, err)
 	for _, original := range before {
@@ -225,7 +217,7 @@ func TestDirectOwnershipRetainsArchivesWhenWALDisabled(t *testing.T) {
 	}
 }
 
-func TestPostgresDirectProvisioningCreatesNoBranch(t *testing.T) {
+func TestPostgresDirectProvisioningOwnsCluster(t *testing.T) {
 	r, _, _, _, _ := directOwnershipFixture(t, false)
 	c := k8sClient
 	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "fresh-direct-ownership", Namespace: "default"}, Spec: v1.PostgresSpec{MajorVersion: "18"}}
@@ -240,30 +232,6 @@ func TestPostgresDirectProvisioningCreatesNoBranch(t *testing.T) {
 	if !physicalControlledBy(cluster, pg) {
 		t.Fatal("cluster not directly owned")
 	}
-	// The retired CRD is not installed; either way no branch may exist.
-	if err := c.Get(t.Context(), client.ObjectKey{Namespace: pg.Namespace, Name: v1.PostgresPhysicalName(pg.Name)}, &v1.PostgresBranch{}); !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
-		t.Fatalf("created a synthetic branch: %v", err)
-	}
-}
-
-func withoutBranchAPI(t *testing.T, c client.Client) client.Client {
-	t.Helper()
-	return interceptor.NewClient(c.(client.WithWatch), interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*v1.PostgresBranch); ok {
-				t.Error("read retired branch API")
-				return errors.New("branch CRD is not installed")
-			}
-			return c.Get(ctx, key, obj, opts...)
-		},
-		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-			if _, ok := list.(*v1.PostgresBranchList); ok {
-				t.Error("listed retired branch API")
-				return errors.New("branch CRD is not installed")
-			}
-			return c.List(ctx, list, opts...)
-		},
-	})
 }
 
 func assertSameFunctionalResource(t *testing.T, before, after client.Object) {
@@ -284,16 +252,13 @@ func assertSameFunctionalResource(t *testing.T, before, after client.Object) {
 	}
 }
 
-func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler, client.Client, *v1.Postgres, *v1.PostgresBranch, []client.Object) {
+func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler, client.Client, *v1.Postgres, string, []client.Object) {
 	t.Helper()
 	cfg := &config.Config{APIServerIP: "172.16.0.2/32", GoogleProjectID: "cluster-project", Google: config.Google{Location: "europe-north1"}, CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "hyperdisk-balanced"}}
 	if wal {
 		cfg.CNPG.WalBucketPrefix = "nais-wal-dev"
 	}
 	pg := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "test", UID: "postgres-uid", Finalizers: []string{"postgres.nais.io"}}, Spec: v1.PostgresSpec{MajorVersion: "18"}, Status: &v1.PostgresStatus{ActiveBranch: "main", ClusterName: v1.CNPGClusterName(v1.PostgresPhysicalName("orders")), Ownership: &v1.PostgresOwnership{Phase: ownershipManaged, LegacyBranchUID: "historical-branch-uid"}}}
-	// legacyBranch is the retired object a database may have been adopted from;
-	// only tests of unfinished adoption create it.
-	legacyBranch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace}, Spec: v1.PostgresBranchSpec{Postgres: pg.Name, BranchName: "main"}}
 	identity := physicalIdentity{Name: v1.PostgresPhysicalName(pg.Name), Namespace: pg.Namespace, Postgres: pg.Name}
 	r := &PostgresClusterReconciler{Config: cfg, Scheme: scheme.Scheme, Recorder: recorder}
 	prep := physicalInputs{PostgresUID: pg.UID, PostgresName: pg.Name, PostgresSpec: pg.Spec, TeamGoogleProjectID: "team-project"}
@@ -334,5 +299,5 @@ func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler,
 	requireNoError(t, r.checkInventory(pg.Status.Ownership, children))
 	objects = append(objects, pg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: pg.Namespace, Labels: map[string]string{ProjectIDLabel: "team-project"}}})
 	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&v1.Postgres{}, &v1.PostgresBinding{}, &cnpgv1.Cluster{}).WithObjects(objects...).Build()
-	return r, c, pg, legacyBranch, children
+	return r, c, pg, identity.Name, children
 }

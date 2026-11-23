@@ -12,8 +12,8 @@ import (
 )
 
 // resolveAccessCluster accepts both immutable reference shapes without changing
-// physical names. A missing legacy main may resolve only to a directly managed
-// Postgres; a missing non-main branch must never fall back to another database.
+// physical names. A legacy reference resolves only to the directly managed
+// Postgres with that physical name; it must never fall back to another database.
 func resolveAccessCluster(ctx context.Context, reader client.Reader, access *v1.PostgresAccess) (*cnpgv1.Cluster, error) {
 	if (access.Spec.Postgres == "") == (access.Spec.PostgresBranch == "") {
 		return nil, fmt.Errorf("exactly one of postgres and postgresBranch must be set")
@@ -60,8 +60,8 @@ func resolveAccessPostgres(ctx context.Context, reader client.Reader, access *v1
 		}
 		return postgres, nil
 	}
-	// Legacy access specs are immutable, but their main reference can be
-	// resolved from the logical parents without reading the retired branch API.
+	// Legacy access specs are immutable; resolve their physical name from the
+	// logical parents.
 	postgreses := &v1.PostgresList{}
 	if err := reader.List(ctx, postgreses, client.InNamespace(access.Namespace)); err != nil {
 		return nil, fmt.Errorf("resolving legacy main access: %w", err)

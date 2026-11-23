@@ -13,7 +13,7 @@ import (
 const postgresAccessValidationNamespace = "default"
 
 func TestPostgresAccessMaintainAdmission(t *testing.T) {
-	access, _, _, _ := accessFixture()
+	access, _, _ := accessFixture()
 	access.Name = "maintain-access-validation"
 	access.Namespace = postgresAccessValidationNamespace
 	access.UID = ""
