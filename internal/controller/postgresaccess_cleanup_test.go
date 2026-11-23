@@ -28,7 +28,7 @@ func TestPostgresAccessCleanupPreservesReusedRole(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			r := makePostgresAccessReconciler()
-			expired, _, _, _ := accessFixture()
+			expired, _, _ := accessFixture()
 			expired.Finalizers = []string{r.Name()}
 			expired.Spec.AccessLevel = v1.PostgresAccessLevelAdmin
 			current := expired.DeepCopy()
@@ -108,7 +108,7 @@ func TestPostgresAccessCleanupPreservesReusedRole(t *testing.T) {
 }
 
 func TestPostgresAccessCleanupRejectsOwnedRoleWithDifferentSQLIdentity(t *testing.T) {
-	access, _, _, _ := accessFixture()
+	access, _, _ := accessFixture()
 	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, access, true)
 	requireNoError(t, err)
 	role.Spec.Name = "someone-else@example.com"

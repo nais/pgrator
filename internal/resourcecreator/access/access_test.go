@@ -57,14 +57,14 @@ func TestCreateDatabaseRole(t *testing.T) {
 	if role.Spec.Name != access.Spec.Username {
 		t.Errorf("PostgreSQL role name = %q, want %q", role.Spec.Name, access.Spec.Username)
 	}
-	otherBranch := access.DeepCopy()
-	otherBranch.Spec.PostgresBranch = "orders-main"
-	otherRole, err := CreateDatabaseRole(testScheme(t), otherBranch, false)
+	otherDatabase := access.DeepCopy()
+	otherDatabase.Spec.PostgresBranch = "orders-main"
+	otherRole, err := CreateDatabaseRole(testScheme(t), otherDatabase, false)
 	if err != nil {
-		t.Fatalf("CreateDatabaseRole(other branch) error = %v", err)
+		t.Fatalf("CreateDatabaseRole(other database) error = %v", err)
 	}
 	if otherRole.Name == role.Name || otherRole.Spec.Name != role.Spec.Name {
-		t.Errorf("other branch must use a separate Kubernetes resource but the same PostgreSQL identity: %q / %q", otherRole.Name, otherRole.Spec.Name)
+		t.Errorf("another database must use a separate Kubernetes resource but the same PostgreSQL identity: %q / %q", otherRole.Name, otherRole.Spec.Name)
 	}
 	if role.Spec.ClusterRef.Name != "pg-orders-restore" {
 		t.Errorf("cluster = %q, want pg-orders-restore", role.Spec.ClusterRef.Name)

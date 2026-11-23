@@ -27,7 +27,7 @@ func adoptAccessFixture(t *testing.T, pg *v1.Postgres, cluster *cnpgv1.Cluster) 
 }
 
 func TestPostgresAccessRelationshipWatchesMapBothReferences(t *testing.T) {
-	legacy, _, pg, cluster := accessFixture()
+	legacy, pg, cluster := accessFixture()
 	legacy.Name = "legacy-access"
 	direct := legacy.DeepCopy()
 	direct.Name = "direct-access"
@@ -75,30 +75,24 @@ func TestPostgresAccessResolvesBothReferenceShapes(t *testing.T) {
 		name            string
 		directReference bool
 		adopted         bool
-		keepBranch      bool
 	}{
-		{name: "legacy reference ignores leftover branch", keepBranch: true},
-		{name: "direct reference ignores leftover branch", directReference: true, keepBranch: true},
+		{name: "legacy reference"},
+		{name: "direct reference", directReference: true},
 		{name: "legacy reference after detach", adopted: true},
 		{name: "direct reference after detach", directReference: true, adopted: true},
-		{name: "legacy reference during adoption", adopted: true, keepBranch: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			access, branch, pg, cluster := accessFixture()
+			access, pg, cluster := accessFixture()
 			if tc.directReference {
 				access.Spec.Postgres, access.Spec.PostgresBranch = pg.Name, ""
 			}
 			if tc.adopted {
 				adoptAccessFixture(t, pg, cluster)
 			}
-			objects := []client.Object{pg, cluster}
-			if tc.keepBranch {
-				objects = append(objects, branch)
-			}
-			reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objects...).Build()
+			reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(pg, cluster).Build()
 			prep, _, err := makePostgresAccessReconciler().Prepare(t.Context(), reader, access)
 			requireNoError(t, err)
-			if prep.Cluster.Name != "pg-db-main-78dbba05" || access.Spec.PhysicalName() != branch.Name {
+			if prep.Cluster.Name != "pg-db-main-78dbba05" || access.Spec.PhysicalName() != v1.PostgresPhysicalName("db") {
 				t.Fatalf("changed physical target: cluster=%q identity=%q", prep.Cluster.Name, access.Spec.PhysicalName())
 			}
 		})
@@ -113,7 +107,7 @@ func TestPostgresAccessRejectsAmbiguousOrUnavailableTargets(t *testing.T) {
 		{name: "both references", change: func(a *v1.PostgresAccess, p *v1.Postgres, _ *cnpgv1.Cluster) { a.Spec.Postgres = p.Name }},
 		{name: "no reference", change: func(a *v1.PostgresAccess, _ *v1.Postgres, _ *cnpgv1.Cluster) { a.Spec.PostgresBranch = "" }},
 		{name: "missing non-main", change: func(a *v1.PostgresAccess, _ *v1.Postgres, _ *cnpgv1.Cluster) {
-			a.Spec.PostgresBranch = v1.PostgresBranchObjectName("db", "restore")
+			a.Spec.PostgresBranch = "db-restore-15aaddee"
 		}},
 		{name: "unadopted missing main", change: func(_ *v1.PostgresAccess, p *v1.Postgres, _ *cnpgv1.Cluster) { p.Status = nil }},
 		{name: "another namespace", change: func(a *v1.PostgresAccess, _ *v1.Postgres, _ *cnpgv1.Cluster) { a.Namespace = "other" }},
@@ -133,7 +127,7 @@ func TestPostgresAccessRejectsAmbiguousOrUnavailableTargets(t *testing.T) {
 		{name: "cluster not ready", change: func(_ *v1.PostgresAccess, _ *v1.Postgres, c *cnpgv1.Cluster) { c.Status.Conditions = nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			access, _, pg, cluster := accessFixture()
+			access, pg, cluster := accessFixture()
 			adoptAccessFixture(t, pg, cluster)
 			tc.change(access, pg, cluster)
 			reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(pg, cluster).Build()
@@ -144,8 +138,8 @@ func TestPostgresAccessRejectsAmbiguousOrUnavailableTargets(t *testing.T) {
 	}
 }
 
-func TestExistingPostgresAccessPreservesProofWithoutBranchObjects(t *testing.T) {
-	access, branch, pg, cluster := accessFixture()
+func TestExistingPostgresAccessPreservesProofAcrossDetach(t *testing.T) {
+	access, pg, cluster := accessFixture()
 	password, err := rcaccess.CreateCredentialSecret(scheme.Scheme, access, "existing-password")
 	requireNoError(t, err)
 	password.StringData = nil
@@ -159,7 +153,7 @@ func TestExistingPostgresAccessPreservesProofWithoutBranchObjects(t *testing.T) 
 	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, access, digest)
 	requireNoError(t, err)
 	r := makePostgresAccessReconciler()
-	beforeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, pg, cluster, password, token, relay).Build()
+	beforeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(pg, cluster, password, token, relay).Build()
 	before, _, err := r.Prepare(t.Context(), beforeClient, access)
 	requireNoError(t, err)
 	beforeActions, _, err := r.Update(access, before, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -193,7 +187,7 @@ func TestPostgresAccessReferenceSchemaAndImmutability(t *testing.T) {
 		{name: "both", postgres: "db", branch: v1.PostgresPhysicalName("db")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			access, _, _, _ := accessFixture()
+			access, _, _ := accessFixture()
 			access.Name, access.Namespace, access.UID = "access-reference-"+tc.name, postgresAccessValidationNamespace, ""
 			access.Spec.Postgres, access.Spec.PostgresBranch = tc.postgres, tc.branch
 			err := k8sClient.Create(t.Context(), access)
@@ -233,7 +227,7 @@ func TestPostgresAccessReferenceSchemaAndImmutability(t *testing.T) {
 }
 
 func TestDirectPostgresAccessCanBeRevokedWithoutItsDatabase(t *testing.T) {
-	access, _, pg, _ := accessFixture()
+	access, pg, _ := accessFixture()
 	access.Spec.Postgres, access.Spec.PostgresBranch = pg.Name, ""
 	access.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
 	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, access, true)

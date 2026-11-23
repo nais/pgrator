@@ -1,11 +1,8 @@
 # Postgres branch API retirement
 
-**Work in progress:** these branches publish the contract-retirement changes for
-review, not as the finished rollout candidate. Complete the internal renderer and
-type cleanup below, including removal of `LegacyPostgresTypeMeta`, on the same
-branches before treating them as ready to deploy. No extra intermediate release
-or Console rollout is required. Final rollout order is API, then pgrator; live
-CRD deletion remains a separately authorized operation.
+The pgrator side is complete: no controller, renderer, Go type or CRD for
+`PostgresBranch` remains. What is left is the live CRD deletion below, a
+separately authorized operation.
 
 ## Preconditions and scope
 
@@ -35,12 +32,14 @@ including when the parent is deleting.
 
 ### Internal cleanup
 
-Done in pgrator: the unregistered `PostgresReconciler` and `PostgresBranchReconciler`,
-the unused adoption action and the test-only archived CRD are removed. The physical
-renderer (`internal/controller/postgres_physical.go`) takes a plain physical
-identity instead of a `PostgresBranch`; the former branch golden cases now run
-against the direct reconciler. The `PostgresBranch` type remains in `pkg/api`
-only for API-module consumers.
+Done in pgrator: the branch controllers, the adoption action, the
+`PostgresBranch` Go type (including `LegacyPostgresTypeMeta`) and the test-only
+archived CRD are removed. The physical renderer
+(`internal/controller/postgres_physical.go`) takes a plain physical identity.
+Kept for compatibility: the deprecated `activeBranch`, `spec.branch` and
+`spec.postgresBranch` fields (only `main` or the main physical name is
+accepted), the legacy owner annotation check for unfinished adoptions, and the
+`main` component of physical names and the `postgres.nais.io/branch` label.
 
 The API also still has internal main-view/readiness helpers and legacy physical
 reference decoding for immutable personal accesses. These must be disentangled

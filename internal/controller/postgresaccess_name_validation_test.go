@@ -40,7 +40,7 @@ func TestPostgresAccessReferenceMatchesPostgresObjectNames(t *testing.T) {
 			if (postgresErr == nil) != tc.valid {
 				t.Fatalf("Postgres name acceptance = %t, want %t: %v", postgresErr == nil, tc.valid, postgresErr)
 			}
-			access, _, _, _ := accessFixture()
+			access, _, _ := accessFixture()
 			access.Name = "access-name-" + strings.ReplaceAll(tc.name, " ", "-")
 			access.Namespace, access.UID = postgresAccessValidationNamespace, ""
 			access.Spec.Postgres, access.Spec.PostgresBranch = tc.postgres, ""

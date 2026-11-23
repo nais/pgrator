@@ -15,7 +15,7 @@ import (
 
 func TestUpdateSameUIDDoesNotRecreateOrReplaceResource(t *testing.T) {
 	scheme := newExclusiveCreateOrUpdateScheme(t)
-	owner := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: "branch", Namespace: "myteam"}}
+	owner := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "mydb", Namespace: "myteam"}}
 	for _, tc := range []struct {
 		name      string
 		observed  types.UID
@@ -28,10 +28,10 @@ func TestUpdateSameUIDDoesNotRecreateOrReplaceResource(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			objects := []client.Object{}
 			if tc.observed != "" {
-				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "branch", Namespace: "myteam", UID: tc.observed}, Data: map[string]string{"value": "old"}})
+				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "resource", Namespace: "myteam", UID: tc.observed}, Data: map[string]string{"value": "old"}})
 			}
 			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-			desired := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "branch", Namespace: "myteam"}, Data: map[string]string{"value": "new"}}
+			desired := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "resource", Namespace: "myteam"}, Data: map[string]string{"value": "new"}}
 			err := UpdateSameUID(desired, owner, "original-uid", noConditions, &mockRecorder{}).Do(context.Background(), k8sClient, scheme, &mockOwnerManager{})
 			if tc.wantError != "" {
 				if err == nil || !strings.Contains(strings.ToLower(err.Error()), tc.wantError) {
@@ -41,7 +41,7 @@ func TestUpdateSameUIDDoesNotRecreateOrReplaceResource(t *testing.T) {
 				t.Fatalf("UpdateSameUID: %v", err)
 			}
 			stored := &corev1.ConfigMap{}
-			getErr := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "myteam", Name: "branch"}, stored)
+			getErr := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "myteam", Name: "resource"}, stored)
 			if tc.observed == "" {
 				if getErr == nil {
 					t.Fatal("missing resource was recreated")

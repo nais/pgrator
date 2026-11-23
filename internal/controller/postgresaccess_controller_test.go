@@ -31,19 +31,20 @@ func makePostgresAccessReconciler() *PostgresAccessReconciler {
 	return &PostgresAccessReconciler{Recorder: recorder, Scheme: scheme.Scheme}
 }
 
-func accessFixture() (*v1.PostgresAccess, *v1.PostgresBranch, *v1.Postgres, *cnpgv1.Cluster) {
-	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresBranch: v1.PostgresBranchObjectName("db", "main"), AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
-	i := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("db", "main"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "db", BranchName: "main"}}
+// accessFixture returns an access using the deprecated spec.postgresBranch
+// reference to the physical name of Postgres "db".
+func accessFixture() (*v1.PostgresAccess, *v1.Postgres, *cnpgv1.Cluster) {
+	a := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team", UID: "access-uid"}, Spec: v1.PostgresAccessSpec{Username: "frode@nav.no", PostgresBranch: v1.PostgresPhysicalName("db"), AccessLevel: v1.PostgresAccessLevelRead, ExpiresAt: metav1.NewTime(time.Now().Add(30 * time.Minute))}}
 	p := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "team", UID: "postgres-uid"}, Status: &v1.PostgresStatus{ClusterName: "pg-db-main-78dbba05"}}
 	c := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "pg-db-main-78dbba05", Namespace: "team", OwnerReferences: []metav1.OwnerReference{{APIVersion: v1.GroupVersion.String(), Kind: postgresKind, Name: p.Name, UID: p.UID, Controller: new(true)}}}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
-	return a, i, p, c
+	return a, p, c
 }
 
 func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	c.Spec.Certificates = &cnpgv1.CertificatesConfiguration{ServerCASecret: "custom-server-ca"}
 	r := makePostgresAccessReconciler()
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c).Build()
 	prepared, _, err := r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	actions, _, err := r.Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -77,8 +78,8 @@ func TestPostgresAccessPublishesSeparateRelayProof(t *testing.T) {
 }
 
 func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
-	a, i, p, c := accessFixture()
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c).Build()
+	a, p, c := accessFixture()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c).Build()
 	prepared, _, err := makePostgresAccessReconciler().Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	_, _, err = makePostgresAccessReconciler().Update(a, prepared, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -89,11 +90,11 @@ func TestPostgresAccessPublishesDefaultServerCA(t *testing.T) {
 }
 
 func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
-	a, branch, postgres, cluster := accessFixture()
+	a, postgres, cluster := accessFixture()
 	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	a.Spec.AccessLevel = v1.PostgresAccessLevelMaintain
 	// Built-in roles do not require initdb-created application privilege groups.
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(branch, postgres, cluster).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(postgres, cluster).Build()
 	r := makePostgresAccessReconciler()
 	prepared, _, err := r.Prepare(t.Context(), reader, a)
 	requireNoError(t, err)
@@ -104,7 +105,7 @@ func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
 		if !ok {
 			continue
 		}
-		want := []string{"pg_monitor", "pg_maintain", rccnpg.PersonalAccessRole(branch.Name)}
+		want := []string{"pg_monitor", "pg_maintain", rccnpg.PersonalAccessRole(v1.PostgresPhysicalName("db"))}
 		if !reflect.DeepEqual(role.Spec.InRoles, want) {
 			t.Errorf("maintain memberships = %v, want %v", role.Spec.InRoles, want)
 		}
@@ -114,13 +115,13 @@ func TestPostgresAccessMaintainUsesBuiltinRoles(t *testing.T) {
 }
 
 func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	password, err := rcaccess.CreateCredentialSecret(scheme.Scheme, a, "password")
 	requireNoError(t, err)
 	password.Data = map[string][]byte{corev1.BasicAuthPasswordKey: []byte("password")}
 	password.StringData = nil // fake client does not convert StringData to Data
 	failed := false
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, i, p, c, password).
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, p, c, password).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if obj.GetName() == rcaccess.TokenSecretName(a) && !failed {
@@ -163,13 +164,13 @@ func TestPostgresAccessRecoversFromFailedFirstTokenWrite(t *testing.T) {
 }
 
 func TestPostgresAccessPreservesTokenAcrossReconcile(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
 	tokenText, err := rcaccess.NewToken()
 	requireNoError(t, err)
 	token, err := rcaccess.CreateTokenSecret(scheme.Scheme, a, tokenText)
 	requireNoError(t, err)
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token).Build()
 	for range 2 {
 		prep, _, err := r.Prepare(context.Background(), reader, a)
 		requireNoError(t, err)
@@ -185,7 +186,7 @@ func TestPostgresAccessPreservesTokenAcrossReconcile(t *testing.T) {
 }
 
 func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	r := makePostgresAccessReconciler()
 	tokenText, err := rcaccess.NewToken()
@@ -202,7 +203,7 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 	role.Generation = 2
 	role.Status.Applied = &applied
 	role.Status.ObservedGeneration = 1
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, role).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token, relay, role).Build()
 	prep, _, err := r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -212,7 +213,7 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 	}
 	readyRole := role.DeepCopy()
 	readyRole.Status.ObservedGeneration = 2
-	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, readyRole).Build()
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token, relay, readyRole).Build()
 	prep, _, err = r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -225,7 +226,7 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 	if !r.OwnedTypes()[2].AdditionalPredicate.Update(event.UpdateEvent{ObjectOld: relay, ObjectNew: relayWithEndpoint}) {
 		t.Fatal("relay endpoint update must enqueue PostgresAccess")
 	}
-	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relayWithEndpoint, readyRole).Build()
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token, relayWithEndpoint, readyRole).Build()
 	prep, _, err = r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -236,7 +237,7 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 	if !r.OwnedTypes()[2].AdditionalPredicate.Update(event.UpdateEvent{ObjectOld: relayWithEndpoint, ObjectNew: relay}) {
 		t.Fatal("relay endpoint removal must enqueue PostgresAccess")
 	}
-	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay, readyRole).Build()
+	reader = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token, relay, readyRole).Build()
 	prep, _, err = r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	_, _, err = r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -247,7 +248,7 @@ func TestPostgresAccessReadyRequiresAppliedRoleAndPersistedMapping(t *testing.T)
 }
 
 func TestPostgresAccessRefusesMissingTokenForExistingMapping(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
 	token, err := rcaccess.NewToken()
 	requireNoError(t, err)
@@ -255,7 +256,7 @@ func TestPostgresAccessRefusesMissingTokenForExistingMapping(t *testing.T) {
 	requireNoError(t, err)
 	relay, err := rcaccess.CreateRelayAccess(scheme.Scheme, a, digest)
 	requireNoError(t, err)
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, relay).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, relay).Build()
 	_, _, err = r.Prepare(context.Background(), reader, a)
 	if err == nil {
 		t.Fatal("missing token must not be replaced")
@@ -263,7 +264,7 @@ func TestPostgresAccessRefusesMissingTokenForExistingMapping(t *testing.T) {
 }
 
 func TestPostgresAccessRevokesReadinessOnTokenMutationOrDeletion(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
 	original, err := rcaccess.NewToken()
 	requireNoError(t, err)
@@ -307,7 +308,7 @@ func TestPostgresAccessRevokesReadinessOnTokenMutationOrDeletion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			access := a.DeepCopy()
 			access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
-			objects := []client.Object{i, p, c, relay}
+			objects := []client.Object{p, c, relay}
 			if tc.secret != nil {
 				objects = append(objects, tc.secret)
 			}
@@ -324,7 +325,7 @@ func TestPostgresAccessRevokesReadinessOnTokenMutationOrDeletion(t *testing.T) {
 }
 
 func TestPostgresAccessRejectsTerminatingRelay(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
 	token, err := rcaccess.NewToken()
 	requireNoError(t, err)
@@ -341,7 +342,7 @@ func TestPostgresAccessRejectsTerminatingRelay(t *testing.T) {
 	}
 	access := a.DeepCopy()
 	access.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionTrue, Reason: "Ready"})
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, terminating).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, terminating).Build()
 	_, _, err = r.Prepare(context.Background(), reader, access)
 	if err == nil || findReadyCondition(access.Status.Conditions).Status != metav1.ConditionFalse {
 		t.Fatalf("terminating relay cannot be Ready, error = %v", err)
@@ -349,7 +350,7 @@ func TestPostgresAccessRejectsTerminatingRelay(t *testing.T) {
 }
 
 func TestPostgresAccessRefusesImmutableMappingMismatch(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	r := makePostgresAccessReconciler()
 	tokenText, err := rcaccess.NewToken()
 	requireNoError(t, err)
@@ -361,7 +362,7 @@ func TestPostgresAccessRefusesImmutableMappingMismatch(t *testing.T) {
 	requireNoError(t, err)
 	mapping := relay.Object["spec"].(map[string]any)
 	mapping["target"].(map[string]any)["serviceName"] = "pg-other-rw"
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(i, p, c, token, relay).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(p, c, token, relay).Build()
 	prep, _, err := r.Prepare(context.Background(), reader, a)
 	requireNoError(t, err)
 	actions, _, err := r.Update(a, prep, relatedobjectsmap.NewRelatedObjectsMap(scheme.Scheme))
@@ -372,9 +373,8 @@ func TestPostgresAccessRefusesImmutableMappingMismatch(t *testing.T) {
 
 func TestPostgresAccessMappingSurvivesAPIServerRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	a, i, _, _ := accessFixture()
+	a, _, _ := accessFixture()
 	a.Namespace = "default"
-	i.Namespace = "default"
 	requireNoError(t, k8sClient.Create(ctx, a))
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, a) })
 	token, err := rcaccess.NewToken()
@@ -418,7 +418,7 @@ func TestPostgresAccessMappingSurvivesAPIServerRoundTrip(t *testing.T) {
 }
 
 func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
-	a, i, p, c := accessFixture()
+	a, p, c := accessFixture()
 	a.Finalizers = []string{makePostgresAccessReconciler().Name()}
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(3 * time.Second))
 	role, err := rcaccess.CreateDatabaseRole(scheme.Scheme, a, true)
@@ -441,7 +441,7 @@ func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 	password.StringData = nil // fake client does not perform Secret StringData conversion
 	// The generic synchronizer must list an UnstructuredList and resolve its
 	// items' GVK for ownership and cleanup on a real reconcile.
-	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, i, p, c, role, relay, token, password).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(a, p, c, role, relay, token, password).Build()
 	sync := synchronizer.NewSynchronizer(reader, scheme.Scheme, makePostgresAccessReconciler(), recorder)
 	result, err := sync.Reconcile(context.Background(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
 	requireNoError(t, err)
@@ -469,7 +469,7 @@ func TestPostgresAccessSynchronizerListsOwnedRelayMapping(t *testing.T) {
 }
 
 func TestPostgresAccessExpiryDoesNotRemainReady(t *testing.T) {
-	a, _, _, _ := accessFixture()
+	a, _, _ := accessFixture()
 	a.Spec.ExpiresAt = metav1.NewTime(time.Now().Add(-time.Minute))
 	a.Status = &v1.PostgresAccessStatus{ServerName: "pg-db-main-78dbba05-rw.team.svc.cluster.local", ServerCASecret: "pg-db-main-78dbba05-ca", RelayEndpoint: "https://relay.example.org:8443"}
 	r := makePostgresAccessReconciler()

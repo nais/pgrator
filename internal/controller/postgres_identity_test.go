@@ -50,14 +50,13 @@ func TestDerivedPhysicalResourceNamesFitLimits(t *testing.T) {
 func TestLegacyAccessReferenceFailsClosed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	initscheme.InitScheme(scheme)
-	// A legacy reference to a retired PostgresBranch whose identity does not
-	// match a directly managed Postgres must not grant access, even if a cluster
-	// with the expected name is ready.
+	// A legacy spec.postgresBranch reference to a Postgres that does not directly
+	// own its cluster must not grant access, even if a cluster with the expected
+	// name is ready.
 	postgres := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"}}
-	key := v1.PostgresBranchObjectName("orders", "main")
-	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: key, Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "restore"}}
+	key := v1.PostgresPhysicalName("orders")
 	cluster := &cnpgv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: v1.CNPGClusterName(key), Namespace: "team"}, Status: cnpgv1.ClusterStatus{Conditions: []metav1.Condition{{Type: string(cnpgv1.ConditionInitialized), Status: metav1.ConditionTrue}, {Type: string(cnpgv1.ConditionClusterReady), Status: metav1.ConditionTrue}}}}
-	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(postgres, branch, cluster).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(postgres, cluster).Build()
 	access := &v1.PostgresAccess{ObjectMeta: metav1.ObjectMeta{Name: "access", Namespace: "team"}, Spec: v1.PostgresAccessSpec{PostgresBranch: key, ExpiresAt: metav1.NewTime(time.Now().Add(10 * time.Minute))}}
 	if _, _, err := (&PostgresAccessReconciler{}).Prepare(context.Background(), reader, access); err == nil {
 		t.Error("access prepare succeeded, want missing direct ownership rejection")

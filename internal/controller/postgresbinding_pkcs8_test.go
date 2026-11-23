@@ -78,16 +78,16 @@ func TestBindingPKCS8RotatesWithCompleteCredentialSnapshot(t *testing.T) {
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "consumer"}},
 		Credentials: []v1.PostgresBindingCredential{v1.PostgresBindingCredentialAdmin, v1.PostgresBindingCredentialRead, v1.PostgresBindingCredentialReadWrite},
 	}}
-	branch := &v1.PostgresBranch{ObjectMeta: metav1.ObjectMeta{Name: v1.PostgresBranchObjectName("orders", "main"), Namespace: "team"}, Spec: v1.PostgresBranchSpec{Postgres: "orders", BranchName: "main"}}
+	physicalName := v1.PostgresPhysicalName("orders")
 	postgres, cluster := directBindingTarget()
 	ca, caKey, caPEM := generateTestCA(t)
 	objects := make([]client.Object, 0, 5+2*len(binding.Spec.Credentials))
-	objects = append(objects, binding, branch, postgres, cluster,
+	objects = append(objects, binding, postgres, cluster,
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cluster.GetClientCASecretName(), Namespace: "team"}, Data: map[string][]byte{"ca.crt": caPEM}},
 	)
 	sources := make(map[v1.PostgresBindingCredential]*corev1.Secret)
 	for _, credential := range binding.Spec.Credentials {
-		role, err := rcbinding.CreateDatabaseRole(scheme, binding, branch.Name, credential)
+		role, err := rcbinding.CreateDatabaseRole(scheme, binding, physicalName, credential)
 		requireNoError(t, err)
 		if credential == v1.PostgresBindingCredentialAdmin {
 			role.Spec.Name = rccnpg.OwnerRole

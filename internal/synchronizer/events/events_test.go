@@ -19,9 +19,9 @@ func TestEventMessages(t *testing.T) {
 			name = "with correlation ID"
 		}
 		t.Run(name, func(t *testing.T) {
-			obj := &v1.PostgresBranch{
+			obj := &v1.Postgres{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "mydb-main",
+					Name:      "mydb",
 					Namespace: "myteam",
 					Annotations: map[string]string{
 						api.DeploymentCorrelationIDAnnotation: correlationID,
@@ -36,7 +36,7 @@ func TestEventMessages(t *testing.T) {
 
 			for _, want := range []string{
 				"Normal Updated Updated DatabaseRole myteam/personal-access",
-				"Warning PerformActionsFailed PerformActions phase failed for myteam/mydb-main: update denied",
+				"Warning PerformActionsFailed PerformActions phase failed for myteam/mydb: update denied",
 			} {
 				select {
 				case got := <-recorder.Events:

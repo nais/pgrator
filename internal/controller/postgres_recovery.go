@@ -16,8 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// prepareDirectRecovery preserves the branch-era bootstrap protocol, but the
-// durable owner, source identity and checkpoints are all Postgres resources.
+// prepareDirectRecovery pins the recovery source. The durable owner, source
+// identity and checkpoints are all Postgres resources.
 func (r *PostgresClusterReconciler) prepareDirectRecovery(ctx context.Context, reader client.Reader, pg *v1.Postgres, p *PostgresClusterPreparedData) error {
 	recovery := pg.Spec.Recovery
 	if recovery == nil {
