@@ -28,7 +28,6 @@ func ExamplePostgresForDocumentation() api.NaisObject {
 			MajorVersion:     "18",
 			HighAvailability: true,
 			AutoExplain:      true,
-			ActiveBranch:     "main",
 			Extensions: []PostgresExtension{
 				{
 					Name: "postgis",

@@ -2,12 +2,11 @@
 
 ## Project purpose
 
-`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It reconciles six custom resources:
+`pgrator` is a **Kubernetes operator** for the [nais](https://nais.io) platform. It reconciles five custom resources:
 
 | CRD               | API group    | What it creates                                                                               |
 |-------------------|--------------|-----------------------------------------------------------------------------------------------|
-| `Postgres`        | `nais.io/v1` | Logical database and default `PostgresBranch` |
-| `PostgresBranch`  | `nais.io/v1` | Independent CNPG cluster, pooler, network and optional WAL archive/backup resources |
+| `Postgres`        | `nais.io/v1` | CNPG cluster, pooler, network and optional WAL archive/backup resources |
 | `PostgresBinding` | `nais.io/v1` | Workload DatabaseRole, connection and certificate Secrets, NetworkPolicies |
 | `PostgresAccess`  | `nais.io/v1` | Personal DatabaseRole, credentials, RelayAccess mapping, database ingress policy |
 | `Valkey`          | `nais.io/v1` | Aiven `Valkey` CR + `ServiceIntegration` |
@@ -52,13 +51,13 @@ pgrator/
 │   ├── main.go            # Operator entry point; wires controllers + webhooks
 │   └── docgen/docgen.go   # CLI tool: generates nais/doc reference markdown
 ├── pkg/api/               # Separate Go module (github.com/nais/pgrator/pkg/api)
-│   ├── v1/                # nais.io/v1 CRD types: Postgres, PostgresBranch, PostgresBinding, PostgresAccess, Valkey, OpenSearch
+│   ├── v1/                # nais.io/v1 CRD types: Postgres, PostgresBinding, PostgresAccess, Valkey, OpenSearch
 │   ├── annotation.go      # Shared annotation constants
 │   ├── object.go          # NaisObject interface
 │   └── status.go          # BaseStatus (shared by all CRDs)
 ├── internal/
 │   ├── config/            # Env-var based config struct
-│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBranch, PostgresBinding, PostgresAccess, Valkey, OpenSearch)
+│   ├── controller/        # Resource-specific reconcilers (Postgres, PostgresBinding, PostgresAccess, Valkey, OpenSearch)
 │   │   └── testdata/      # Golden test data (per-resource test cases)
 │   ├── resourcecreator/   # Factories: builds child K8s/Aiven/GCP/CNPG objects
 │   ├── synchronizer/      # Generic reconcile loop + action system

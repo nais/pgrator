@@ -87,8 +87,9 @@ spec:
                   rule: self == oldSelf
               postgresBranch:
                 description: |-
-                  PostgresBranch is the legacy PostgresBranch object name (not its local name).
-                  Deprecated: new accesses reference Postgres directly.
+                  PostgresBranch is deprecated: the object name of the retired PostgresBranch
+                  this access was created for. Kept for existing, immutable accesses; new
+                  accesses set postgres instead.
                 minLength: 1
                 type: string
                 x-kubernetes-validations:

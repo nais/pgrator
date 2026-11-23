@@ -41,10 +41,10 @@ type PostgresBindingReconciler struct {
 
 var _ reconciler.Reconciler[*v1.PostgresBinding, PostgresBindingPreparedData] = &PostgresBindingReconciler{}
 
-// PostgresBindingPreparedData contains the selected branch and, when all CNPG
-// source material is present, an internally consistent credential snapshot.
+// PostgresBindingPreparedData contains the database's physical name and, when
+// all CNPG source material is present, an internally consistent credential snapshot.
 type PostgresBindingPreparedData struct {
-	Branch          string `yaml:"branch"`
+	PhysicalName    string `yaml:"physicalName"`
 	Unavailable     bool   `yaml:"unavailable,omitempty"`
 	Snapshot        *bindingSnapshot
 	MissingClusters map[string]bool `yaml:"missingClusters,omitempty"`
@@ -274,7 +274,7 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 		// Preserve existing credentials until the controller publishes its target.
 		return PostgresBindingPreparedData{}, ctrl.Result{}, fmt.Errorf("postgres %q has no observed physical cluster yet", postgres.Name)
 	}
-	prepared.Branch = instance
+	prepared.PhysicalName = instance
 	snapshot, err := r.readBindingSnapshot(ctx, reader, obj, instance)
 	if err != nil {
 		return PostgresBindingPreparedData{}, ctrl.Result{}, err
@@ -284,15 +284,12 @@ func (r *PostgresBindingReconciler) Prepare(ctx context.Context, reader client.R
 }
 
 // resolveBindingInstance returns a stable physical identity, never a new endpoint.
-// Direct status is authoritative even after the legacy branch has disappeared.
+// Direct status is authoritative; spec.branch is deprecated and only main is accepted.
 func resolveBindingInstance(ctx context.Context, reader client.Reader, binding *v1.PostgresBinding, postgres *v1.Postgres) (string, error) {
 	if binding.Spec.Branch != "" && binding.Spec.Branch != v1.DefaultBranchName {
 		return "", fmt.Errorf("branch selection is no longer supported")
 	}
 	if directClusterName(postgres) != "" {
-		if binding.Spec.Branch != "" && binding.Spec.Branch != v1.DefaultBranchName {
-			return "", fmt.Errorf("non-main binding cannot target a directly managed Postgres")
-		}
 		instance := v1.PostgresPhysicalName(postgres.Name)
 		cluster := &cnpgv1.Cluster{}
 		if directClusterName(postgres) != rccnpg.ClusterNameFor(instance) {
@@ -543,7 +540,7 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 	if prepared.Unavailable {
 		obj.GetStatus().SetCondition(metav1.Condition{Type: readyCondition, Status: metav1.ConditionFalse, Reason: "PostgresUnavailable", Message: "the Postgres database is missing, deleting or not provisioned yet", ObservedGeneration: obj.Generation})
 		// Withdraw stale connection Secrets and network access, but do not drop
-		// existing login roles merely because the selected branch is unavailable.
+		// existing login roles merely because the database is unavailable.
 		for _, candidate := range relatedObjects.GetMatchingType(&cnpgv1.DatabaseRole{}) {
 			role, ok := candidate.(*cnpgv1.DatabaseRole)
 			if !ok || !metav1.IsControlledBy(role, obj) {
@@ -566,12 +563,12 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 	}
 	obj.GetStatus().SetCondition(condition)
 	for _, credential := range obj.Spec.Credentials {
-		// app is the durable owner identity. The Postgres branch owns its
+		// app is the durable owner identity. The Postgres owns its
 		// DatabaseRole and certificate; bindings only consume it.
 		if credential == v1.PostgresBindingCredentialAdmin {
 			continue
 		}
-		role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj, prepared.Branch, credential)
+		role, err := rcbinding.CreateDatabaseRole(r.Scheme, obj, prepared.PhysicalName, credential)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating DatabaseRole spec: %w", err)
 		}
@@ -590,7 +587,7 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 	}
 
 	if prepared.Snapshot != nil {
-		configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj, prepared.Branch, prepared.Snapshot.CACertificate, prepared.Snapshot.Credentials)
+		configSecret, err := rcbinding.CreateConfigSecret(r.Scheme, obj, prepared.PhysicalName, prepared.Snapshot.CACertificate, prepared.Snapshot.Credentials)
 		if err != nil {
 			return nil, ctrl.Result{}, fmt.Errorf("creating config Secret spec: %w", err)
 		}
@@ -601,14 +598,14 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 			ObjectMeta: metav1.ObjectMeta{Name: rcbinding.ConfigSecretName(obj), Namespace: obj.GetNamespace()},
 		}
 		if existing, ok := relatedObjects.GetMatching(stub).(*core_v1.Secret); ok {
-			// Explicit branch changes must not retain a connection to a different
-			// branch while its credentials are being provisioned. Same-branch
-			// certificate rotation can safely keep the last complete snapshot.
+			// A pinned binding (deprecated spec.branch: main) must not keep a
+			// connection to a different database while its credentials are being
+			// provisioned. Certificate rotation can keep the last complete snapshot.
 			keep := true
 			if obj.Spec.Branch != "" {
 				for _, credential := range obj.Spec.Credentials {
 					key := v1.ConnectionEnvPrefix(credential) + "PGHOST"
-					if string(existing.Data[key]) != rccnpg.PoolerNameFor(prepared.Branch)+"."+obj.Namespace {
+					if string(existing.Data[key]) != rccnpg.PoolerNameFor(prepared.PhysicalName)+"."+obj.Namespace {
 						keep = false
 						break
 					}
@@ -620,13 +617,13 @@ func (r *PostgresBindingReconciler) Update(obj *v1.PostgresBinding, prepared Pos
 		}
 	}
 
-	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj, prepared.Branch)
+	netpol, err := rcbinding.CreateNetworkPolicy(r.Scheme, obj, prepared.PhysicalName)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating NetworkPolicy spec: %w", err)
 	}
 	actions = append(actions, action.ExclusiveCreateOrUpdate(netpol, obj, existsConditionGetter, r.Recorder))
 
-	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj, prepared.Branch)
+	egressNetpol, err := rcbinding.CreateEgressNetworkPolicy(r.Scheme, obj, prepared.PhysicalName)
 	if err != nil {
 		return nil, ctrl.Result{}, fmt.Errorf("creating egress NetworkPolicy spec: %w", err)
 	}
