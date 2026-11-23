@@ -38,7 +38,7 @@ jobs:
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5.2.7
       - name: Running Checks
         run: |
           go mod tidy
@@ -54,7 +54,7 @@ jobs:
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5.2.7
       - name: Running Tests
         run: |
           go mod tidy
@@ -73,7 +73,7 @@ jobs:
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: pgrator/go.mod
-      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5.2.7
       - name: Generate documentation
         working-directory: pgrator
         run: |
@@ -127,7 +127,7 @@ jobs:
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # ratchet:actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # ratchet:jdx/mise-action@v5.2.5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # ratchet:jdx/mise-action@v5.2.7
       - name: Generate JSON Schemas
         run: |
           mise run generate:doc
@@ -158,7 +158,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # ratchet:sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # ratchet:sigstore/cosign-installer@v4.1.3
         with:
           cosign-release: "v2.2.3"
       - name: Verify runner image
