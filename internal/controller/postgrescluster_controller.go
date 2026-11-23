@@ -74,7 +74,14 @@ func (r *PostgresClusterReconciler) RelationshipWatches() []reconciler.Relations
 	return []reconciler.RelationshipWatch{postgresAlertsWatch()}
 }
 func (r *PostgresClusterReconciler) MetricsLabels(pg *v1.Postgres) map[string]string {
-	return (&PostgresReconciler{}).MetricsLabels(pg)
+	ha := "false"
+	if pg.Spec.HighAvailability {
+		ha = "true"
+	}
+	return map[string]string{
+		"major_version":     pg.Spec.MajorVersion,
+		"high_availability": ha,
+	}
 }
 func (r *PostgresClusterReconciler) StatusCheckpointRequired(current, original *v1.Postgres) bool {
 	return !reflect.DeepEqual(current.Status, original.Status)
