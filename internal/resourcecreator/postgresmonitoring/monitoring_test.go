@@ -56,7 +56,7 @@ func TestPostgresAlertInventory(t *testing.T) {
 		"fresh/nais_postgres_initialized_timestamp_seconds":  "vector(0)",
 		"restoring/nais_postgres_recovery_requested":         "vector(1)",
 		"orders/nais_postgres_backup_enabled":                "vector(1)",
-		"orders/nais_postgres_backup_retention_days":         "vector(7)",
+		"orders/nais_postgres_backup_retention_days":         "vector(2)",
 	} {
 		if got[key] != want {
 			t.Errorf("%s = %q, want %q", key, got[key], want)
