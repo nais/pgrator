@@ -40,13 +40,13 @@ type PostgresExtension struct {
 
 // PostgresBackupPolicy configures the continuous backup of a Postgres: WAL
 // archiving and nightly base backups. Backups are always on; without this
-// section they are kept for 7 days.
+// section they are kept for 2 days.
 type PostgresBackupPolicy struct {
 	// RetentionDays is how many days back in time the database can be recovered to.
 	// Older backups and WAL are removed by barman, which checks periodically. The backup
 	// preceding the window is kept, so data up to a day older may remain. Allowed range is
 	// 2 to 30 days.
-	// Defaults to 7 when omitted.
+	// Defaults to 2 when omitted.
 	// +kubebuilder:validation:Minimum=2
 	// +kubebuilder:validation:Maximum=30
 	// +optional
@@ -148,7 +148,7 @@ type PostgresSpec struct {
 }
 
 // DefaultBackupRetentionDays applies when spec.backup.retentionDays is omitted.
-const DefaultBackupRetentionDays int32 = 7
+const DefaultBackupRetentionDays int32 = 2
 
 // BackupRetentionDays returns the requested retention, or the default.
 func (s PostgresSpec) BackupRetentionDays() int32 {

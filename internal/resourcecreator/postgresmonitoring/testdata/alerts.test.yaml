@@ -367,7 +367,7 @@ tests:
       - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
         values: '_x14400 1x700'
     promql_expr_test:
-      # orders keeps 7 days by default; the oldest point is the epoch.
+      # orders keeps 2 days by default; the oldest point is the epoch.
       - expr: 'ALERTS{alertname="PostgresBackupRetentionNotEnforced",alertstate="firing"}'
         eval_time: 250h
         exp_samples:
@@ -377,7 +377,7 @@ tests:
   - name: An oldest backup well within retention is healthy
     interval: 1m
     input_series:
-      # At 240h this is 2.5 days old, far inside the 7 + 3 day allowance.
+      # At 240h this is 2.5 days old, far inside the 2 + 3 day allowance.
       - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
         values: '564000x14500'
     alert_rule_test:
@@ -388,10 +388,10 @@ tests:
   - name: The backup preceding the window is not an alert
     interval: 1m
     input_series:
-      # Positive timestamp, 9.5 days old at 240h: 7 days of retention plus the
+      # Positive timestamp, 4.5 days old at 240h: 2 days of retention plus the
       # backup preceding the window and a few missed nights. Without the three day allowance this would fire.
       - series: 'barman_cloud_cloudnative_pg_io_first_recoverability_point{namespace="team",postgres="orders",pod="p1"}'
-        values: '43200x14500'
+        values: '475200x14500'
     alert_rule_test:
       - eval_time: 240h
         alertname: PostgresBackupRetentionNotEnforced
