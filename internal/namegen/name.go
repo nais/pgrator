@@ -3,6 +3,8 @@ package namegen
 import (
 	"fmt"
 	"hash/crc32"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -31,6 +33,14 @@ func MustShortenName(basename string, maxlen int) string {
 		panic(fmt.Errorf("failed to shorten name: %w", err))
 	}
 	return res
+}
+
+// LabelValue preserves short names and deterministically shortens long ones.
+func LabelValue(name string) string {
+	if len(name) <= validation.LabelValueMaxLength {
+		return name
+	}
+	return MustShortenName(name, validation.LabelValueMaxLength)
 }
 
 func formatName(basename, suffix string, maxlen int) string {

@@ -69,6 +69,8 @@ spec:
             {{- end }}
             - name: CNPG_BACKUP_WORKER_IMAGE
               value: "{{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}"
+            - name: CNPG_BACKUP_COPY_DEADLINE
+              value: {{ .Values.cnpg.backupCopyDeadline | quote }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}

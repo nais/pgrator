@@ -14,6 +14,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/namegen"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -525,7 +526,7 @@ func CreateBackup(scheme *runtime.Scheme, postgresBackup *v1.PostgresBackup, clu
 			Name:      postgresBackup.GetName(),
 			Namespace: postgresBackup.GetNamespace(),
 			Labels: map[string]string{
-				nameLabel: postgresBackup.Spec.Postgres,
+				nameLabel: namegen.LabelValue(postgresBackup.Spec.Postgres),
 			},
 			Annotations: annotations,
 		},

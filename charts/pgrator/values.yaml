@@ -11,6 +11,7 @@ cnpg:
   storageClass: "hyperdisk-balanced"
   walBucketPrefix: ""
   drBucketPrefix: ""
+  backupCopyDeadline: "24h"
 
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:

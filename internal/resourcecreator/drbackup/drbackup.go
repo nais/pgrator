@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nais/pgrator/internal/backupcopy"
 	"github.com/nais/pgrator/internal/namegen"
@@ -35,13 +36,15 @@ const (
 	// BackupNameLabel identifies the PostgresBackup a Job belongs to.
 	BackupNameLabel = "postgresbackup.nais.io/name"
 	// JobRoleLabel distinguishes copy vs cleanup Jobs.
-	JobRoleLabel       = "postgresbackup.nais.io/role"
-	JobRoleCopy        = "copy"
-	JobRoleCleanup     = "cleanup"
-	ManagedByLabel     = "app.kubernetes.io/managed-by"
-	ManagedByValue     = "pgrator"
-	workloadIDAnnotKey = "iam.gke.io/gcp-service-account"
-	forceDestroyAnnot  = "cnrm.cloud.google.com/force-destroy"
+	JobRoleLabel           = "postgresbackup.nais.io/role"
+	JobRoleCopy            = "copy"
+	JobRoleCleanup         = "cleanup"
+	WorkerContainerName    = "backup-worker"
+	SourceBucketAnnotation = "postgresbackup.nais.io/source-bucket"
+	ManagedByLabel         = "app.kubernetes.io/managed-by"
+	ManagedByValue         = "pgrator"
+	workloadIDAnnotKey     = "iam.gke.io/gcp-service-account"
+	forceDestroyAnnot      = "cnrm.cloud.google.com/force-destroy"
 
 	bucketMaxLength        = 63
 	bucketHashSuffixLength = 12
@@ -97,11 +100,10 @@ func BucketViewerPolicyName(namespace string) string {
 	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-viewer-%s", namespace), validation.DNS1123SubdomainMaxLength)
 }
 
-// SourceBucketPolicyName returns the temporary IAMPolicyMember name granting
-// the DR worker GSA objectViewer on a source database's WAL bucket while a
-// PostgresBackup is copying from it.
-func SourceBucketPolicyName(backupName string) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-src-%s", backupName), validation.DNS1123SubdomainMaxLength)
+// SourceBucketPolicyName identifies a grant shared by active copies from the
+// same source bucket in the namespace.
+func SourceBucketPolicyName(bucket string) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-src-%s", bucket), validation.DNS1123SubdomainMaxLength)
 }
 
 // CopyJobName returns the deterministic Job name for copying a PostgresBackup.
@@ -244,7 +246,7 @@ func fqdnEgressRule(host string, port int32) fqdnv1alpha3.FQDNNetworkPolicyEgres
 
 // CreateCopyJob builds the Kubernetes Job that copies a completed CNPG Backup
 // from sourceBucket to an isolated prefix in drBucket and verifies checksums.
-func CreateCopyJob(scheme *runtime.Scheme, backup *v1.PostgresBackup, image, sourceBucket, drBucket string) (*batchv1.Job, error) {
+func CreateCopyJob(scheme *runtime.Scheme, backup *v1.PostgresBackup, image, sourceBucket, drBucket string, deadline time.Duration) (*batchv1.Job, error) {
 	if image == "" {
 		image = defaultWorkerImage
 	}
@@ -276,7 +278,11 @@ func CreateCopyJob(scheme *runtime.Scheme, backup *v1.PostgresBackup, image, sou
 		"--disk-size=" + diskSize,
 	}
 
-	job := buildWorkerJob(backup, CopyJobName(backup.Name), JobRoleCopy, image, args)
+	if deadline <= 0 {
+		deadline = 24 * time.Hour
+	}
+	job := buildWorkerJob(backup, CopyJobName(backup.Name), JobRoleCopy, image, args, deadline)
+	job.Annotations = map[string]string{SourceBucketAnnotation: sourceBucket}
 	if err := controllerutil.SetControllerReference(backup, job, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on copy Job: %w", err)
 	}
@@ -297,19 +303,19 @@ func CreateCleanupJob(scheme *runtime.Scheme, backup *v1.PostgresBackup, image, 
 		"--dr-bucket=" + drBucket,
 		"--backup-name=" + prefix,
 	}
-	job := buildWorkerJob(backup, CleanupJobName(backup.Name), JobRoleCleanup, image, args)
+	job := buildWorkerJob(backup, CleanupJobName(backup.Name), JobRoleCleanup, image, args, time.Hour)
 	if err := controllerutil.SetControllerReference(backup, job, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on cleanup Job: %w", err)
 	}
 	return job, nil
 }
 
-func buildWorkerJob(backup *v1.PostgresBackup, name, role, image string, args []string) *batchv1.Job {
+func buildWorkerJob(backup *v1.PostgresBackup, name, role, image string, args []string, deadline time.Duration) *batchv1.Job {
 	labels := map[string]string{
 		WorkerComponentLabel:     WorkerComponentValue,
-		BackupNameLabel:          backup.Name,
+		BackupNameLabel:          namegen.LabelValue(backup.Name),
 		JobRoleLabel:             role,
-		"postgres.nais.io/name":  backup.Spec.Postgres,
+		"postgres.nais.io/name":  namegen.LabelValue(backup.Spec.Postgres),
 		"logs.nais.io/flow-cnpg": "true",
 	}
 	backoffLimit := int32(3)
@@ -324,7 +330,8 @@ func buildWorkerJob(backup *v1.PostgresBackup, name, role, image string, args []
 			Labels:    labels,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
+			BackoffLimit:          &backoffLimit,
+			ActiveDeadlineSeconds: new(int64(deadline / time.Second)),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
@@ -343,7 +350,7 @@ func buildWorkerJob(backup *v1.PostgresBackup, name, role, image string, args []
 					},
 					Containers: []corev1.Container{
 						{
-							Name:                     "backup-worker",
+							Name:                     WorkerContainerName,
 							Image:                    image,
 							Args:                     args,
 							TerminationMessagePath:   backupcopy.DefaultTerminationMessagePath,

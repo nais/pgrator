@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/sethvargo/go-envconfig"
@@ -59,6 +60,8 @@ type CNPG struct {
 	DrBucketPrefix string `env:"CNPG_DR_BUCKET_PREFIX" yaml:"drBucketPrefix"`
 	// BackupWorkerImage is the container image used for standalone backup copy and cleanup Jobs.
 	BackupWorkerImage string `env:"CNPG_BACKUP_WORKER_IMAGE, default=europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest" yaml:"backupWorkerImage"`
+	// BackupCopyDeadline bounds the whole standalone backup copy Job, including retries.
+	BackupCopyDeadline time.Duration `env:"CNPG_BACKUP_COPY_DEADLINE, default=24h" yaml:"backupCopyDeadline"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {
@@ -73,6 +76,9 @@ func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error
 
 	if err = validateWalBucketPrefixLength(cfg); err != nil {
 		return nil, err
+	}
+	if cfg.CNPG.BackupCopyDeadline < time.Second {
+		return nil, fmt.Errorf("CNPG_BACKUP_COPY_DEADLINE must be at least one second")
 	}
 
 	return cfg, nil

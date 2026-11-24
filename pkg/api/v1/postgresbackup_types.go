@@ -32,7 +32,8 @@ type PostgresBackupSpec struct {
 
 	// RetentionDays is how many days the standalone backup is kept in the team's
 	// disaster-recovery bucket before pgrator deletes it. Allowed range is 1 to 730
-	// days (up to 2 years). Defaults to 30 when omitted.
+	// days (up to 2 years), counted from completion. Changing this value updates
+	// the expiry of a completed backup. Defaults to 30 when omitted.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=730
 	// +optional
@@ -47,8 +48,8 @@ func (s PostgresBackupSpec) EffectiveRetentionDays() int32 {
 	return *s.RetentionDays
 }
 
-// PostgresBackupLocation identifies the isolated object-storage prefix holding
-// a completed standalone backup.
+// PostgresBackupLocation identifies the isolated object-storage prefix used by
+// a standalone backup. It may be set before the copy is complete.
 type PostgresBackupLocation struct {
 	// BucketName is the team's disaster-recovery bucket containing the copied backup.
 	// +kubebuilder:validation:MinLength=1
@@ -115,7 +116,8 @@ type PostgresBackupStatus struct {
 	// +optional
 	SizeBytes *int64 `json:"sizeBytes,omitempty"`
 
-	// Location identifies the DR bucket and prefix where the standalone backup is stored.
+	// Location identifies the DR copy destination. A backup is only available
+	// there when phase is Completed.
 	// +optional
 	Location *PostgresBackupLocation `json:"location,omitempty"`
 

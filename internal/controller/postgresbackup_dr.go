@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const postgresBackupKind = "PostgresBackup"
@@ -95,27 +94,37 @@ func jobFailed(job *batchv1.Job) (bool, string) {
 }
 
 func readJobTerminationPayload(ctx context.Context, reader client.Reader, job *batchv1.Job) *backupcopy.TerminationPayload {
-	if job == nil {
+	failed, _ := jobFailed(job)
+	succeeded := jobSucceeded(job)
+	if !failed && !succeeded {
 		return nil
 	}
 	pods := &corev1.PodList{}
 	if err := reader.List(ctx, pods, client.InNamespace(job.Namespace), client.MatchingLabels{
-		drbackup.BackupNameLabel: job.Labels[drbackup.BackupNameLabel],
-		drbackup.JobRoleLabel:    job.Labels[drbackup.JobRoleLabel],
+		batchv1.ControllerUidLabel: string(job.UID),
 	}); err != nil {
 		return nil
 	}
-	for i := range pods.Items {
-		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			if cs.State.Terminated != nil && cs.State.Terminated.Message != "" {
-				var payload backupcopy.TerminationPayload
-				if err := json.Unmarshal([]byte(cs.State.Terminated.Message), &payload); err == nil {
-					return &payload
-				}
+	var result *backupcopy.TerminationPayload
+	var latest metav1.Time
+	for _, pod := range pods.Items {
+		if !metav1.IsControlledBy(&pod, job) {
+			continue
+		}
+		for _, cs := range pod.Status.ContainerStatuses {
+			term := cs.State.Terminated
+			if cs.Name != drbackup.WorkerContainerName || term == nil || succeeded != (term.ExitCode == 0) ||
+				(result != nil && !latest.Before(&term.FinishedAt)) {
+				continue
+			}
+			var payload backupcopy.TerminationPayload
+			if err := json.Unmarshal([]byte(term.Message), &payload); err == nil {
+				latest = term.FinishedAt
+				result = &payload
 			}
 		}
 	}
-	return nil
+	return result
 }
 
 func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.PostgresBackup, teamProjectID string, keepOwner bool) []action.Action {
@@ -158,6 +167,12 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 	objs := []client.Object{gsa, wiPolicy, bucket, bucketObjPolicy, bucketViewPolicy, ksa, netpol, fqdn}
 	actions := make([]action.Action, 0, len(objs))
 	for _, obj := range objs {
+		labels := obj.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		labels[drbackup.ManagedByLabel] = drbackup.ManagedByValue
+		obj.SetLabels(labels)
 		actions = append(actions, &ensureSharedDRResource{
 			backup:    backup,
 			desired:   obj,
@@ -169,26 +184,29 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 
 func (r *PostgresBackupReconciler) sourceBucketPolicyAction(backup *v1.PostgresBackup, teamProjectID, sourceBucket string, related reconciler.RelatedObjects) (action.Action, *iamcnrm.IAMPolicyMember, error) {
 	policy := rciam.CreateStorageBucketPolicyMember(
-		drbackup.SourceBucketPolicyName(backup.Name),
+		drbackup.SourceBucketPolicyName(sourceBucket),
 		backup.Namespace,
 		teamProjectID,
 		drbackup.GSAName(backup.Namespace),
 		sourceBucket,
 		rciam.StorageObjectViewerRole,
 	)
-	if err := controllerutil.SetControllerReference(backup, policy, r.Scheme); err != nil {
-		return nil, nil, err
-	}
+	// One cloud binding, with one synchronizer owner annotation per active
+	// copy. Pruning unclaims it and deletes it only after the last copy.
 	if related != nil {
 		if existing := related.GetMatching(policy); existing != nil {
-			return action.Claim(policy, backup, cnrmConditionsGetter, r.Recorder), existing.(*iamcnrm.IAMPolicyMember), nil
+			resource := existing.(*iamcnrm.IAMPolicyMember)
+			if !equality.Semantic.DeepEqual(resource.Spec, policy.Spec) {
+				return nil, nil, fmt.Errorf("source bucket policy %q has an unexpected binding", policy.Name)
+			}
+			return action.Claim(resource, backup, cnrmConditionsGetter, r.Recorder), resource, nil
 		}
 	}
 	return action.Create(policy, backup, cnrmConditionsGetter, r.Recorder), nil, nil
 }
 
 func drInfrastructureReady(namespace, drBucket string, sourcePolicy *iamcnrm.IAMPolicyMember, related reconciler.RelatedObjects) bool {
-	if sourcePolicy == nil || !configConnectorReady(sourcePolicy) {
+	if sourcePolicy == nil || !sourcePolicy.DeletionTimestamp.IsZero() || !configConnectorReady(sourcePolicy) {
 		return false
 	}
 	if related == nil {
@@ -203,7 +221,8 @@ func drInfrastructureReady(namespace, drBucket string, sourcePolicy *iamcnrm.IAM
 		&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: drBucket, Namespace: namespace}},
 	}
 	for _, req := range required {
-		if !configConnectorReady(related.GetMatching(req)) {
+		obj := related.GetMatching(req)
+		if obj == nil || !obj.GetDeletionTimestamp().IsZero() || !configConnectorReady(obj) {
 			return false
 		}
 	}
@@ -268,7 +287,12 @@ func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, scheme
 		return c.Create(ctx, created)
 	}
 
+	managed := current.GetLabels()[drbackup.ManagedByLabel] == drbackup.ManagedByValue
 	for _, owner := range current.GetOwnerReferences() {
+		if owner.APIVersion == v1.GroupVersion.String() && owner.Kind == postgresBackupKind &&
+			(owner.UID == a.backup.UID || slices.ContainsFunc(owners, func(candidate metav1.OwnerReference) bool { return candidate.UID == owner.UID })) {
+			managed = true // adopt resources created before all DR resources carried the label
+		}
 		if owner.APIVersion != v1.GroupVersion.String() || owner.Kind != postgresBackupKind || (owner.UID == a.backup.UID && releasing) {
 			continue
 		}
@@ -278,13 +302,26 @@ func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, scheme
 			owners = append(owners, owner)
 		}
 	}
+	if !managed {
+		return fmt.Errorf("refusing to modify unmanaged shared DR resource %T %s", current, client.ObjectKeyFromObject(current))
+	}
 	if len(owners) == 0 {
-		return client.IgnoreNotFound(c.Delete(ctx, current))
+		uid, version := current.GetUID(), current.GetResourceVersion()
+		return client.IgnoreNotFound(c.Delete(ctx, current, client.Preconditions{UID: &uid, ResourceVersion: &version}))
+	}
+	if !current.GetDeletionTimestamp().IsZero() {
+		return fmt.Errorf("shared DR resource %T %s is terminating", current, client.ObjectKeyFromObject(current))
 	}
 	slices.SortFunc(owners, func(x, y metav1.OwnerReference) int { return strings.Compare(x.Name, y.Name) })
 
 	original := current.DeepCopyObject().(client.Object)
 	current.SetOwnerReferences(owners)
+	labels := current.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[drbackup.ManagedByLabel] = drbackup.ManagedByValue
+	current.SetLabels(labels)
 	applySharedDRSpec(current, a.desired)
 	if equality.Semantic.DeepEqual(original, current) {
 		return nil

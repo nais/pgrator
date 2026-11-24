@@ -56,7 +56,8 @@ intervals (`daily`, `weekly`, `monthly`) and `retentionDays`, creating
 1. **Trigger CNPG `Backup`:**
    For every new `PostgresBackup`, `PostgresBackupReconciler` creates a dedicated
    `postgresql.cnpg.io/v1` `Backup` (`method: plugin`, `barman-cloud`,
-   `target: prefer-standby`) against the source CNPG `Cluster`. Always
+   `target: primary`) against the source CNPG `Cluster`, so the backup does not
+   wait for `archive_timeout` to make the final WAL segment available. Always
    triggering a fresh `Backup` guarantees an exact snapshot time and a bounded
    WAL range (`beginWal`..`endWal`) archived to the source Barman bucket.
 2. **Team DR bucket and Workload Identity:**
@@ -67,13 +68,14 @@ intervals (`daily`, `weekly`, `monthly`) and `retentionDays`, creating
    Once the CNPG `Backup` reaches `completed`, pgrator runs a Kubernetes `Job`
    in the team namespace with read access to the source Barman bucket and write
    access to the team DR bucket:
-   - Copies `<serverName>/base/<backupID>/...` (including `backup.info`) and
-     only the required WAL files from `beginWal` to `endWal` (plus any timeline
-     `.history` file) into an isolated prefix in the DR bucket:
+    - Copies `<serverName>/base/<backupID>/...` (including `backup.info`) and
+      the complete WAL range from `beginWal` to `endWal`, with timeline history
+      through the backup's timeline, into an isolated prefix in the DR bucket:
      `<postgresBackup-name>/<serverName>/...`.
    - Writes a manifest (`nais-backup.json`) recording checksums, total size,
      PostgreSQL major version, extensions, and disk size.
-   - Verifies object sizes and checksums before reporting completion.
+    - Verifies object sizes and checksums before reporting completion, reading
+      the destination back when the storage API does not return a SHA-256 digest.
    - Uses a vendor-agnostic object-storage client rather than cloud-specific
      transfer services.
 4. **Interaction with Barman retention:**

@@ -125,8 +125,8 @@ func TestCopyBackupCopiesOnlyTargetBackupAndRequiredWALRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CopyBackup() error = %v", err)
 	}
-	if res.ObjectCount != 6 {
-		t.Errorf("ObjectCount = %d, want 6 (2 base + 3 WAL + 1 history)", res.ObjectCount)
+	if res.ObjectCount != 5 {
+		t.Errorf("ObjectCount = %d, want 5 (2 base + 3 WAL, excluding a later timeline)", res.ObjectCount)
 	}
 
 	copied, err := dst.List(context.Background(), "orders-backup-1/")
@@ -144,7 +144,6 @@ func TestCopyBackupCopiesOnlyTargetBackupAndRequiredWALRange(t *testing.T) {
 		"orders-backup-1/pg-orders-main-65648812/wals/0000000100000000/000000010000000000000002.lz4",
 		"orders-backup-1/pg-orders-main-65648812/wals/0000000100000000/000000010000000000000003.lz4",
 		"orders-backup-1/pg-orders-main-65648812/wals/0000000100000000/000000010000000000000004.lz4",
-		"orders-backup-1/pg-orders-main-65648812/wals/00000002.history.lz4",
 	}
 	if !slices.Equal(gotKeys, wantKeys) {
 		t.Errorf("copied keys =\n  %v\nwant\n  %v", gotKeys, wantKeys)
@@ -178,23 +177,89 @@ func TestCopyBackupFailsWhenWALOrBaseIsMissing(t *testing.T) {
 		}
 	})
 
-	t.Run("missing endWal segment", func(t *testing.T) {
-		src := newMemoryObjectStore(map[string]string{
-			"pg-orders-main-65648812/base/20261124T020000/backup.info":                   "info",
-			"pg-orders-main-65648812/wals/0000000100000000/000000010000000000000002.lz4": "wal-begin",
+	for _, tc := range []struct{ name, missing, want string }{
+		{"missing base data", "db/base/id/data.tar.lz4", "missing data.tar"},
+		{"missing split part", "db/base/id/data_0001.tar.lz4", "missing or duplicate data archive parts"},
+		{"missing tablespace", "db/base/id/12345.tar.lz4", "missing 12345.tar"},
+		{"missing middle WAL", "db/wals/000000020000000A/000000020000000A0000007F.lz4", "missing required WAL segment"},
+		{"missing endWal", "db/wals/000000020000000B/000000020000000B00000000.lz4", "missing required endWal"},
+		{"missing timeline history", "db/wals/00000002.history.lz4", "missing required timeline history"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objects, req := barmanArchiveFixture()
+			delete(objects, tc.missing)
+			dst := newMemoryObjectStore(nil)
+			_, err := backupcopy.CopyBackup(t.Context(), newMemoryObjectStore(objects), dst, req)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			if written, _ := dst.List(t.Context(), req.BackupName+"/"); len(written) != 0 {
+				t.Errorf("incomplete source wrote objects: %v", written)
+			}
 		})
-		dst := newMemoryObjectStore(nil)
-		_, err := backupcopy.CopyBackup(context.Background(), src, dst, backupcopy.CopyRequest{
-			BackupName: "orders-backup-1",
-			ServerName: "pg-orders-main-65648812",
-			BackupID:   "20261124T020000",
-			BeginWal:   "000000010000000000000002",
-			EndWal:     "000000010000000000000003",
-		})
-		if err == nil || !strings.Contains(err.Error(), "missing required endWal") {
-			t.Errorf("err = %v, want missing endWal error", err)
+	}
+}
+
+// 32 MiB segments roll into the next log at 0x80, not at the default 0x100.
+func barmanArchiveFixture() (map[string]string, backupcopy.CopyRequest) {
+	return map[string]string{
+			"db/base/id/backup.info":  "xlog_segment_size=33554432\ntablespaces=[('t,s', 12345, '/path')]\n",
+			"db/base/id/data.tar.lz4": "primary data", "db/base/id/data_0001.tar.lz4": "part one",
+			"db/base/id/data_0002.tar.lz4": "part two", "db/base/id/12345.tar.lz4": "tablespace",
+			"db/wals/000000020000000A/000000020000000A0000007E.lz4": "wal-begin",
+			"db/wals/000000020000000A/000000020000000A0000007F.lz4": "wal-middle",
+			"db/wals/000000020000000B/000000020000000B00000000.lz4": "wal-end",
+			"db/wals/00000002.history.lz4":                          "history",
+		}, backupcopy.CopyRequest{
+			BackupName: "archive", ServerName: "db", BackupID: "id",
+			BeginWal: "000000020000000A0000007E", EndWal: "000000020000000B00000000",
 		}
-	})
+}
+
+type digestlessStore struct {
+	backupcopy.ObjectStore
+	corruptKey string
+}
+
+func (s digestlessStore) Stat(ctx context.Context, key string) (backupcopy.ObjectInfo, error) {
+	info, err := s.ObjectStore.Stat(ctx, key)
+	info.SHA256 = ""
+	return info, err
+}
+
+func (s digestlessStore) Put(ctx context.Context, key string, r io.Reader) error {
+	if key != s.corruptKey {
+		return s.ObjectStore.Put(ctx, key, r)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	data[0] ^= 1
+	return s.ObjectStore.Put(ctx, key, bytes.NewReader(data))
+}
+
+func TestCopyBackupVerifiesDestinationWithoutStoreChecksum(t *testing.T) {
+	for _, tc := range []struct{ name, corruptKey string }{
+		{name: "correct bytes"},
+		{name: "corrupt base data", corruptKey: "archive/db/base/id/data.tar.lz4"},
+		{name: "corrupt manifest", corruptKey: "archive/nais-backup.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objects, req := barmanArchiveFixture()
+			dst := digestlessStore{newMemoryObjectStore(nil), tc.corruptKey}
+			res, err := backupcopy.CopyBackup(t.Context(), newMemoryObjectStore(objects), dst, req)
+			if tc.corruptKey != "" {
+				if err == nil || !strings.Contains(err.Error(), "sha256") {
+					t.Fatalf("expected checksum error, got %v", err)
+				}
+				return
+			}
+			if err != nil || res.ObjectCount != len(objects) {
+				t.Fatalf("expected successful copy of all objects, got %d objects, %v", res.ObjectCount, err)
+			}
+		})
+	}
 }
 
 func TestHTTPObjectStoreRoundTrip(t *testing.T) {

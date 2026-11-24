@@ -1,12 +1,18 @@
 package drbackup_test
 
 import (
+	"context"
+	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nais/pgrator/internal/backupcopy"
 	"github.com/nais/pgrator/internal/resourcecreator/drbackup"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +41,78 @@ func TestDRBucketNameFitsGCSLimitAndIsDeterministic(t *testing.T) {
 	}
 }
 
+type listRecorder struct {
+	backupcopy.ObjectStore
+	list func(string) error
+}
+
+func (s listRecorder) List(_ context.Context, prefix string) ([]backupcopy.ObjectInfo, error) {
+	return nil, s.list(prefix)
+}
+
+func TestWorkerJobsUseValidLabelsAndRecognizedArguments(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	backup := &v1.PostgresBackup{
+		ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("long-name-", 8) + "backup", Namespace: "team", UID: "backup-uid"},
+		Spec:       v1.PostgresBackupSpec{Postgres: strings.Repeat("long-name-", 8) + "postgres"},
+		Status: &v1.PostgresBackupStatus{
+			ServerName: "orders", BackupID: "20261124T020000",
+			BeginWal: "000000010000000000000002", EndWal: "000000010000000000000003",
+		},
+	}
+	copyJob, err := drbackup.CreateCopyJob(scheme, backup, "pgrator:test", "source", "destination", 8*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deadline := copyJob.Spec.ActiveDeadlineSeconds; deadline == nil || *deadline != int64((8*time.Hour)/time.Second) {
+		t.Fatalf("copy Job deadline does not reflect configuration: %v", deadline)
+	}
+	cleanup, err := drbackup.CreateCleanupJob(scheme, backup, "pgrator:test", "destination", backup.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := errors.New("stop at the first storage operation")
+	for _, tc := range []struct {
+		job     *batchv1.Job
+		buckets []string
+		prefix  string
+	}{
+		{copyJob, []string{"source", "destination"}, "orders/base/20261124T020000/"},
+		{cleanup, []string{"destination"}, backup.Name + "/"},
+	} {
+		t.Run(tc.job.Labels[drbackup.JobRoleLabel], func(t *testing.T) {
+			for key, value := range tc.job.Spec.Template.Labels {
+				if errs := validation.IsValidLabelValue(value); len(errs) > 0 {
+					t.Errorf("label %q is invalid: %v", key, errs)
+				}
+			}
+			args := tc.job.Spec.Template.Spec.Containers[0].Args
+			if !backupcopy.IsBackupWorkerCommand(args) || !slices.Contains(args, "--backup-name="+backup.Name) {
+				t.Fatalf("invalid worker command: %q", args)
+			}
+			var buckets []string
+			newStore := func(bucket string) backupcopy.ObjectStore {
+				buckets = append(buckets, bucket)
+				return listRecorder{list: func(prefix string) error {
+					if prefix != tc.prefix {
+						t.Errorf("listed prefix %q, want %q", prefix, tc.prefix)
+					}
+					return stop
+				}}
+			}
+			if err := backupcopy.RunCommand(t.Context(), args, newStore, filepath.Join(t.TempDir(), "termination")); !errors.Is(err, stop) {
+				t.Fatalf("worker rejected generated arguments: %v", err)
+			}
+			if !slices.Equal(buckets, tc.buckets) {
+				t.Errorf("opened buckets %v, want %v", buckets, tc.buckets)
+			}
+		})
+	}
+}
+
 func TestCreateCopyAndCleanupJobs(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {
@@ -60,7 +138,7 @@ func TestCreateCopyAndCleanupJobs(t *testing.T) {
 		},
 	}
 
-	copyJob, err := drbackup.CreateCopyJob(scheme, backup, "pgrator:test", "src-wal-bucket", "dst-dr-bucket")
+	copyJob, err := drbackup.CreateCopyJob(scheme, backup, "pgrator:test", "src-wal-bucket", "dst-dr-bucket", 0)
 	if err != nil {
 		t.Fatalf("CreateCopyJob: %v", err)
 	}

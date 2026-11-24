@@ -37,11 +37,19 @@ func NewGCSObjectStore(bucket string) *HTTPObjectStore {
 	return &HTTPObjectStore{
 		Bucket:         bucket,
 		BaseURL:        defaultGCSBaseURL,
-		HTTPClient:     &http.Client{Timeout: 5 * time.Minute},
+		HTTPClient:     gcsStreamingClient,
 		TokenSource:    GKEWorkloadIdentityTokenSource,
 		IAMRetryWindow: defaultIAMRetryWindow,
 	}
 }
+
+var gcsStreamingClient = func() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Bound connection setup and the wait for headers, not the time spent
+	// streaming a potentially multi-GiB object. The worker Job has a deadline.
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{Transport: transport}
+}()
 
 // GKEWorkloadIdentityTokenSource fetches an OAuth2 access token from the GKE
 // metadata server (or GOOGLE_OAUTH_ACCESS_TOKEN if set), retrying on transient

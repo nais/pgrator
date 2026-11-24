@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -100,14 +99,25 @@ func CopyBackup(ctx context.Context, src, dst ObjectStore, req CopyRequest) (Cop
 		return CopyResult{}, fmt.Errorf("source base backup %q contains no objects (may have expired from barman retention)", basePrefix)
 	}
 	hasBackupInfo := slices.ContainsFunc(baseObjects, func(o ObjectInfo) bool {
-		return o.Key == basePrefix+"backup.info"
+		return o.Key == basePrefix+"backup.info" && o.Size > 0
 	})
 	if !hasBackupInfo {
 		return CopyResult{}, fmt.Errorf("source base backup %q is missing backup.info", basePrefix)
 	}
 
+	metadata, err := readBarmanMetadata(ctx, src, basePrefix+"backup.info")
+	if err != nil {
+		return CopyResult{}, err
+	}
+	if err := validateBaseArchives(baseObjects, basePrefix, metadata.tablespaces); err != nil {
+		return CopyResult{}, err
+	}
+	wal, err := newWALRange(req.BeginWal, req.EndWal, metadata.walSegmentSize)
+	if err != nil {
+		return CopyResult{}, err
+	}
 	walsPrefix := fmt.Sprintf("%s/wals/", req.ServerName)
-	walObjects, err := waitForRequiredWALObjects(ctx, src, walsPrefix, req.BeginWal, req.EndWal, req.WALWaitTimeout, req.WALPollInterval)
+	walObjects, err := waitForRequiredWALObjects(ctx, src, walsPrefix, wal, req.WALWaitTimeout, req.WALPollInterval)
 	if err != nil {
 		return CopyResult{}, err
 	}
@@ -160,12 +170,9 @@ func CopyBackup(ctx context.Context, src, dst ObjectStore, req CopyRequest) (Cop
 	if err := dst.Put(ctx, manifestKey, bytes.NewReader(manifestBytes)); err != nil {
 		return CopyResult{}, fmt.Errorf("writing backup manifest %q: %w", manifestKey, err)
 	}
-	stat, err := dst.Stat(ctx, manifestKey)
-	if err != nil {
+	manifestDigest := sha256.Sum256(manifestBytes)
+	if err := verifyObject(ctx, dst, manifestKey, int64(len(manifestBytes)), hex.EncodeToString(manifestDigest[:])); err != nil {
 		return CopyResult{}, fmt.Errorf("verifying backup manifest %q: %w", manifestKey, err)
-	}
-	if stat.Size != int64(len(manifestBytes)) {
-		return CopyResult{}, fmt.Errorf("backup manifest %q size mismatch: got %d, want %d", manifestKey, stat.Size, len(manifestBytes))
 	}
 
 	return CopyResult{
@@ -215,77 +222,45 @@ func validateCopyRequest(req CopyRequest) error {
 	if !isWALSegmentName(req.BeginWal) || !isWALSegmentName(req.EndWal) {
 		return fmt.Errorf("beginWal (%q) and endWal (%q) must be 24-character hex WAL segment names", req.BeginWal, req.EndWal)
 	}
-	if req.BeginWal > req.EndWal {
-		return fmt.Errorf("beginWal (%q) must not be greater than endWal (%q)", req.BeginWal, req.EndWal)
-	}
 	return nil
 }
 
 func waitForRequiredWALObjects(
 	ctx context.Context,
 	src ObjectStore,
-	walsPrefix, beginWal, endWal string,
+	walsPrefix string,
+	wal walRange,
 	waitTimeout, pollInterval time.Duration,
 ) ([]ObjectInfo, error) {
 	if pollInterval <= 0 {
 		pollInterval = 5 * time.Second
 	}
-	deadline := time.Now().Add(waitTimeout)
+	if waitTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, waitTimeout)
+		defer cancel()
+	}
+	var missing error
 	for {
 		allWalObjects, err := src.List(ctx, walsPrefix)
 		if err != nil {
+			if missing != nil && ctx.Err() != nil {
+				return nil, fmt.Errorf("waiting for WAL: %w (%w)", missing, ctx.Err())
+			}
 			return nil, fmt.Errorf("listing source WAL archive %q: %w", walsPrefix, err)
 		}
-		walObjects, err := selectRequiredWALObjects(allWalObjects, beginWal, endWal)
+		walObjects, err := wal.selectObjects(walsPrefix, allWalObjects)
 		if err == nil {
 			return walObjects, nil
 		}
-		if waitTimeout <= 0 || !time.Now().Before(deadline) {
+		if waitTimeout <= 0 {
 			return nil, err
 		}
-		timer := time.NewTimer(pollInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
+		missing = err
+		if err := sleepWithContext(ctx, pollInterval); err != nil {
+			return nil, fmt.Errorf("waiting for WAL: %w (%w)", missing, err)
 		}
 	}
-}
-
-func selectRequiredWALObjects(objects []ObjectInfo, beginWal, endWal string) ([]ObjectInfo, error) {
-	var selected []ObjectInfo
-	foundBegin := false
-	foundEnd := false
-
-	for _, obj := range objects {
-		base := stripCompressionExt(path.Base(obj.Key))
-		if strings.HasSuffix(base, ".history") {
-			selected = append(selected, obj)
-			continue
-		}
-		seg := strings.TrimSuffix(base, ".backup")
-		if !isWALSegmentName(seg) {
-			continue
-		}
-		if seg >= beginWal && seg <= endWal {
-			selected = append(selected, obj)
-			if seg == beginWal && !strings.HasSuffix(base, ".backup") {
-				foundBegin = true
-			}
-			if seg == endWal && !strings.HasSuffix(base, ".backup") {
-				foundEnd = true
-			}
-		}
-	}
-
-	if !foundBegin {
-		return nil, fmt.Errorf("missing required beginWal segment %q in source WAL archive", beginWal)
-	}
-	if !foundEnd {
-		return nil, fmt.Errorf("missing required endWal segment %q in source WAL archive", endWal)
-	}
-	return selected, nil
 }
 
 func stripCompressionExt(name string) string {
@@ -323,21 +298,45 @@ func copyAndVerifyObject(ctx context.Context, src, dst ObjectStore, srcObj Objec
 	if err := dst.Put(ctx, dstKey, counter); err != nil {
 		return 0, "", fmt.Errorf("writing destination object %q: %w", dstKey, err)
 	}
-	if srcObj.Size > 0 && counter.n != srcObj.Size {
+	if counter.n != srcObj.Size {
 		return 0, "", fmt.Errorf("object %q streamed %d bytes, expected %d", srcObj.Key, counter.n, srcObj.Size)
 	}
-	stat, err := dst.Stat(ctx, dstKey)
-	if err != nil {
+	digest := hex.EncodeToString(hasher.Sum(nil))
+	if err := verifyObject(ctx, dst, dstKey, counter.n, digest); err != nil {
 		return 0, "", fmt.Errorf("verifying destination object %q: %w", dstKey, err)
 	}
-	if stat.Size != counter.n {
-		return 0, "", fmt.Errorf("destination object %q size = %d, want %d", dstKey, stat.Size, counter.n)
-	}
-	digest := hex.EncodeToString(hasher.Sum(nil))
-	if stat.SHA256 != "" && stat.SHA256 != digest {
-		return 0, "", fmt.Errorf("destination object %q sha256 = %s, want %s", dstKey, stat.SHA256, digest)
-	}
 	return counter.n, digest, nil
+}
+
+func verifyObject(ctx context.Context, dst ObjectStore, key string, size int64, digest string) error {
+	stat, err := dst.Stat(ctx, key)
+	if err != nil {
+		return err
+	}
+	if stat.Size != size {
+		return fmt.Errorf("size = %d, want %d", stat.Size, size)
+	}
+	actual := stat.SHA256
+	if actual == "" {
+		rc, err := dst.Open(ctx, key)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rc.Close() }()
+		h := sha256.New()
+		n, err := io.Copy(h, rc)
+		if err != nil {
+			return err
+		}
+		if n != size {
+			return fmt.Errorf("read back %d bytes, want %d", n, size)
+		}
+		actual = hex.EncodeToString(h.Sum(nil))
+	}
+	if actual != digest {
+		return fmt.Errorf("sha256 = %s, want %s", actual, digest)
+	}
+	return nil
 }
 
 type countingReader struct {
