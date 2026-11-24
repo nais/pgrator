@@ -41,10 +41,16 @@ rules:
   resources: [prometheusrules]
   verbs: [create, delete, get, list, patch, update, watch]
 
-# Resources needed for Postgres controller
+# Resources needed for Postgres and PostgresBackup controllers
 - apiGroups: [batch]
   resources: [jobs]
+  verbs: [create, delete, get, list, patch, update, watch]
+- apiGroups: [""]
+  resources: [pods]
   verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [serviceaccounts]
+  verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [postgresql.cnpg.io]
   resources: [backups, clusters, databases, databaseroles, scheduledbackups, poolers]
   verbs: [create, delete, get, list, patch, update, watch]
