@@ -128,6 +128,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	postgresBackupReconciler := &controller.PostgresBackupReconciler{Recorder: recorder, Scheme: scheme}
+	postgresBackupController := synchronizer.NewSynchronizer(
+		postgresClient, mgr.GetScheme(), postgresBackupReconciler, recorder)
+	if err := postgresBackupController.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "postgresbackup")
+		os.Exit(1)
+	}
+
 	valkeyReconciler := &controller.ValkeyReconciler{
 		Aiven:    cfg.Aiven,
 		Tenant:   cfg.Tenant,

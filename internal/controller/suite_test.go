@@ -139,6 +139,14 @@ func TestGoldenPostgresAccess(t *testing.T) {
 	)
 }
 
+func TestGoldenPostgresBackup(t *testing.T) {
+	defaultCfg := config.Config{}
+	postgresBackupReconciler := &PostgresBackupReconciler{Recorder: recorder, Scheme: scheme.Scheme}
+	runGoldenTestsForResource[*v1.PostgresBackup, PostgresBackupPreparedData, v1.PostgresBackup](
+		t, postgresBackupReconciler, "postgresbackup", defaultCfg, func(config.Config) {},
+	)
+}
+
 func TestGoldenValkey(t *testing.T) {
 	valkeyReconciler := &ValkeyReconciler{
 		Aiven: config.Aiven{

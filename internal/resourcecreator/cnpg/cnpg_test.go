@@ -67,6 +67,38 @@ func TestCreatePoolerLabelsPodsWithPostgresName(t *testing.T) {
 	}
 }
 
+func TestCreateBackupTargetsStandbyViaBarmanPlugin(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding scheme: %v", err)
+	}
+
+	pgBackup := &v1.PostgresBackup{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders-backup-1", Namespace: "myteam", UID: "backup-uid"},
+		Spec:       v1.PostgresBackupSpec{Postgres: "orders"},
+	}
+
+	backup, err := CreateBackup(scheme, pgBackup, "pg-orders-main-12345678")
+	if err != nil {
+		t.Fatalf("CreateBackup() error = %v", err)
+	}
+	if backup.Name != "orders-backup-1" || backup.Namespace != "myteam" {
+		t.Errorf("Backup identity = %s/%s, want myteam/orders-backup-1", backup.Namespace, backup.Name)
+	}
+	if backup.Spec.Cluster.Name != "pg-orders-main-12345678" {
+		t.Errorf("Cluster.Name = %q, want pg-orders-main-12345678", backup.Spec.Cluster.Name)
+	}
+	if backup.Spec.Target != cnpgv1.BackupTargetStandby {
+		t.Errorf("Target = %q, want %q", backup.Spec.Target, cnpgv1.BackupTargetStandby)
+	}
+	if backup.Spec.Method != cnpgv1.BackupMethodPlugin || backup.Spec.PluginConfiguration == nil || backup.Spec.PluginConfiguration.Name != BarmanPluginName {
+		t.Errorf("PluginConfiguration = %+v, want plugin/%s", backup.Spec.PluginConfiguration, BarmanPluginName)
+	}
+	if !metav1.IsControlledBy(backup, pgBackup) {
+		t.Errorf("Backup is not controlled by PostgresBackup")
+	}
+}
+
 func TestCreateScheduledBackupStartsInitialBackup(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {

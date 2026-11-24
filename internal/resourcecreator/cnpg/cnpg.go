@@ -507,6 +507,43 @@ func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpg
 	return backup, nil
 }
 
+// CreateBackup builds an on-demand CloudNativePG Backup resource (via the
+// barman-cloud plugin) controlled by a PostgresBackup.
+func CreateBackup(scheme *runtime.Scheme, postgresBackup *v1.PostgresBackup, clusterName string) (*cnpgv1.Backup, error) {
+	var annotations map[string]string
+	if postgresBackup.GetCorrelationId() != "" {
+		annotations = map[string]string{
+			api.DeploymentCorrelationIDAnnotation: postgresBackup.GetCorrelationId(),
+		}
+	}
+	backup := &cnpgv1.Backup{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Backup",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      postgresBackup.GetName(),
+			Namespace: postgresBackup.GetNamespace(),
+			Labels: map[string]string{
+				nameLabel: postgresBackup.Spec.Postgres,
+			},
+			Annotations: annotations,
+		},
+		Spec: cnpgv1.BackupSpec{
+			Cluster: cnpgv1.LocalObjectReference{Name: clusterName},
+			Target:  cnpgv1.BackupTargetStandby,
+			Method:  cnpgv1.BackupMethodPlugin,
+			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
+				Name: BarmanPluginName,
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(postgresBackup, backup, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Backup: %w", err)
+	}
+	return backup, nil
+}
+
 // CreatePooler builds a PgBouncer connection Pooler for the cluster's primary
 // (read-write). Pooling uses transaction mode; authentication to Postgres remains
 // certificate-based (OAUTHBEARER is not used), so no OAuth pass-through is needed.
