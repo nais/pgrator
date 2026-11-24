@@ -49,25 +49,29 @@ const (
 	defaultWorkerImage     = "europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest"
 )
 
-// DRBucketName returns the deterministic team DR bucket name for a namespace
-// and configured bucket prefix. Empty when prefix is empty.
+// DRBucketName returns the deterministic team DR bucket name
+// (<drPrefix>-<team>-<hash>, e.g. nais-dr-<tenant>-<env>-<team>-<hash>) for a
+// namespace and configured prefix. Empty when prefix is empty.
 func DRBucketName(prefix, namespace string) string {
 	trimmed := strings.Trim(prefix, "-")
 	if trimmed == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(trimmed + "/" + namespace + "/dr"))
+	if strings.HasPrefix(trimmed, "nais-wal-") {
+		trimmed = "nais-dr-" + strings.TrimPrefix(trimmed, "nais-wal-")
+	}
+	sum := sha256.Sum256([]byte(trimmed + "/" + namespace))
 	suffix := fmt.Sprintf("%x", sum[:bucketHashSuffixLength/2])
 	maxBase := bucketMaxLength - len(suffix) - 1
-	if len(trimmed) > maxBase-4 {
-		trimmed = trimmed[:maxBase-4]
+	if len(trimmed) > maxBase-2 {
+		trimmed = trimmed[:maxBase-2]
 	}
-	nsMax := maxBase - len(trimmed) - len("-dr-")
+	nsMax := maxBase - len(trimmed) - 1
 	ns := namespace
 	if len(ns) > nsMax {
 		ns = strings.TrimRight(ns[:nsMax], "-")
 	}
-	return fmt.Sprintf("%s-%s-dr-%s", trimmed, ns, suffix)
+	return fmt.Sprintf("%s-%s-%s", trimmed, ns, suffix)
 }
 
 // GSAName returns the Google Service Account name for the team's DR worker.

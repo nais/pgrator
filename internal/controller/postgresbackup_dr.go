@@ -34,14 +34,18 @@ import (
 const postgresBackupKind = "PostgresBackup"
 
 func (r *PostgresBackupReconciler) drEnabled() bool {
-	return r.Config != nil && r.Config.CNPG.WalBucketPrefix != ""
+	return r.Config != nil && (r.Config.CNPG.DrBucketPrefix != "" || r.Config.CNPG.WalBucketPrefix != "")
 }
 
 func (r *PostgresBackupReconciler) drBucketName(namespace string) string {
 	if !r.drEnabled() {
 		return ""
 	}
-	return drbackup.DRBucketName(r.Config.CNPG.WalBucketPrefix, namespace)
+	prefix := r.Config.CNPG.DrBucketPrefix
+	if prefix == "" {
+		prefix = r.Config.CNPG.WalBucketPrefix
+	}
+	return drbackup.DRBucketName(prefix, namespace)
 }
 
 func resolveSourceBucketName(cnpgBackup *cnpgv1.Backup, cluster *cnpgv1.Cluster) string {

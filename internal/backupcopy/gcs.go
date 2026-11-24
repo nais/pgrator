@@ -16,6 +16,7 @@ import (
 const (
 	defaultGCSBaseURL     = "https://storage.googleapis.com"
 	defaultMetadataTokURL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+	defaultIAMRetryWindow = 2 * time.Minute
 )
 
 // TokenSource returns a bearer token for object storage HTTP requests.
@@ -25,52 +26,87 @@ type TokenSource func(ctx context.Context) (string, error)
 // API by default, with configurable base URL and token source for testing or
 // alternative endpoints).
 type HTTPObjectStore struct {
-	Bucket      string
-	BaseURL     string
-	HTTPClient  *http.Client
-	TokenSource TokenSource
+	Bucket         string
+	BaseURL        string
+	HTTPClient     *http.Client
+	TokenSource    TokenSource
+	IAMRetryWindow time.Duration
 }
 
 func NewGCSObjectStore(bucket string) *HTTPObjectStore {
 	return &HTTPObjectStore{
-		Bucket:      bucket,
-		BaseURL:     defaultGCSBaseURL,
-		HTTPClient:  &http.Client{Timeout: 5 * time.Minute},
-		TokenSource: GKEWorkloadIdentityTokenSource,
+		Bucket:         bucket,
+		BaseURL:        defaultGCSBaseURL,
+		HTTPClient:     &http.Client{Timeout: 5 * time.Minute},
+		TokenSource:    GKEWorkloadIdentityTokenSource,
+		IAMRetryWindow: defaultIAMRetryWindow,
 	}
 }
 
 // GKEWorkloadIdentityTokenSource fetches an OAuth2 access token from the GKE
-// metadata server (or GOOGLE_OAUTH_ACCESS_TOKEN if set).
+// metadata server (or GOOGLE_OAUTH_ACCESS_TOKEN if set), retrying on transient
+// 403/5xx while a newly created Workload Identity binding propagates in GCP IAM.
 func GKEWorkloadIdentityTokenSource(ctx context.Context) (string, error) {
 	if tok := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN"); tok != "" {
 		return tok, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, defaultMetadataTokURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Metadata-Flavor", "Google")
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("fetching GKE Workload Identity token: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	deadline := time.Now().Add(defaultIAMRetryWindow)
+	backoff := 2 * time.Second
+
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, defaultMetadataTokURL, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Metadata-Flavor", "Google")
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("fetching GKE Workload Identity token: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			var payload struct {
+				AccessToken string `json:"access_token"`
+			}
+			decodeErr := json.NewDecoder(resp.Body).Decode(&payload)
+			_ = resp.Body.Close()
+			if decodeErr != nil {
+				return "", fmt.Errorf("decoding metadata token response: %w", decodeErr)
+			}
+			if payload.AccessToken == "" {
+				return "", fmt.Errorf("metadata server returned empty access_token")
+			}
+			return payload.AccessToken, nil
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", fmt.Errorf("metadata server returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		_ = resp.Body.Close()
+		lastErr := fmt.Errorf("metadata server returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if !isRetryableIAMOrStorageStatus(resp.StatusCode) || !time.Now().Before(deadline) {
+			return "", lastErr
+		}
+		if err := sleepWithContext(ctx, backoff); err != nil {
+			return "", err
+		}
+		backoff = min(backoff*2, 10*time.Second)
 	}
-	var payload struct {
-		AccessToken string `json:"access_token"`
+}
+
+func isRetryableIAMOrStorageStatus(code int) bool {
+	return code == http.StatusUnauthorized ||
+		code == http.StatusForbidden ||
+		code == http.StatusTooManyRequests ||
+		code >= http.StatusInternalServerError
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", fmt.Errorf("decoding metadata token response: %w", err)
-	}
-	if payload.AccessToken == "" {
-		return "", fmt.Errorf("metadata server returned empty access_token")
-	}
-	return payload.AccessToken, nil
 }
 
 func (s *HTTPObjectStore) baseURL() string {
@@ -102,6 +138,29 @@ func (s *HTTPObjectStore) authorizedRequest(ctx context.Context, method, rawURL 
 	return req, nil
 }
 
+func (s *HTTPObjectStore) doWithIAMRetry(ctx context.Context, method, rawURL string) (*http.Response, error) {
+	deadline := time.Now().Add(s.IAMRetryWindow)
+	backoff := 2 * time.Second
+	for {
+		req, err := s.authorizedRequest(ctx, method, rawURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := s.client().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if !isRetryableIAMOrStorageStatus(resp.StatusCode) || s.IAMRetryWindow <= 0 || !time.Now().Before(deadline) {
+			return resp, nil
+		}
+		_ = resp.Body.Close()
+		if err := sleepWithContext(ctx, backoff); err != nil {
+			return nil, err
+		}
+		backoff = min(backoff*2, 10*time.Second)
+	}
+}
+
 func (s *HTTPObjectStore) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var result []ObjectInfo
 	pageToken := ""
@@ -112,11 +171,7 @@ func (s *HTTPObjectStore) List(ctx context.Context, prefix string) ([]ObjectInfo
 			q.Set("pageToken", pageToken)
 		}
 		u := fmt.Sprintf("%s/storage/v1/b/%s/o?%s", s.baseURL(), url.PathEscape(s.Bucket), q.Encode())
-		req, err := s.authorizedRequest(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := s.client().Do(req)
+		resp, err := s.doWithIAMRetry(ctx, http.MethodGet, u)
 		if err != nil {
 			return nil, err
 		}
@@ -154,11 +209,7 @@ func (s *HTTPObjectStore) List(ctx context.Context, prefix string) ([]ObjectInfo
 
 func (s *HTTPObjectStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	u := fmt.Sprintf("%s/storage/v1/b/%s/o/%s?alt=media", s.baseURL(), url.PathEscape(s.Bucket), url.PathEscape(key))
-	req, err := s.authorizedRequest(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.client().Do(req)
+	resp, err := s.doWithIAMRetry(ctx, http.MethodGet, u)
 	if err != nil {
 		return nil, err
 	}
@@ -194,11 +245,7 @@ func (s *HTTPObjectStore) Put(ctx context.Context, key string, r io.Reader) erro
 
 func (s *HTTPObjectStore) Stat(ctx context.Context, key string) (ObjectInfo, error) {
 	u := fmt.Sprintf("%s/storage/v1/b/%s/o/%s", s.baseURL(), url.PathEscape(s.Bucket), url.PathEscape(key))
-	req, err := s.authorizedRequest(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return ObjectInfo{}, err
-	}
-	resp, err := s.client().Do(req)
+	resp, err := s.doWithIAMRetry(ctx, http.MethodGet, u)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
@@ -223,11 +270,7 @@ func (s *HTTPObjectStore) Stat(ctx context.Context, key string) (ObjectInfo, err
 
 func (s *HTTPObjectStore) Delete(ctx context.Context, key string) error {
 	u := fmt.Sprintf("%s/storage/v1/b/%s/o/%s", s.baseURL(), url.PathEscape(s.Bucket), url.PathEscape(key))
-	req, err := s.authorizedRequest(ctx, http.MethodDelete, u, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := s.client().Do(req)
+	resp, err := s.doWithIAMRetry(ctx, http.MethodDelete, u)
 	if err != nil {
 		return err
 	}

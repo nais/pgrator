@@ -14,14 +14,17 @@ import (
 )
 
 func TestDRBucketNameFitsGCSLimitAndIsDeterministic(t *testing.T) {
-	short := drbackup.DRBucketName("nais-pg-wal-dev", "myteam")
+	short := drbackup.DRBucketName("nais-wal-dev-nais-dev", "basseng")
 	if short == "" || len(short) > 63 {
 		t.Fatalf("DRBucketName() = %q (len %d), want 1..63 chars", short, len(short))
+	}
+	if !strings.HasPrefix(short, "nais-dr-dev-nais-dev-basseng-") {
+		t.Errorf("DRBucketName() = %q, want prefix nais-dr-dev-nais-dev-basseng-", short)
 	}
 	if errs := validation.IsDNS1035Label(short); len(errs) > 0 {
 		t.Errorf("DRBucketName() = %q is not a valid DNS-1035 label: %v", short, errs)
 	}
-	if again := drbackup.DRBucketName("nais-pg-wal-dev", "myteam"); again != short {
+	if again := drbackup.DRBucketName("nais-wal-dev-nais-dev", "basseng"); again != short {
 		t.Errorf("DRBucketName() not deterministic: %q != %q", again, short)
 	}
 

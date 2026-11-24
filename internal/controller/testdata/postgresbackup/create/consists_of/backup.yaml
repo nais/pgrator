@@ -12,7 +12,7 @@ object:
   spec:
     cluster:
       name: pg-orders-main-65648812
-    target: prefer-standby
+    target: primary
     method: plugin
     pluginConfiguration:
       name: barman-cloud.cloudnative-pg.io

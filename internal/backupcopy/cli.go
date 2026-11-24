@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -80,6 +81,12 @@ func runCopyCommand(ctx context.Context, args []string, newStore func(bucket str
 	}
 	if extensionsCSV != "" {
 		req.Extensions = strings.Split(extensionsCSV, ",")
+	}
+	if req.WALWaitTimeout == 0 {
+		req.WALWaitTimeout = 6 * time.Minute
+	}
+	if req.WALPollInterval == 0 {
+		req.WALPollInterval = 5 * time.Second
 	}
 	res, err := CopyBackup(ctx, newStore(srcBucket), newStore(dstBucket), req)
 	if err != nil {

@@ -63,6 +63,10 @@ spec:
             - name: CNPG_WAL_BUCKET_PREFIX
               value: {{ .Values.cnpg.walBucketPrefix }}
             {{- end }}
+            {{- if .Values.cnpg.drBucketPrefix }}
+            - name: CNPG_DR_BUCKET_PREFIX
+              value: {{ .Values.cnpg.drBucketPrefix }}
+            {{- end }}
             - name: CNPG_BACKUP_WORKER_IMAGE
               value: "{{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}"
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}

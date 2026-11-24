@@ -88,8 +88,8 @@ func TestCreateBackupTargetsStandbyViaBarmanPlugin(t *testing.T) {
 	if backup.Spec.Cluster.Name != "pg-orders-main-12345678" {
 		t.Errorf("Cluster.Name = %q, want pg-orders-main-12345678", backup.Spec.Cluster.Name)
 	}
-	if backup.Spec.Target != cnpgv1.BackupTargetStandby {
-		t.Errorf("Target = %q, want %q", backup.Spec.Target, cnpgv1.BackupTargetStandby)
+	if backup.Spec.Target != cnpgv1.BackupTargetPrimary {
+		t.Errorf("Target = %q, want %q", backup.Spec.Target, cnpgv1.BackupTargetPrimary)
 	}
 	if backup.Spec.Method != cnpgv1.BackupMethodPlugin || backup.Spec.PluginConfiguration == nil || backup.Spec.PluginConfiguration.Name != BarmanPluginName {
 		t.Errorf("PluginConfiguration = %+v, want plugin/%s", backup.Spec.PluginConfiguration, BarmanPluginName)

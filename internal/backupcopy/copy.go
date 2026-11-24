@@ -45,16 +45,18 @@ type ObjectStore interface {
 // CopyRequest specifies the source backup and metadata to copy into an
 // isolated prefix in the destination DR bucket.
 type CopyRequest struct {
-	BackupName   string
-	ServerName   string
-	BackupID     string
-	BeginWal     string
-	EndWal       string
-	SourceUID    string
-	MajorVersion string
-	Extensions   []string
-	DiskSize     string
-	Now          func() time.Time
+	BackupName      string
+	ServerName      string
+	BackupID        string
+	BeginWal        string
+	EndWal          string
+	SourceUID       string
+	MajorVersion    string
+	Extensions      []string
+	DiskSize        string
+	Now             func() time.Time
+	WALWaitTimeout  time.Duration
+	WALPollInterval time.Duration
 }
 
 // Manifest is serialized as nais-backup.json inside the backup's DR prefix.
@@ -105,11 +107,7 @@ func CopyBackup(ctx context.Context, src, dst ObjectStore, req CopyRequest) (Cop
 	}
 
 	walsPrefix := fmt.Sprintf("%s/wals/", req.ServerName)
-	allWalObjects, err := src.List(ctx, walsPrefix)
-	if err != nil {
-		return CopyResult{}, fmt.Errorf("listing source WAL archive %q: %w", walsPrefix, err)
-	}
-	walObjects, err := selectRequiredWALObjects(allWalObjects, req.BeginWal, req.EndWal)
+	walObjects, err := waitForRequiredWALObjects(ctx, src, walsPrefix, req.BeginWal, req.EndWal, req.WALWaitTimeout, req.WALPollInterval)
 	if err != nil {
 		return CopyResult{}, err
 	}
@@ -221,6 +219,38 @@ func validateCopyRequest(req CopyRequest) error {
 		return fmt.Errorf("beginWal (%q) must not be greater than endWal (%q)", req.BeginWal, req.EndWal)
 	}
 	return nil
+}
+
+func waitForRequiredWALObjects(
+	ctx context.Context,
+	src ObjectStore,
+	walsPrefix, beginWal, endWal string,
+	waitTimeout, pollInterval time.Duration,
+) ([]ObjectInfo, error) {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
+	deadline := time.Now().Add(waitTimeout)
+	for {
+		allWalObjects, err := src.List(ctx, walsPrefix)
+		if err != nil {
+			return nil, fmt.Errorf("listing source WAL archive %q: %w", walsPrefix, err)
+		}
+		walObjects, err := selectRequiredWALObjects(allWalObjects, beginWal, endWal)
+		if err == nil {
+			return walObjects, nil
+		}
+		if waitTimeout <= 0 || !time.Now().Before(deadline) {
+			return nil, err
+		}
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func selectRequiredWALObjects(objects []ObjectInfo, beginWal, endWal string) ([]ObjectInfo, error) {
