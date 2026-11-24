@@ -11,14 +11,14 @@ import (
 
 func TestCreateStorageBucketLeavesRetentionToBarman(t *testing.T) {
 	days := int32(14)
-	for name, backup := range map[string]*v1.PostgresBackupPolicy{
+	for name, pitr := range map[string]*v1.PostgresPITRPolicy{
 		"default":  nil,
-		"explicit": {RetentionDays: &days},
+		"explicit": {WindowDays: &days},
 	} {
 		t.Run(name, func(t *testing.T) {
 			pg := &v1.Postgres{
 				ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team"},
-				Spec:       v1.PostgresSpec{Backup: backup},
+				Spec:       v1.PostgresSpec{PITR: pitr},
 			}
 
 			bucket := CreateStorageBucket(pg, "wal-bucket", "europe-north1")

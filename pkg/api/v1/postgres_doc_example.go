@@ -28,6 +28,9 @@ func ExamplePostgresForDocumentation() api.NaisObject {
 			MajorVersion:     "18",
 			HighAvailability: true,
 			AutoExplain:      true,
+			PITR: &PostgresPITRPolicy{
+				WindowDays: new(DefaultBackupRetentionDays),
+			},
 			Extensions: []PostgresExtension{
 				{
 					Name: "postgis",

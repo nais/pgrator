@@ -38,18 +38,31 @@ type PostgresExtension struct {
 	Name string `json:"name"`
 }
 
-// PostgresBackupPolicy configures the continuous backup of a Postgres: WAL
-// archiving and nightly base backups. Backups are always on; without this
-// section they are kept for 2 days.
-type PostgresBackupPolicy struct {
-	// RetentionDays is how many days back in time the database can be recovered to.
-	// Older backups and WAL are removed by barman, which checks periodically. The backup
-	// preceding the window is kept, so data up to a day older may remain. Allowed range is
-	// 2 to 30 days.
+// PostgresPITRPolicy configures the continuous point-in-time recovery (PITR)
+// window of a Postgres: WAL archiving and nightly base backups. PITR is always
+// on; without this section the recovery window is 2 days.
+type PostgresPITRPolicy struct {
+	// WindowDays is how many days back in time the database can be recovered to.
+	// Older recovery data (base backups and WAL) is removed by barman, which checks
+	// periodically. The base backup preceding the window is kept, so data up to a day
+	// older may remain. Allowed range is 2 to 30 days.
 	// Defaults to 2 when omitted.
 	// +kubebuilder:validation:Minimum=2
 	// +kubebuilder:validation:Maximum=30
 	// +optional
+	WindowDays *int32 `json:"windowDays,omitempty"`
+}
+
+// PostgresBackupPolicy is deprecated: use spec.pitr.windowDays for the
+// point-in-time recovery window. Retained so existing manifests and API clients
+// continue working while migrating to spec.pitr.windowDays.
+type PostgresBackupPolicy struct {
+	// RetentionDays is deprecated: use spec.pitr.windowDays instead.
+	// +kubebuilder:validation:Minimum=2
+	// +kubebuilder:validation:Maximum=30
+	// +optional
+	// +nais:doc:Deprecated=true
+	// +nais:doc:Hidden=true
 	RetentionDays *int32 `json:"retentionDays,omitempty"`
 }
 
@@ -114,8 +127,14 @@ type PostgresSpec struct {
 	// +kubebuilder:validation:Enum="18"
 	MajorVersion string `json:"majorVersion"`
 
-	// Backup configures continuous backup.
+	// PITR configures the continuous point-in-time recovery window.
 	// +optional
+	PITR *PostgresPITRPolicy `json:"pitr,omitempty"`
+
+	// Backup is deprecated for PITR configuration; use spec.pitr.windowDays.
+	// +optional
+	// +nais:doc:Deprecated=true
+	// +nais:doc:Hidden=true
 	Backup *PostgresBackupPolicy `json:"backup,omitempty"`
 
 	// HighAvailability adds a third instance and enables synchronous replication.
@@ -147,15 +166,21 @@ type PostgresSpec struct {
 	ActiveBranch string `json:"activeBranch,omitempty"`
 }
 
-// DefaultBackupRetentionDays applies when spec.backup.retentionDays is omitted.
+// DefaultBackupRetentionDays applies when spec.pitr.windowDays (and the
+// deprecated spec.backup.retentionDays) is omitted.
 const DefaultBackupRetentionDays int32 = 2
 
-// BackupRetentionDays returns the requested retention, or the default.
+// BackupRetentionDays returns the requested point-in-time recovery window in
+// days, or the default. If both spec.pitr.windowDays and the deprecated
+// spec.backup.retentionDays are set, spec.pitr.windowDays takes precedence.
 func (s PostgresSpec) BackupRetentionDays() int32 {
-	if s.Backup == nil || s.Backup.RetentionDays == nil {
-		return DefaultBackupRetentionDays
+	if s.PITR != nil && s.PITR.WindowDays != nil {
+		return *s.PITR.WindowDays
 	}
-	return *s.Backup.RetentionDays
+	if s.Backup != nil && s.Backup.RetentionDays != nil {
+		return *s.Backup.RetentionDays
+	}
+	return DefaultBackupRetentionDays
 }
 
 // PostgresStatus defines the observed state of Postgres.

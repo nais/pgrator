@@ -56,6 +56,11 @@ var ExampleRegistry = map[schema.GroupVersionKind]func() api.NaisObject{
 	{
 		Group:   v1.GroupVersion.Group,
 		Version: v1.GroupVersion.Version,
+		Kind:    "PostgresBackup",
+	}: v1.ExamplePostgresBackupForDocumentation,
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
 		Kind:    valkeyKind,
 	}: v1.ExampleValkeyForDocumentation,
 	{
