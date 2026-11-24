@@ -1,0 +1,23 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: orders-backup-1
+  namespace: myteam
+  ownerReferences:
+    - apiVersion: nais.io/v1
+      kind: PostgresBackup
+      name: orders-backup-1
+      uid: 11111111-2222-3333-4444-555555555555
+      controller: true
+      blockOwnerDeletion: true
+spec:
+  cluster:
+    name: pg-orders-main-65648812
+  target: primary
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+status:
+  phase: failed
+  error: "barman-cloud-backup failed"

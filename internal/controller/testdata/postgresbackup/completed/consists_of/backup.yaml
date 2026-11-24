@@ -1,0 +1,12 @@
+---
+action: claim
+matcher: Subset
+object:
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Backup
+  metadata:
+    name: orders-backup-1
+    namespace: myteam
+  spec:
+    cluster:
+      name: pg-orders-main-65648812

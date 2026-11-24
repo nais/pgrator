@@ -45,3 +45,7 @@ values:
     computed:
       # Owner names and a unique UID suffix are added within the 63-character GCS limit.
       template: 'nais-wal-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}'
+  cnpg.drBucketPrefix:
+    displayName: Prefix to use for DR storage buckets
+    computed:
+      template: 'nais-dr-{{ trunc 8 .Tenant.Name }}-{{ trunc 8 .Env.name }}'
