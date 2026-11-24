@@ -10,6 +10,7 @@ cnpg:
   imageCatalogName: "cloudnative-image-catalog"
   storageClass: "hyperdisk-balanced"
   walBucketPrefix: ""
+  drBucketPrefix: ""
 
 # [MANAGER]: Manager Deployment Configurations
 controllerManager:

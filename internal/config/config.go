@@ -55,6 +55,10 @@ type CNPG struct {
 	StorageClass string `env:"CNPG_STORAGE_CLASS" yaml:"storageClass"`
 	// WalBucketPrefix is the prefix used for GCS buckets for barman-cloud WAL storage.
 	WalBucketPrefix string `env:"CNPG_WAL_BUCKET_PREFIX" yaml:"walBucketPrefix"`
+	// DrBucketPrefix is the prefix used for GCS buckets for standalone DR backups.
+	DrBucketPrefix string `env:"CNPG_DR_BUCKET_PREFIX" yaml:"drBucketPrefix"`
+	// BackupWorkerImage is the container image used for standalone backup copy and cleanup Jobs.
+	BackupWorkerImage string `env:"CNPG_BACKUP_WORKER_IMAGE, default=europe-north1-docker.pkg.dev/nais-io/nais/images/pgrator:latest" yaml:"backupWorkerImage"`
 }
 
 func NewConfig(ctx context.Context, lookuper envconfig.Lookuper) (*Config, error) {

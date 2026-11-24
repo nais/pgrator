@@ -531,7 +531,7 @@ func CreateBackup(scheme *runtime.Scheme, postgresBackup *v1.PostgresBackup, clu
 		},
 		Spec: cnpgv1.BackupSpec{
 			Cluster: cnpgv1.LocalObjectReference{Name: clusterName},
-			Target:  cnpgv1.BackupTargetStandby,
+			Target:  cnpgv1.BackupTargetPrimary,
 			Method:  cnpgv1.BackupMethodPlugin,
 			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
 				Name: BarmanPluginName,

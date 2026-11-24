@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/nais/pgrator/internal/backupcopy"
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/controller"
 	"github.com/nais/pgrator/internal/synchronizer"
@@ -40,6 +41,14 @@ func main() {
 
 	ctx, signalStop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer signalStop()
+
+	if backupcopy.IsBackupWorkerCommand(os.Args[1:]) {
+		if err := backupcopy.RunCommand(ctx, os.Args[1:], nil, ""); err != nil {
+			zap.New().Error(err, "backup worker command failed")
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := config.NewConfig(ctx, envconfig.OsLookuper())
 	if err != nil {
@@ -128,7 +137,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	postgresBackupReconciler := &controller.PostgresBackupReconciler{Recorder: recorder, Scheme: scheme}
+	postgresBackupReconciler := &controller.PostgresBackupReconciler{Config: cfg, Recorder: recorder, Scheme: scheme}
 	postgresBackupController := synchronizer.NewSynchronizer(
 		postgresClient, mgr.GetScheme(), postgresBackupReconciler, recorder)
 	if err := postgresBackupController.SetupWithManager(mgr); err != nil {
