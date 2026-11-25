@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -127,10 +128,35 @@ func readJobTerminationPayload(ctx context.Context, reader client.Reader, job *b
 	return result
 }
 
-func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.PostgresBackup, teamProjectID string, keepOwner bool) []action.Action {
+func (r *PostgresBackupReconciler) backupDRBucket(backup *v1.PostgresBackup) string {
+	if backup.Status != nil && backup.Status.Location != nil && backup.Status.Location.BucketName != "" {
+		return backup.Status.Location.BucketName
+	}
+	return r.drBucketName(backup.Namespace)
+}
+
+func drBucketGrantNames(namespace, bucket string, related reconciler.RelatedObjects) (string, string) {
+	name := func(nameFor func(string) string, role string) string {
+		// Keep the old name for an existing grant to this bucket. Creating a
+		// second IAMPolicyMember for the same binding makes deletion unsafe.
+		if related != nil {
+			legacy := rciam.MinimalPolicyMember(nameFor(namespace), namespace)
+			if grant, ok := related.GetMatching(legacy).(*iamcnrm.IAMPolicyMember); ok &&
+				grant.Spec.ResourceRef.Kind == "StorageBucket" && grant.Spec.ResourceRef.Name == bucket && grant.Spec.Role == role {
+				return legacy.Name
+			}
+		}
+		return nameFor(bucket)
+	}
+	return name(drbackup.BucketObjectUserPolicyName, rciam.StorageObjectUserRole),
+		name(drbackup.BucketViewerPolicyName, rciam.StorageBucketViewerRole)
+}
+
+func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.PostgresBackup, teamProjectID string, keepOwner bool, related reconciler.RelatedObjects) []action.Action {
 	ns := backup.Namespace
 	gsaName := drbackup.GSAName(ns)
-	drBucket := r.drBucketName(ns)
+	drBucket := r.backupDRBucket(backup)
+	objectUserName, bucketViewerName := drBucketGrantNames(ns, drBucket, related)
 
 	gsa := rciam.CreateIAMServiceAccount(gsaName, ns)
 	gsa.Spec.DisplayName = fmt.Sprintf("Postgres DR Backup Worker for team %q", ns)
@@ -144,7 +170,7 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 		drbackup.WorkerResourceName,
 	)
 	bucketObjPolicy := rciam.CreateStorageBucketPolicyMember(
-		drbackup.BucketObjectUserPolicyName(ns),
+		objectUserName,
 		ns,
 		teamProjectID,
 		gsaName,
@@ -152,7 +178,7 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 		rciam.StorageObjectUserRole,
 	)
 	bucketViewPolicy := rciam.CreateStorageBucketPolicyMember(
-		drbackup.BucketViewerPolicyName(ns),
+		bucketViewerName,
 		ns,
 		teamProjectID,
 		gsaName,
@@ -164,9 +190,8 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 	netpol := drbackup.CreateWorkerNetworkPolicy(ns)
 	fqdn := drbackup.CreateWorkerFQDNNetworkPolicy(ns)
 
-	objs := []client.Object{gsa, wiPolicy, bucket, bucketObjPolicy, bucketViewPolicy, ksa, netpol, fqdn}
-	actions := make([]action.Action, 0, len(objs))
-	for _, obj := range objs {
+	var actions []action.Action
+	add := func(obj client.Object, bucketScope string) {
 		labels := obj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
@@ -177,7 +202,14 @@ func (r *PostgresBackupReconciler) sharedDRInfrastructureActions(backup *v1.Post
 			backup:    backup,
 			desired:   obj,
 			keepOwner: keepOwner,
+			bucket:    bucketScope,
 		})
+	}
+	for _, obj := range []client.Object{gsa, wiPolicy, ksa, netpol, fqdn} {
+		add(obj, "")
+	}
+	for _, obj := range []client.Object{bucket, bucketObjPolicy, bucketViewPolicy} {
+		add(obj, drBucket)
 	}
 	return actions
 }
@@ -213,11 +245,12 @@ func drInfrastructureReady(namespace, drBucket string, sourcePolicy *iamcnrm.IAM
 		return false
 	}
 	gsaName := drbackup.GSAName(namespace)
+	objectUserName, bucketViewerName := drBucketGrantNames(namespace, drBucket, related)
 	required := []client.Object{
 		&iamcnrm.IAMServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: gsaName, Namespace: namespace}},
 		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.WorkloadIdentityPolicyName(namespace), Namespace: namespace}},
-		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketObjectUserPolicyName(namespace), Namespace: namespace}},
-		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketViewerPolicyName(namespace), Namespace: namespace}},
+		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: objectUserName, Namespace: namespace}},
+		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: bucketViewerName, Namespace: namespace}},
 		&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: drBucket, Namespace: namespace}},
 	}
 	for _, req := range required {
@@ -229,30 +262,34 @@ func drInfrastructureReady(namespace, drBucket string, sourcePolicy *iamcnrm.IAM
 	return true
 }
 
-// ensureSharedDRResource maintains a namespace-shared DR resource with
-// non-controller OwnerReferences for every active PostgresBackup in the
-// namespace. It is deleted only when the last PostgresBackup in the namespace
-// has finished its DR bucket cleanup and released ownership.
+// ensureSharedDRResource maintains non-controller OwnerReferences for backups
+// sharing a bucket or namespace. The last owner releases it after cleanup.
 type ensureSharedDRResource struct {
 	backup    *v1.PostgresBackup
 	desired   client.Object
 	keepOwner bool
+	bucket    string // empty for resources shared across all DR buckets
 }
 
 func (a *ensureSharedDRResource) GetObject() client.Object { return a.desired }
 func (a *ensureSharedDRResource) GetOwner() api.NaisObject { return a.backup }
 func (*ensureSharedDRResource) SkipOwnership() bool        { return true }
 
-func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, scheme *runtime.Scheme, _ ownership.OwnerManager) error {
-	backups := &v1.PostgresBackupList{}
-	if err := c.List(ctx, backups, client.InNamespace(a.backup.Namespace)); err != nil {
-		return err
-	}
-	releasing := !a.backup.DeletionTimestamp.IsZero() && !a.keepOwner
-	owners := make([]metav1.OwnerReference, 0, len(backups.Items))
-	for _, b := range backups.Items {
+func (a *ensureSharedDRResource) desiredOwners(backups []v1.PostgresBackup, releasing bool) ([]metav1.OwnerReference, map[types.UID]bool) {
+	owners := make([]metav1.OwnerReference, 0, len(backups))
+	otherBucket := make(map[types.UID]bool)
+	for _, b := range backups {
 		if b.UID == a.backup.UID && releasing {
 			continue
+		}
+		if a.bucket != "" && b.UID != a.backup.UID {
+			if b.Status == nil || b.Status.Location == nil {
+				continue // retain an existing claim below, but do not add one yet
+			}
+			if b.Status.Location.BucketName != a.bucket {
+				otherBucket[b.UID] = true
+				continue
+			}
 		}
 		if b.UID != "" {
 			owners = append(owners, metav1.OwnerReference{
@@ -272,7 +309,16 @@ func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, scheme
 		})
 	}
 	slices.SortFunc(owners, func(x, y metav1.OwnerReference) int { return strings.Compare(x.Name, y.Name) })
+	return owners, otherBucket
+}
 
+func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, _ *runtime.Scheme, _ ownership.OwnerManager) error {
+	backups := &v1.PostgresBackupList{}
+	if err := c.List(ctx, backups, client.InNamespace(a.backup.Namespace)); err != nil {
+		return err
+	}
+	releasing := !a.backup.DeletionTimestamp.IsZero() && !a.keepOwner
+	owners, otherBucket := a.desiredOwners(backups.Items, releasing)
 	current := a.desired.DeepCopyObject().(client.Object)
 	err := c.Get(ctx, client.ObjectKeyFromObject(a.desired), current)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -293,7 +339,7 @@ func (a *ensureSharedDRResource) Do(ctx context.Context, c client.Client, scheme
 			(owner.UID == a.backup.UID || slices.ContainsFunc(owners, func(candidate metav1.OwnerReference) bool { return candidate.UID == owner.UID })) {
 			managed = true // adopt resources created before all DR resources carried the label
 		}
-		if owner.APIVersion != v1.GroupVersion.String() || owner.Kind != postgresBackupKind || (owner.UID == a.backup.UID && releasing) {
+		if owner.APIVersion != v1.GroupVersion.String() || owner.Kind != postgresBackupKind || (owner.UID == a.backup.UID && releasing) || otherBucket[owner.UID] {
 			continue
 		}
 		if !slices.ContainsFunc(owners, func(candidate metav1.OwnerReference) bool { return candidate.UID == owner.UID }) {

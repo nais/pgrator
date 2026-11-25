@@ -41,6 +41,20 @@ func TestDRBucketNameFitsGCSLimitAndIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestDottedBackupNamesProduceValidDistinctJobNames(t *testing.T) {
+	for _, jobName := range []func(string) string{drbackup.CopyJobName, drbackup.CleanupJobName} {
+		for _, backupName := range []string{"orders.daily", strings.Repeat("a", 53) + ".b"} {
+			name := jobName(backupName)
+			if errs := validation.IsDNS1123Label(name); len(errs) != 0 {
+				t.Errorf("Job name %q for %q: %v", name, backupName, errs)
+			}
+			if name == jobName(strings.ReplaceAll(backupName, ".", "-")) {
+				t.Errorf("Job name %q loses the hash of the original name", name)
+			}
+		}
+	}
+}
+
 type listRecorder struct {
 	backupcopy.ObjectStore
 	list func(string) error

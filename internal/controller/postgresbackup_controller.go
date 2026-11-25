@@ -45,12 +45,14 @@ type PostgresBackupReconciler struct {
 }
 
 type PostgresBackupPreparedData struct {
-	CNPGBackup    *cnpgv1.Backup                 `yaml:"cnpgBackup,omitempty"`
-	CopyJob       *batchv1.Job                   `yaml:"copyJob,omitempty"`
-	CleanupJob    *batchv1.Job                   `yaml:"cleanupJob,omitempty"`
-	CopyResult    *backupcopy.TerminationPayload `yaml:"copyResult,omitempty"`
-	TeamProjectID string                         `yaml:"teamProjectID,omitempty"`
-	SourceBucket  string                         `yaml:"sourceBucket,omitempty"`
+	CNPGBackup           *cnpgv1.Backup                 `yaml:"cnpgBackup,omitempty"`
+	CopyJob              *batchv1.Job                   `yaml:"copyJob,omitempty"`
+	CleanupJob           *batchv1.Job                   `yaml:"cleanupJob,omitempty"`
+	CopyResult           *backupcopy.TerminationPayload `yaml:"copyResult,omitempty"`
+	TeamProjectID        string                         `yaml:"teamProjectID,omitempty"`
+	SourceBucket         string                         `yaml:"sourceBucket,omitempty"`
+	NamespaceTerminating bool                           `yaml:"namespaceTerminating,omitempty"`
+	DRBucketPresent      bool                           `yaml:"drBucketPresent,omitempty"`
 }
 
 var _ reconciler.Reconciler[*v1.PostgresBackup, PostgresBackupPreparedData] = &PostgresBackupReconciler{}
@@ -214,27 +216,22 @@ func (r *PostgresBackupReconciler) Prepare(ctx context.Context, reader client.Re
 	var prep PostgresBackupPreparedData
 	backup.GetStatus()
 
-	if r.drEnabled() {
-		ns := &corev1.Namespace{}
-		if err := reader.Get(ctx, client.ObjectKey{Name: backup.Namespace}, ns); err != nil {
+	if r.drEnabled() || !backup.DeletionTimestamp.IsZero() {
+		if err := r.prepareBackupNamespace(ctx, reader, backup, &prep); err != nil {
 			return prep, ctrl.Result{}, err
 		}
-		prep.TeamProjectID = ns.Labels[ProjectIDLabel]
-		if prep.TeamProjectID == "" {
-			prep.TeamProjectID = ns.Annotations[ProjectIDAnnotationFallback]
-		}
-		if prep.TeamProjectID == "" {
-			return prep, ctrl.Result{}, fmt.Errorf("namespace %q has no Google project identity", backup.Namespace)
+		if prep.NamespaceTerminating {
+			return prep, ctrl.Result{}, nil
 		}
 	}
 
 	if !backup.DeletionTimestamp.IsZero() {
 		var err error
-		prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name))
+		prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name), drbackup.JobRoleCopy)
 		if err != nil {
 			return prep, ctrl.Result{}, err
 		}
-		prep.CleanupJob, err = getBackupJob(ctx, reader, backup, drbackup.CleanupJobName(backup.Name))
+		prep.CleanupJob, err = getBackupJob(ctx, reader, backup, drbackup.CleanupJobName(backup.Name), drbackup.JobRoleCleanup)
 		return prep, ctrl.Result{}, err
 	}
 
@@ -249,7 +246,7 @@ func (r *PostgresBackupReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 
 	var err error
-	prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name))
+	prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name), drbackup.JobRoleCopy)
 	if err != nil {
 		return prep, ctrl.Result{}, err
 	}
@@ -294,9 +291,38 @@ func (r *PostgresBackupReconciler) Prepare(ctx context.Context, reader client.Re
 	return prep, ctrl.Result{}, nil
 }
 
-func getBackupJob(ctx context.Context, reader client.Reader, backup *v1.PostgresBackup, name string) (*batchv1.Job, error) {
+func (r *PostgresBackupReconciler) prepareBackupNamespace(ctx context.Context, reader client.Reader, backup *v1.PostgresBackup, prep *PostgresBackupPreparedData) error {
+	ns := &corev1.Namespace{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: backup.Namespace}, ns); err != nil {
+		return fmt.Errorf("getting backup namespace: %w", err)
+	}
+	if !ns.DeletionTimestamp.IsZero() || ns.Status.Phase == corev1.NamespaceTerminating {
+		prep.NamespaceTerminating = true
+		if location := backup.Status.Location; location != nil && location.BucketName != "" {
+			bucket := &storagecnrm.StorageBucket{}
+			err := reader.Get(ctx, client.ObjectKey{Namespace: backup.Namespace, Name: location.BucketName}, bucket)
+			prep.DRBucketPresent = err == nil
+			return client.IgnoreNotFound(err)
+		}
+		return nil
+	}
+	prep.TeamProjectID = ns.Labels[ProjectIDLabel]
+	if prep.TeamProjectID == "" {
+		prep.TeamProjectID = ns.Annotations[ProjectIDAnnotationFallback]
+	}
+	if r.drEnabled() && prep.TeamProjectID == "" {
+		return fmt.Errorf("namespace %q has no Google project identity", backup.Namespace)
+	}
+	return nil
+}
+
+func getBackupJob(ctx context.Context, reader client.Reader, backup *v1.PostgresBackup, name, role string) (*batchv1.Job, error) {
 	job := &batchv1.Job{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: backup.Namespace, Name: name}, job); err != nil {
+	err := reader.Get(ctx, client.ObjectKey{Namespace: backup.Namespace, Name: name}, job)
+	if legacy := drbackup.LegacyJobName(backup.Name, role); apierrors.IsNotFound(err) && legacy != name {
+		err = reader.Get(ctx, client.ObjectKey{Namespace: backup.Namespace, Name: legacy}, job)
+	}
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
@@ -360,6 +386,9 @@ func recordSourceSnapshot(status *v1.PostgresBackupStatus, postgres *v1.Postgres
 }
 
 func (r *PostgresBackupReconciler) Update(backup *v1.PostgresBackup, prepared PostgresBackupPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if prepared.NamespaceTerminating {
+		return nil, ctrl.Result{}, nil
+	}
 	status := backup.GetStatus().(*v1.PostgresBackupStatus)
 	if status.Phase == v1.PostgresBackupPhaseCompleted {
 		setBackupExpiry(backup, status)
@@ -394,7 +423,12 @@ func (r *PostgresBackupReconciler) Update(backup *v1.PostgresBackup, prepared Po
 
 	var actions []action.Action
 	if r.drEnabled() {
-		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, true)...)
+		if status.Location == nil && !isTerminalPostgresBackup(backup) && copyJob == nil {
+			// Checkpoint the bucket before provisioning resources or starting a worker.
+			r.recordCopyDestination(backup, status)
+			return nil, ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, true, related)...)
 	}
 
 	if isTerminalPostgresBackup(backup) {
@@ -524,7 +558,7 @@ func (r *PostgresBackupReconciler) reconcileDRCopy(
 	actions = append(actions, policyAction)
 
 	status.Phase = v1.PostgresBackupPhaseRunning
-	if copyJob == nil && !drInfrastructureReady(backup.Namespace, r.drBucketName(backup.Namespace), existingPolicy, related) {
+	if copyJob == nil && !drInfrastructureReady(backup.Namespace, r.backupDRBucket(backup), existingPolicy, related) {
 		status.SetCondition(metav1.Condition{
 			Type:               readyCondition,
 			Status:             metav1.ConditionFalse,
@@ -536,12 +570,6 @@ func (r *PostgresBackupReconciler) reconcileDRCopy(
 	}
 
 	if copyJob == nil {
-		// Checkpoint the destination in a separate reconcile, before a worker
-		// can write anything there. Deletion can then always find partial data.
-		if status.Location == nil {
-			r.recordCopyDestination(backup, status)
-			return actions, ctrl.Result{RequeueAfter: time.Second}, nil
-		}
 		desiredJob, err := drbackup.CreateCopyJob(r.Scheme, backup, r.Config.CNPG.BackupWorkerImage, sourceBucket, status.Location.BucketName, r.Config.CNPG.BackupCopyDeadline)
 		if err != nil {
 			return nil, ctrl.Result{}, err
@@ -640,6 +668,14 @@ func mirrorCNPGBackupPhase(backup *v1.PostgresBackup, status *v1.PostgresBackupS
 }
 
 func (r *PostgresBackupReconciler) Delete(backup *v1.PostgresBackup, prepared PostgresBackupPreparedData, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if prepared.NamespaceTerminating {
+		// The namespace controller deletes the force-destroy Config Connector
+		// bucket independently. No new namespace-local Jobs can start now.
+		if prepared.DRBucketPresent {
+			return nil, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		return nil, ctrl.Result{}, nil
+	}
 	var actions []action.Action
 	status := backup.GetStatus().(*v1.PostgresBackupStatus)
 	if copyJob := prepared.CopyJob; copyJob != nil {
@@ -684,16 +720,11 @@ func (r *PostgresBackupReconciler) Delete(backup *v1.PostgresBackup, prepared Po
 			}
 			return stopBackupJob(backup, cleanupJob, r.Recorder), ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
-		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, true)...)
-		drBucket := r.drBucketName(backup.Namespace)
+		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, true, related)...)
+		drBucket := r.backupDRBucket(backup)
 		prefix := backup.Name
-		if status.Location != nil {
-			if status.Location.BucketName != "" {
-				drBucket = status.Location.BucketName
-			}
-			if status.Location.Prefix != "" {
-				prefix = status.Location.Prefix
-			}
+		if status.Location != nil && status.Location.Prefix != "" {
+			prefix = status.Location.Prefix
 		}
 		desiredCleanup, err := drbackup.CreateCleanupJob(r.Scheme, backup, r.Config.CNPG.BackupWorkerImage, drBucket, prefix)
 		if err != nil {
@@ -702,13 +733,13 @@ func (r *PostgresBackupReconciler) Delete(backup *v1.PostgresBackup, prepared Po
 		if cleanupJob == nil {
 			actions = append(actions, action.Create(desiredCleanup, backup, existsConditionGetter, r.Recorder))
 		} else {
-			actions = append(actions, action.Claim(desiredCleanup, backup, existsConditionGetter, r.Recorder))
+			actions = append(actions, action.Claim(cleanupJob, backup, existsConditionGetter, r.Recorder))
 		}
 		return actions, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	if r.drEnabled() {
-		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, false)...)
+		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, false, related)...)
 	}
 	if related != nil {
 		for _, typ := range []client.Object{&cnpgv1.Backup{}, &batchv1.Job{}, &iamcnrm.IAMPolicyMember{}} {

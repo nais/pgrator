@@ -7,6 +7,7 @@ import (
 
 	"github.com/nais/pgrator/internal/config"
 	"github.com/nais/pgrator/internal/resourcecreator/drbackup"
+	rciam "github.com/nais/pgrator/internal/resourcecreator/iam"
 	"github.com/nais/pgrator/internal/synchronizer"
 	"github.com/nais/pgrator/internal/synchronizer/action"
 	"github.com/nais/pgrator/internal/synchronizer/ownership"
@@ -166,6 +167,80 @@ func TestPostgresBackupDoesNotAdoptOrDeleteUnmanagedDRBucket(t *testing.T) {
 	a := &ensureSharedDRResource{backup: backup, desired: bucket.DeepCopy(), keepOwner: false}
 	requireErrorContains(t, a.Do(t.Context(), c, r.Scheme, nil), "unmanaged shared DR resource")
 	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(bucket), &storagecnrm.StorageBucket{}))
+}
+
+func TestPostgresBackupNamespaceTeardownWaitsForBucketWithoutCreatingJobs(t *testing.T) {
+	r := newDRTestReconciler()
+	backup := drTestBackup("teardown")
+	backup.DeletionTimestamp = new(metav1.Now())
+	backup.Status.Location = &v1.PostgresBackupLocation{BucketName: "persisted-bucket", Prefix: backup.Name}
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: backup.Namespace}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}}
+	bucket := drbackup.CreateDRStorageBucket(ns.Name, backup.Status.Location.BucketName, "")
+	c := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(ns, bucket).Build()
+	for _, wantWait := range []bool{true, false} {
+		prep, _, err := r.Prepare(t.Context(), c, backup)
+		requireNoError(t, err)
+		actions, result, err := r.Delete(backup, prep, nil)
+		requireNoError(t, err)
+		requireEqual(t, len(actions), 0, "namespace teardown must not create cleanup resources")
+		requireEqual(t, result.RequeueAfter > 0, wantWait, "only release finalizer when the bucket is gone")
+		if wantWait {
+			requireNoError(t, c.Delete(t.Context(), bucket))
+		}
+	}
+}
+
+func TestPostgresBackupCanFindLegacyDottedJob(t *testing.T) {
+	r := newDRTestReconciler()
+	backup := drTestBackup("orders.daily")
+	job, err := drbackup.CreateCopyJob(r.Scheme, backup, "worker:test", "src", "dst", 0)
+	requireNoError(t, err)
+	job.Name = drbackup.LegacyJobName(backup.Name, drbackup.JobRoleCopy)
+	c := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(job).Build()
+	got, err := getBackupJob(t.Context(), c, backup, drbackup.CopyJobName(backup.Name), drbackup.JobRoleCopy)
+	requireNoError(t, err)
+	requireNotNil(t, got, "find legacy Job after upgrade")
+	requireEqual(t, got.Name, job.Name, "legacy Job name")
+}
+
+func TestPostgresBackupKeepsPersistedBucketAndGrantsAcrossPrefixChanges(t *testing.T) {
+	r := newDRTestReconciler()
+	old, next := drTestBackup("old"), drTestBackup("next")
+	oldBucket := r.drBucketName(old.Namespace)
+	old.Status.Location = &v1.PostgresBackupLocation{BucketName: oldBucket, Prefix: old.Name}
+	r.Config.CNPG.DrBucketPrefix = "nais-dr-next"
+	newBucket := r.drBucketName(next.Namespace)
+	next.Status.Location = &v1.PostgresBackupLocation{BucketName: newBucket, Prefix: next.Name}
+	// Simulate the original namespace-named binding from before the upgrade.
+	legacy := rciam.CreateStorageBucketPolicyMember(drbackup.BucketObjectUserPolicyName(old.Namespace), old.Namespace, "project", drbackup.GSAName(old.Namespace), oldBucket, rciam.StorageObjectUserRole)
+	legacy.Labels = map[string]string{drbackup.ManagedByLabel: drbackup.ManagedByValue}
+	related := relatedobjectsmap.NewRelatedObjectsMap(r.Scheme)
+	related.Insert(legacy)
+	c := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(old, next, legacy).Build()
+	for _, backup := range []*v1.PostgresBackup{old, next} {
+		for _, a := range r.sharedDRInfrastructureActions(backup, "project", true, related) {
+			requireNoError(t, a.Do(t.Context(), c, r.Scheme, nil))
+		}
+		bucket := &storagecnrm.StorageBucket{}
+		requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: backup.Namespace, Name: backup.Status.Location.BucketName}, bucket))
+		requireEqual(t, len(bucket.OwnerReferences), 1, "bucket scoped to its own backups")
+		requireEqual(t, bucket.OwnerReferences[0].UID, backup.UID, "bucket owner UID")
+	}
+	newGrant := &iamcnrm.IAMPolicyMember{}
+	requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: next.Namespace, Name: drbackup.BucketObjectUserPolicyName(newBucket)}, newGrant))
+	requireEqual(t, newGrant.Spec.ResourceRef.Name, newBucket, "new grant references new bucket")
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(legacy), legacy))
+	requireEqual(t, legacy.Spec.ResourceRef.Name, oldBucket, "legacy grant stays on old bucket")
+	err := c.Get(t.Context(), client.ObjectKey{Namespace: old.Namespace, Name: drbackup.BucketObjectUserPolicyName(oldBucket)}, &iamcnrm.IAMPolicyMember{})
+	requireTrue(t, apierrors.IsNotFound(err), "no duplicate GCP binding for old bucket")
+	old.DeletionTimestamp = new(metav1.Now())
+	for _, a := range r.sharedDRInfrastructureActions(old, "project", false, related) {
+		requireNoError(t, a.Do(t.Context(), c, r.Scheme, nil))
+	}
+	err = c.Get(t.Context(), client.ObjectKey{Namespace: old.Namespace, Name: oldBucket}, &storagecnrm.StorageBucket{})
+	requireTrue(t, apierrors.IsNotFound(err), "old bucket released after last owner")
+	requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: next.Namespace, Name: newBucket}, &storagecnrm.StorageBucket{}))
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(newGrant), &iamcnrm.IAMPolicyMember{}))
 }
 
 func TestPostgresBackupJobResultSelectsCurrentWorkerAttempt(t *testing.T) {

@@ -64,6 +64,8 @@ intervals (`daily`, `weekly`, `monthly`) and `retentionDays`, creating
    Pgrator reconciles one DR `StorageBucket` per team namespace and environment
    (in the team's GCP project, without bucket lifecycle rules) and a dedicated
    `IAMServiceAccount` bound via GKE Workload Identity. No static keys are used.
+   A backup keeps its recorded bucket if the prefix changes; existing buckets
+   and their IAM grants remain until their last backup is removed.
 3. **Vendor-agnostic copy via Kubernetes `Job`:**
    Once the CNPG `Backup` reaches `completed`, pgrator runs a Kubernetes `Job`
    in the team namespace with read access to the source Barman bucket and write
@@ -89,6 +91,9 @@ intervals (`daily`, `weekly`, `monthly`) and `retentionDays`, creating
    `now > status.expiresAt` or when a `PostgresBackup` is deleted, a finalizer
    runs a cleanup job that removes the backup's prefix from the DR bucket
    before removing the Kubernetes resource.
+   During namespace teardown, no new cleanup jobs can start. The namespace
+   controller deletes the bucket resource, and Config Connector removes the
+   bucket and its contents before pgrator releases the backup finalizer.
 
 ## 3. Restore from a Standalone Backup
 

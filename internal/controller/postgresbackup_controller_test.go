@@ -299,6 +299,10 @@ func TestPostgresBackupReconcilerDRCopyExpiryAndCleanup(t *testing.T) {
 	related.Insert(cnpgBackup)
 	actions, res, err := reconciler.Update(backup, prepared, related)
 	requireNoError(t, err)
+	requireNotNil(t, backup.Status.Location, "destination checkpoint before infrastructure provisioning")
+	requireTrue(t, res.RequeueAfter > 0 && len(actions) == 0, "persist destination before creating resources")
+	actions, res, err = reconciler.Update(backup, prepared, related)
+	requireNoError(t, err)
 	requireEqual(t, backup.Status.Phase, v1.PostgresBackupPhaseRunning, "phase stays Running while waiting for DR infra and copy Job")
 	requireTrue(t, res.RequeueAfter > 0, "expected requeue while waiting for DR readiness")
 	var sourceGrant *iamcnrm.IAMPolicyMember
@@ -321,22 +325,17 @@ func TestPostgresBackupReconcilerDRCopyExpiryAndCleanup(t *testing.T) {
 	for _, obj := range []client.Object{
 		&iamcnrm.IAMServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: drbackup.GSAName("myteam"), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
 		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.WorkloadIdentityPolicyName("myteam"), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
-		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketObjectUserPolicyName("myteam"), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
-		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketViewerPolicyName("myteam"), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
+		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketObjectUserPolicyName(drBucket), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
+		&iamcnrm.IAMPolicyMember{ObjectMeta: metav1.ObjectMeta{Name: drbackup.BucketViewerPolicyName(drBucket), Namespace: "myteam", Generation: 1}, Status: iamcnrm.IAMStatus{Conditions: readyCond, ObservedGeneration: 1}},
 		sourceGrant,
 		&storagecnrm.StorageBucket{ObjectMeta: metav1.ObjectMeta{Name: drBucket, Namespace: "myteam", Generation: 1}, Status: storagecnrm.StorageBucketStatus{Conditions: readyCond, ObservedGeneration: &obsGen}},
 	} {
 		related.Insert(obj)
 	}
 
-	actions, _, err = reconciler.Update(backup, prepared, related)
-	requireNoError(t, err)
-	requireNotNil(t, backup.Status.Location, "destination checkpoint")
-	for _, a := range actions {
-		if _, ok := a.GetObject().(*batchv1.Job); ok {
-			t.Fatal("copy Job must not be created in the destination checkpoint pass")
-		}
-	}
+	// An intervening prefix change must not affect infrastructure readiness or
+	// the worker's destination once the bucket has been checkpointed.
+	reconciler.Config.CNPG.DrBucketPrefix = "nais-dr-new-prefix"
 	actions, _, err = reconciler.Update(backup, prepared, related)
 	requireNoError(t, err)
 	requireEqual(t, backup.Status.Phase, v1.PostgresBackupPhaseRunning, "phase is Running while copy Job executes")

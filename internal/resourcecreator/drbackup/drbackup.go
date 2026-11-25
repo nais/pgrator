@@ -90,14 +90,14 @@ func WorkloadIdentityPolicyName(namespace string) string {
 
 // BucketObjectUserPolicyName returns the IAMPolicyMember name granting the DR
 // worker GSA objectUser on the team DR bucket.
-func BucketObjectUserPolicyName(namespace string) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-bucket-%s", namespace), validation.DNS1123SubdomainMaxLength)
+func BucketObjectUserPolicyName(bucket string) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-bucket-%s", bucket), validation.DNS1123SubdomainMaxLength)
 }
 
 // BucketViewerPolicyName returns the IAMPolicyMember name granting the DR
 // worker GSA bucketViewer on the team DR bucket.
-func BucketViewerPolicyName(namespace string) string {
-	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-viewer-%s", namespace), validation.DNS1123SubdomainMaxLength)
+func BucketViewerPolicyName(bucket string) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-dr-viewer-%s", bucket), validation.DNS1123SubdomainMaxLength)
 }
 
 // SourceBucketPolicyName identifies a grant shared by active copies from the
@@ -108,13 +108,18 @@ func SourceBucketPolicyName(bucket string) string {
 
 // CopyJobName returns the deterministic Job name for copying a PostgresBackup.
 func CopyJobName(backupName string) string {
-	return namegen.MustShortenName(fmt.Sprintf("%s-copy", backupName), validation.DNS1123LabelMaxLength)
+	return strings.ReplaceAll(LegacyJobName(backupName, JobRoleCopy), ".", "-")
 }
 
 // CleanupJobName returns the deterministic Job name for deleting a PostgresBackup's
 // prefix from the DR bucket.
 func CleanupJobName(backupName string) string {
-	return namegen.MustShortenName(fmt.Sprintf("%s-cleanup", backupName), validation.DNS1123LabelMaxLength)
+	return strings.ReplaceAll(LegacyJobName(backupName, JobRoleCleanup), ".", "-")
+}
+
+// LegacyJobName allows the controller to finish existing Jobs with dotted names.
+func LegacyJobName(backupName, role string) string {
+	return namegen.MustShortenName(backupName+"-"+role, validation.DNS1123LabelMaxLength)
 }
 
 // CreateDRStorageBucket builds the shared team DR bucket in namespace.
