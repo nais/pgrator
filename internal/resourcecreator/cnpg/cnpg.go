@@ -14,6 +14,7 @@ import (
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/nais/pgrator/internal/config"
+	"github.com/nais/pgrator/internal/namegen"
 	"github.com/nais/pgrator/pkg/api"
 	v1 "github.com/nais/pgrator/pkg/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -503,6 +504,43 @@ func CreateScheduledBackup(scheme *runtime.Scheme, postgres *v1.Postgres) (*cnpg
 
 	if err := controllerutil.SetControllerReference(postgres, backup, scheme); err != nil {
 		return nil, fmt.Errorf("setting controller reference on ScheduledBackup: %w", err)
+	}
+	return backup, nil
+}
+
+// CreateBackup builds an on-demand CloudNativePG Backup resource (via the
+// barman-cloud plugin) controlled by a PostgresBackup.
+func CreateBackup(scheme *runtime.Scheme, postgresBackup *v1.PostgresBackup, clusterName string) (*cnpgv1.Backup, error) {
+	var annotations map[string]string
+	if postgresBackup.GetCorrelationId() != "" {
+		annotations = map[string]string{
+			api.DeploymentCorrelationIDAnnotation: postgresBackup.GetCorrelationId(),
+		}
+	}
+	backup := &cnpgv1.Backup{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Backup",
+			APIVersion: cnpgv1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      postgresBackup.GetName(),
+			Namespace: postgresBackup.GetNamespace(),
+			Labels: map[string]string{
+				nameLabel: namegen.LabelValue(postgresBackup.Spec.Postgres),
+			},
+			Annotations: annotations,
+		},
+		Spec: cnpgv1.BackupSpec{
+			Cluster: cnpgv1.LocalObjectReference{Name: clusterName},
+			Target:  cnpgv1.BackupTargetPrimary,
+			Method:  cnpgv1.BackupMethodPlugin,
+			PluginConfiguration: &cnpgv1.BackupPluginConfiguration{
+				Name: BarmanPluginName,
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(postgresBackup, backup, scheme); err != nil {
+		return nil, fmt.Errorf("setting controller reference on Backup: %w", err)
 	}
 	return backup, nil
 }

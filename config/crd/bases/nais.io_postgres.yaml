@@ -70,15 +70,11 @@ spec:
                   an existing cluster requires a rolling restart.
                 type: boolean
               backup:
-                description: Backup configures continuous backup.
+                description: Backup is deprecated for PITR configuration; use spec.pitr.windowDays.
                 properties:
                   retentionDays:
-                    description: |-
-                      RetentionDays is how many days back in time the database can be recovered to.
-                      Older backups and WAL are removed by barman, which checks periodically. The backup
-                      preceding the window is kept, so data up to a day older may remain. Allowed range is
-                      2 to 30 days.
-                      Defaults to 2 when omitted.
+                    description: 'RetentionDays is deprecated: use spec.pitr.windowDays
+                      instead.'
                     format: int32
                     maximum: 30
                     minimum: 2
@@ -155,6 +151,22 @@ spec:
                 enum:
                 - "18"
                 type: string
+              pitr:
+                description: PITR configures the continuous point-in-time recovery
+                  window.
+                properties:
+                  windowDays:
+                    description: |-
+                      WindowDays is how many days back in time the database can be recovered to.
+                      Older recovery data (base backups and WAL) is removed by barman, which checks
+                      periodically. The base backup preceding the window is kept, so data up to a day
+                      older may remain. Allowed range is 2 to 30 days.
+                      Defaults to 2 when omitted.
+                    format: int32
+                    maximum: 30
+                    minimum: 2
+                    type: integer
+                type: object
               recovery:
                 description: Recovery initializes a new database from an immutable
                   source archive.

@@ -1,0 +1,15 @@
+---
+apiVersion: nais.io/v1
+kind: PostgresBackup
+metadata:
+  name: orders-backup-1
+  namespace: myteam
+  uid: 11111111-2222-3333-4444-555555555555
+spec:
+  postgres: orders
+  retentionDays: 30
+status:
+  phase: Running
+  sourceUID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+  majorVersion: "18"
+  serverName: pg-orders-main-65648812

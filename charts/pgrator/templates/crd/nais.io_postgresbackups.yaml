@@ -1,0 +1,304 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+    helm.sh/resource-policy: keep
+  name: postgresbackups.nais.io
+spec:
+  group: nais.io
+  names:
+    categories:
+      - nais
+    kind: PostgresBackup
+    listKind: PostgresBackupList
+    plural: postgresbackups
+    singular: postgresbackup
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.postgres
+          name: Postgres
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .spec.retentionDays
+          name: Retention (days)
+          type: integer
+        - jsonPath: .status.completedAt
+          name: Completed
+          type: date
+        - jsonPath: .status.expiresAt
+          name: Expires
+          type: string
+        - jsonPath: .status.reconcileTime
+          name: Last reconcile
+          type: string
+      name: v1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            PostgresBackup is a standalone disaster-recovery backup of a Postgres database.
+            It has no owner reference to the source Postgres and survives source deletion.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: PostgresBackupSpec defines one standalone disaster-recovery backup of a Postgres database.
+              properties:
+                postgres:
+                  description: |-
+                    Postgres is the namespace-local Postgres to back up. It follows the
+                    DNS-subdomain naming rules of Postgres.metadata.name.
+                  maxLength: 253
+                  minLength: 1
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
+                  x-kubernetes-validations:
+                    - message: postgres is immutable
+                      rule: self == oldSelf
+                retentionDays:
+                  description: |-
+                    RetentionDays is how many days the standalone backup is kept in the team's
+                    disaster-recovery bucket before pgrator deletes it. Allowed range is 1 to 730
+                    days (up to 2 years), counted from completion. Changing this value updates
+                    the expiry of a completed backup. Defaults to 30 when omitted.
+                  format: int32
+                  maximum: 730
+                  minimum: 1
+                  type: integer
+              required:
+                - postgres
+              type: object
+            status:
+              description: PostgresBackupStatus defines the observed state of PostgresBackup.
+              properties:
+                backupID:
+                  description: BackupID is the Barman backup identifier produced by CloudNativePG.
+                  type: string
+                beginWal:
+                  description: BeginWal is the starting WAL segment required to restore this backup.
+                  type: string
+                completedAt:
+                  description: CompletedAt is when the backup and DR copy completed.
+                  format: date-time
+                  type: string
+                conditions:
+                  description: |-
+                    conditions represent the current state of the controlled resource.
+                    Each condition has a unique type and reflects the status of a specific aspect of the resource.
+
+                    Standard condition types include:
+                    - "Available": the resource is fully functional
+                    - "Progressing": the resource is being created or updated
+                    - "Degraded": the resource failed to reach or maintain its desired state
+
+                    The status of each condition is one of True, False, or Unknown.
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: |-
+                          lastTransitionTime is the last time the condition transitioned from one status to another.
+                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: |-
+                          message is a human readable message indicating details about the transition.
+                          This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: |-
+                          observedGeneration represents the .metadata.generation that the condition was set based upon.
+                          For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                          with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: |-
+                          reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                          Producers of specific condition types may define expected values and meanings for this field,
+                          and whether the values are considered a guaranteed API.
+                          The value should be a CamelCase string.
+                          This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                correlationID:
+                  type: string
+                diskSize:
+                  anyOf:
+                    - type: integer
+                    - type: string
+                  description: |-
+                    DiskSize records the configured disk size of the source database when the
+                    backup was taken so restore validation works after the source Postgres is deleted.
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                endWal:
+                  description: EndWal is the ending WAL segment required to restore this backup to consistency.
+                  type: string
+                errorMessage:
+                  description: ErrorMessage describes why the backup failed when Phase is Failed.
+                  type: string
+                expiresAt:
+                  description: ExpiresAt is the time after which pgrator deletes this backup and its DR bucket files.
+                  format: date-time
+                  type: string
+                extensions:
+                  description: |-
+                    Extensions records the requested extensions on the source database when the
+                    backup was taken so restore validation works after the source Postgres is deleted.
+                  items:
+                    description: PostgresExtension is an extension requested for the application database.
+                    properties:
+                      name:
+                        description: |-
+                          Name of the extension, as used in CREATE EXTENSION. postgis and timescaledb are mounted
+                          from the configured CNPG image catalog (timescaledb is also preloaded); the rest are bundled
+                          with the Postgres image. pg_stat_statements and pgaudit are managed by the platform and
+                          cannot be requested.
+                        enum:
+                          - postgis
+                          - timescaledb
+                          - amcheck
+                          - bloom
+                          - btree_gin
+                          - btree_gist
+                          - citext
+                          - cube
+                          - earthdistance
+                          - fuzzystrmatch
+                          - hstore
+                          - intarray
+                          - isn
+                          - lo
+                          - ltree
+                          - pageinspect
+                          - pg_buffercache
+                          - pg_freespacemap
+                          - pg_logicalinspect
+                          - pg_prewarm
+                          - pg_trgm
+                          - pg_visibility
+                          - pg_walinspect
+                          - pgcrypto
+                          - pgrowlocks
+                          - pgstattuple
+                          - seg
+                          - sslinfo
+                          - tablefunc
+                          - tcn
+                          - tsm_system_rows
+                          - tsm_system_time
+                          - unaccent
+                          - vector
+                        type: string
+                    required:
+                      - name
+                    type: object
+                  type: array
+                location:
+                  description: |-
+                    Location identifies the DR copy destination. A backup is only available
+                    there when phase is Completed.
+                  properties:
+                    bucketName:
+                      description: BucketName is the team's disaster-recovery bucket containing the copied backup.
+                      minLength: 1
+                      type: string
+                    prefix:
+                      description: Prefix is the isolated object prefix within BucketName for this backup.
+                      minLength: 1
+                      type: string
+                  required:
+                    - bucketName
+                    - prefix
+                  type: object
+                majorVersion:
+                  description: |-
+                    MajorVersion records the PostgreSQL major version of the source database so
+                    restore validation works after the source Postgres is deleted.
+                  type: string
+                observedGeneration:
+                  format: int64
+                  type: integer
+                phase:
+                  description: 'Phase is the high-level lifecycle phase: Preparing, Running, Completed or Failed.'
+                  enum:
+                    - Preparing
+                    - Running
+                    - Completed
+                    - Failed
+                  type: string
+                reconcilePhase:
+                  type: string
+                reconcileTime:
+                  format: date-time
+                  type: string
+                serverName:
+                  description: ServerName is the Barman server archive name within the backup prefix.
+                  type: string
+                sizeBytes:
+                  description: SizeBytes is the total verified size in bytes of the copied backup in the DR bucket.
+                  format: int64
+                  type: integer
+                sourceUID:
+                  description: SourceUID pins the UID of the source Postgres when the backup was taken.
+                  type: string
+                startedAt:
+                  description: StartedAt is when the backup execution started.
+                  format: date-time
+                  type: string
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

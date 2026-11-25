@@ -17,6 +17,7 @@ func TestDeprecatedBranchFieldsKeepWireFormat(t *testing.T) {
 		wantKey string
 	}{
 		{"Postgres activeBranch", &v1.Postgres{Spec: v1.PostgresSpec{ActiveBranch: "main"}, Status: &v1.PostgresStatus{ActiveBranch: "main"}}, `"activeBranch":"main"`},
+		{"Postgres backup.retentionDays", &v1.Postgres{Spec: v1.PostgresSpec{Backup: &v1.PostgresBackupPolicy{RetentionDays: new(int32(14))}}}, `"retentionDays":14`},
 		{"PostgresBinding branch", &v1.PostgresBinding{Spec: v1.PostgresBindingSpec{Branch: "main"}}, `"branch":"main"`},
 		{"PostgresAccess postgresBranch", &v1.PostgresAccess{Spec: v1.PostgresAccessSpec{PostgresBranch: "orders-main-65648812"}}, `"postgresBranch":"orders-main-65648812"`},
 	} {

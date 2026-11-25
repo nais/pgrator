@@ -63,6 +63,14 @@ spec:
             - name: CNPG_WAL_BUCKET_PREFIX
               value: {{ .Values.cnpg.walBucketPrefix }}
             {{- end }}
+            {{- if .Values.cnpg.drBucketPrefix }}
+            - name: CNPG_DR_BUCKET_PREFIX
+              value: {{ .Values.cnpg.drBucketPrefix }}
+            {{- end }}
+            - name: CNPG_BACKUP_WORKER_IMAGE
+              value: "{{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}"
+            - name: CNPG_BACKUP_COPY_DEADLINE
+              value: {{ .Values.cnpg.backupCopyDeadline | quote }}
           image: {{ .Values.controllerManager.container.image.repository }}:{{ .Values.controllerManager.container.image.tag }}
           {{- if .Values.controllerManager.container.imagePullPolicy }}
           imagePullPolicy: {{ .Values.controllerManager.container.imagePullPolicy }}
