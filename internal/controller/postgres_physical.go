@@ -200,17 +200,7 @@ func (r *physicalRenderer) physicalActions(id physicalIdentity, owner api.NaisOb
 		}
 	}
 
-	specSource := &v1.Postgres{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      id.Name,
-			Namespace: id.Namespace,
-			UID:       prepared.PostgresUID,
-			Annotations: map[string]string{
-				api.DeploymentCorrelationIDAnnotation: id.CorrelationID,
-			},
-		},
-		Spec: prepared.PostgresSpec,
-	}
+	specSource := newPhysicalSpecSource(id, owner, prepared)
 
 	wal := r.walArchive(id, prepared)
 	actions, err := r.physicalRoleActions(id, owner)
@@ -298,6 +288,29 @@ func (r *physicalRenderer) physicalActions(id physicalIdentity, owner api.NaisOb
 	}
 
 	return actions, nil
+}
+
+func newPhysicalSpecSource(id physicalIdentity, owner api.NaisObject, prepared physicalInputs) *v1.Postgres {
+	specSource := &v1.Postgres{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      id.Name,
+			Namespace: id.Namespace,
+			UID:       prepared.PostgresUID,
+			Annotations: map[string]string{
+				api.DeploymentCorrelationIDAnnotation: id.CorrelationID,
+			},
+		},
+		Spec: prepared.PostgresSpec,
+	}
+	if pg, ok := owner.(*v1.Postgres); ok {
+		if rccnpg.IsRecoveredPostgres(pg) {
+			specSource.Annotations[v1.PostgresRecoveryAnnotation] = pg.Name
+		}
+		if pg.Status != nil {
+			specSource.Status = pg.Status.DeepCopy()
+		}
+	}
+	return specSource
 }
 
 func (r *physicalRenderer) physicalRoleActions(id physicalIdentity, owner api.NaisObject) ([]action.Action, error) {
@@ -452,6 +465,10 @@ func recoverySourcePolicyNameFor(instance string) string {
 	return namegen.MustShortenName(fmt.Sprintf("cnpg-recovery-source-%s", instance), validation.DNS1123SubdomainMaxLength)
 }
 
+func recoveryObjectStoreNameFor(instance string) string {
+	return namegen.MustShortenName(fmt.Sprintf("cnpg-recovery-store-%s", instance), validation.DNS1123SubdomainMaxLength)
+}
+
 func (r *physicalRenderer) bucketName(id physicalIdentity, prepared physicalInputs) string {
 	if !r.walArchivingEnabled() {
 		return ""
@@ -568,6 +585,24 @@ func (r *physicalRenderer) walActions(id physicalIdentity, owner api.NaisObject,
 			return nil, err
 		}
 		actions = append(actions, sourcePolicyAction)
+
+		if prepared.RecoverySource.Prefix != "" {
+			recoveryStore := rcstorage.CreateRecoveryObjectStore(
+				prepared.RecoverySource.EffectiveObjectStoreName(),
+				prepared.RecoverySource.BucketName,
+				prepared.RecoverySource.Prefix,
+				metav1.ObjectMeta{
+					Namespace: id.Namespace,
+					Labels: map[string]string{
+						rcstorage.OwnerNameLabel: id.Name,
+					},
+				},
+			)
+			if err := controllerutil.SetControllerReference(owner, recoveryStore, r.Scheme); err != nil {
+				return nil, fmt.Errorf("setting controller reference on recovery ObjectStore: %w", err)
+			}
+			actions = append(actions, action.CreateOrUpdate(recoveryStore, owner, existsConditionGetter, r.Recorder))
+		}
 	}
 
 	objectStore := rcstorage.CreateObjectStore(wal.BucketName, metav1.ObjectMeta{
@@ -640,7 +675,16 @@ func recoveryInfrastructureReady(id physicalIdentity, wal rccnpg.WALArchive, rec
 		}
 	}
 	objectStore := &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: wal.BucketName, Namespace: id.Namespace}}
-	return relatedObjects.GetMatching(objectStore) != nil
+	if relatedObjects.GetMatching(objectStore) == nil {
+		return false
+	}
+	if recovery.Prefix != "" {
+		recoveryStore := &barmanv1.ObjectStore{ObjectMeta: metav1.ObjectMeta{Name: recovery.EffectiveObjectStoreName(), Namespace: id.Namespace}}
+		if relatedObjects.GetMatching(recoveryStore) == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func configConnectorReady(object client.Object) bool {

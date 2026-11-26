@@ -46,13 +46,17 @@ type PostgresClusterReconciler struct {
 }
 
 type PostgresClusterPreparedData struct {
-	Cluster                   *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
-	Children                  []client.Object        `yaml:"-"`
-	ProjectID                 string                 `yaml:"projectID,omitempty"`
-	RecoverySource            *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
-	RecoverySourceReady       bool                   `yaml:"recoverySourceReady,omitempty"`
-	BlockingRecoveries        []string               `yaml:"blockingRecoveries,omitempty"`
-	RecoveryAdmissionRequired bool                   `yaml:"recoveryAdmissionRequired,omitempty"`
+	Cluster                    *cnpgv1.Cluster        `yaml:"cluster,omitempty"`
+	Children                   []client.Object        `yaml:"-"`
+	ProjectID                  string                 `yaml:"projectID,omitempty"`
+	RecoverySource             *rccnpg.RecoverySource `yaml:"recoverySource,omitempty"`
+	RecoverySourceReady        bool                   `yaml:"recoverySourceReady,omitempty"`
+	BlockingRecoveries         []string               `yaml:"blockingRecoveries,omitempty"`
+	RecoveryAdmissionRequired  bool                   `yaml:"recoveryAdmissionRequired,omitempty"`
+	RecoveryAdmissionSource    client.Object          `yaml:"-"`
+	RecoveryAdmissionSourceUID types.UID              `yaml:"recoveryAdmissionSourceUID,omitempty"`
+	RecoveryAdmissionFinalizer string                 `yaml:"recoveryAdmissionFinalizer,omitempty"`
+	CompanionRecovery          *v1.PostgresRecovery   `yaml:"-"`
 }
 
 var _ reconciler.Reconciler[*v1.Postgres, PostgresClusterPreparedData] = &PostgresClusterReconciler{}
@@ -71,7 +75,7 @@ func (r *PostgresClusterReconciler) AdditionalTypes() []client.Object { return n
 // list no longer mentions them. Delete uses a fresh, explicit ownership inventory.
 func (r *PostgresClusterReconciler) PruneUnreferenced() bool { return false }
 func (r *PostgresClusterReconciler) RelationshipWatches() []reconciler.RelationshipWatch {
-	return []reconciler.RelationshipWatch{postgresAlertsWatch()}
+	return []reconciler.RelationshipWatch{postgresAlertsWatch(), postgresRecoveryWatch()}
 }
 func (r *PostgresClusterReconciler) MetricsLabels(pg *v1.Postgres) map[string]string {
 	ha := "false"
@@ -129,7 +133,7 @@ func (r *PostgresClusterReconciler) Prepare(ctx context.Context, reader client.R
 		return p, ctrl.Result{}, err
 	}
 	journal := pg.Status.Ownership
-	inventory := slices.DeleteFunc(slices.Clone(children), func(child client.Object) bool { return isPostgresRecoveryGrant(pg, child) })
+	inventory := slices.DeleteFunc(slices.Clone(children), func(child client.Object) bool { return isTemporaryRecoveryResource(pg, child) })
 	if err := r.checkInventory(journal, inventory); err != nil {
 		return p, ctrl.Result{}, err
 	}
@@ -299,7 +303,7 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 	if p.RecoveryAdmissionRequired {
 		// Persist target cleanup responsibility before reserving the source. No
 		// physical child may be created until the reservation is observed.
-		return append(actions, newAcceptPostgresRecovery(pg)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		return append(actions, newAcceptPostgresRecovery(pg, p.RecoveryAdmissionSource, p.RecoveryAdmissionSourceUID, p.RecoveryAdmissionFinalizer)), ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 	alerts, err := newEnsurePostgresAlerts(pg, r.alertOptions())
 	if err != nil {
@@ -351,19 +355,36 @@ func (r *PostgresClusterReconciler) Update(pg *v1.Postgres, p PostgresClusterPre
 	}
 	// Do not revoke access in the same pass that removes CNPG's source inputs:
 	// wait until the actual Cluster confirms they are gone.
-	if recoveryFinished(pg, p.Cluster) && p.Cluster.Spec.Bootstrap != nil && p.Cluster.Spec.Bootstrap.Recovery == nil && len(p.Cluster.Spec.ExternalClusters) == 0 {
-		for _, child := range p.Children {
-			if isPostgresRecoveryGrant(pg, child) && child.GetDeletionTimestamp().IsZero() {
-				planned = append(planned, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
-			}
-		}
-	}
-	if pg.Spec.Recovery != nil && !recoveryFinished(pg, p.Cluster) || pg.Annotations[recoveryAdmissionsAnnotation] != "" {
+	planned = append(planned, r.detachedRecoveryCleanupActions(pg, p)...)
+	if (rccnpg.IsRecoveredPostgres(pg) || p.RecoverySource != nil) && !recoveryFinished(pg, p.Cluster) || pg.Annotations[recoveryAdmissionsAnnotation] != "" {
 		// CNPG's Job status can change without a Cluster update. Poll while
 		// bootstrapping as well as reacting to the ordinary owned-resource watches.
 		result.RequeueAfter = 10 * time.Second
 	}
 	return append(actions, planned...), result, nil
+}
+
+func (r *PostgresClusterReconciler) detachedRecoveryCleanupActions(pg *v1.Postgres, p PostgresClusterPreparedData) []action.Action {
+	if !recoveryFinished(pg, p.Cluster) || p.Cluster.Spec.Bootstrap == nil || p.Cluster.Spec.Bootstrap.Recovery != nil || len(p.Cluster.Spec.ExternalClusters) != 0 {
+		return nil
+	}
+	var cleanup []action.Action
+	for _, child := range p.Children {
+		if isTemporaryRecoveryResource(pg, child) && child.GetDeletionTimestamp().IsZero() {
+			cleanup = append(cleanup, action.DeleteIfExists(child, pg, existsConditionGetter, r.Recorder))
+		}
+	}
+	if p.CompanionRecovery != nil && p.CompanionRecovery.DeletionTimestamp.IsZero() {
+		var opts []client.DeleteOption
+		if p.CompanionRecovery.UID != "" {
+			opts = append(opts, client.Preconditions{UID: &p.CompanionRecovery.UID})
+		}
+		cleanup = append(cleanup, action.DeleteIfExists(p.CompanionRecovery, pg, existsConditionGetter, r.Recorder, opts...))
+	}
+	if pg.Annotations != nil {
+		delete(pg.Annotations, v1.PostgresRecoveryAnnotation)
+	}
+	return cleanup
 }
 
 // Persist the parent finalizer before creating or adopting the first child. A

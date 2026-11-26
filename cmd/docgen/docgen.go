@@ -85,6 +85,11 @@ var ExcludedKinds = map[schema.GroupVersionKind]struct{}{
 		Version: datav1.GroupVersion.Version,
 		Kind:    "Postgres",
 	}: {},
+	{
+		Group:   v1.GroupVersion.Group,
+		Version: v1.GroupVersion.Version,
+		Kind:    "PostgresRecovery",
+	}: {},
 }
 
 type Renderer func(w io.Writer, level int, jsonpath string, key string, parent, node apiext.JSONSchemaProps)

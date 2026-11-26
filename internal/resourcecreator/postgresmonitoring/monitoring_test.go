@@ -26,7 +26,7 @@ func testDatabases() []v1.Postgres {
 	return []v1.Postgres{
 		orders,
 		{ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "team", CreationTimestamp: created}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "restoring", Namespace: "team", CreationTimestamp: created}, Spec: v1.PostgresSpec{Recovery: &v1.PostgresRecovery{}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "restoring", Namespace: "team", CreationTimestamp: created, Annotations: map[string]string{v1.PostgresRecoveryAnnotation: "restoring"}}},
 	}
 }
 

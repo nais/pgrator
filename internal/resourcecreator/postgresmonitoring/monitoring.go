@@ -89,7 +89,7 @@ func inventory(namespace string, options Options, databases []v1.Postgres) monit
 		record("nais_postgres_desired_instances", int64(cnpg.DesiredInstances(pg.Spec.HighAvailability)))
 		record("nais_postgres_created_timestamp_seconds", created)
 		record("nais_postgres_initialized_timestamp_seconds", initializedAt(pg))
-		record("nais_postgres_recovery_requested", boolNumber(pg.Spec.Recovery != nil))
+		record("nais_postgres_recovery_requested", boolNumber(cnpg.IsRecoveredPostgres(&pg)))
 		record("nais_postgres_backup_enabled", boolNumber(options.BackupsEnabled))
 		record("nais_postgres_backup_retention_days", int64(pg.Spec.BackupRetentionDays()))
 	}

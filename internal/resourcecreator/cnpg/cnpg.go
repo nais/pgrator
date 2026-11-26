@@ -215,8 +215,24 @@ type WALArchive struct {
 // instance. The archive remains distinct from the new instance's WAL archive.
 type RecoverySource struct {
 	BucketName string
+	// ObjectStoreName overrides BucketName as the barmanObjectName in
+	// ExternalClusters when the archive sits under a prefix in a shared DR bucket.
+	ObjectStoreName string
+	// Prefix is the isolated object prefix within BucketName for standalone
+	// backup restores. Empty when restoring directly from a database WAL bucket.
+	Prefix     string
 	ServerName string
 	TargetTime metav1.Time
+	BackupID   string
+}
+
+// EffectiveObjectStoreName returns the Barman ObjectStore name used by the
+// recovery external cluster.
+func (r *RecoverySource) EffectiveObjectStoreName() string {
+	if r.ObjectStoreName != "" {
+		return r.ObjectStoreName
+	}
+	return r.BucketName
 }
 
 // Enabled reports whether WAL archiving should be wired into the cluster.
@@ -235,10 +251,29 @@ func PersonalAccessRole(instance string) string {
 	return fmt.Sprintf("nais_pa_%x", hash[:8])
 }
 
+// IsRecoveredPostgres reports whether postgres is being or has been initialized
+// by recovery rather than fresh initdb.
+func IsRecoveredPostgres(postgres *v1.Postgres) bool {
+	if postgres == nil {
+		return false
+	}
+	if postgres.Spec.Recovery != nil || postgres.Annotations[v1.PostgresRecoveryAnnotation] != "" {
+		return true
+	}
+	if postgres.Status != nil {
+		for _, c := range postgres.Status.Conditions {
+			if c.Type == "RecoveryCompleted" || c.Type == "RecoveryFailed" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // PersonalAccessRoleForPostgres prevents an ancestral restored SQL role from
 // becoming an authentication group when a previously used name is reused.
 func PersonalAccessRoleForPostgres(physicalName string, postgres *v1.Postgres) string {
-	if postgres.Spec.Recovery != nil {
+	if IsRecoveredPostgres(postgres) {
 		return PersonalAccessRole(physicalName + "/" + string(postgres.UID))
 	}
 	return PersonalAccessRole(physicalName)
@@ -255,7 +290,7 @@ func DesiredInstances(highAvailability bool) int {
 // CreateCluster keeps image extensions the desired application Database is still
 // dropping mounted and preloaded until CNPG confirms the drop.
 func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Config, wal WALArchive, recovery *RecoverySource, database *cnpgv1.Database) (*cnpgv1.Cluster, error) {
-	if postgres.Spec.Recovery != nil && postgres.UID == "" {
+	if IsRecoveredPostgres(postgres) && postgres.UID == "" {
 		return nil, fmt.Errorf("recovered Postgres requires a UID for isolated personal access")
 	}
 	instances := DesiredInstances(postgres.Spec.HighAvailability)
@@ -408,7 +443,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 		},
 	}
 
-	if postgres.Spec.Recovery != nil {
+	if IsRecoveredPostgres(postgres) {
 		metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, PersonalAccessGroupAnnotation, PersonalAccessRoleForPostgres(postgres.Name, postgres))
 	}
 	if wal.Enabled() {
@@ -439,7 +474,7 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 			PluginConfiguration: &cnpgv1.PluginConfiguration{
 				Name: BarmanPluginName,
 				Parameters: map[string]string{
-					"barmanObjectName": recovery.BucketName,
+					"barmanObjectName": recovery.EffectiveObjectStoreName(),
 					"serverName":       recovery.ServerName,
 				},
 			},
@@ -454,13 +489,20 @@ func CreateCluster(scheme *runtime.Scheme, postgres *v1.Postgres, cfg *config.Co
 
 func bootstrap(recovery *RecoverySource) *cnpgv1.BootstrapConfiguration {
 	if recovery != nil {
+		target := &cnpgv1.RecoveryTarget{
+			TargetTime: recovery.TargetTime.UTC().Format(time.RFC3339Nano),
+		}
+		if recovery.BackupID != "" {
+			target = &cnpgv1.RecoveryTarget{
+				BackupID:        recovery.BackupID,
+				TargetImmediate: new(true),
+			}
+		}
 		return &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{
-			Source: "recovery-source",
-			RecoveryTarget: &cnpgv1.RecoveryTarget{
-				TargetTime: recovery.TargetTime.UTC().Format(time.RFC3339Nano),
-			},
-			Database: DatabaseName,
-			Owner:    OwnerRole,
+			Source:         "recovery-source",
+			RecoveryTarget: target,
+			Database:       DatabaseName,
+			Owner:          OwnerRole,
 		}}
 	}
 	return &cnpgv1.BootstrapConfiguration{InitDB: &cnpgv1.BootstrapInitDB{

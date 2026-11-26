@@ -13,7 +13,7 @@ import (
 func TestPostgresRecoveryPrecisionAtWireBoundary(t *testing.T) {
 	for _, nanos := range []int{0, 1, 750_000_000} {
 		t.Run(time.Duration(nanos).String(), func(t *testing.T) {
-			recovery := &v1.PostgresRecovery{TargetTime: metav1.NewTime(time.Date(2026, 11, 16, 13, 10, 0, nanos, time.UTC))}
+			recovery := &v1.PostgresPointInTimeRecovery{TargetTime: metav1.NewTime(time.Date(2026, 11, 16, 13, 10, 0, nanos, time.UTC))}
 			data, err := json.Marshal(recovery)
 			if nanos != 0 {
 				if err == nil {
@@ -22,19 +22,19 @@ func TestPostgresRecoveryPrecisionAtWireBoundary(t *testing.T) {
 				if _, err := runtime.DefaultUnstructuredConverter.ToUnstructured(recovery); err == nil {
 					t.Error("unstructured conversion silently accepted fractional target")
 				}
-				object := &v1.Postgres{Spec: v1.PostgresSpec{Recovery: recovery}}
+				object := &v1.PostgresRecovery{Spec: v1.PostgresRecoverySpec{Postgres: "restored", PointInTime: recovery}}
 				if _, err := json.Marshal(object); err == nil {
-					t.Error("Postgres JSON silently accepted fractional recovery")
+					t.Error("PostgresRecovery JSON silently accepted fractional recovery")
 				}
 				if _, err := runtime.DefaultUnstructuredConverter.ToUnstructured(object); err == nil {
-					t.Error("Postgres conversion silently accepted fractional recovery")
+					t.Error("PostgresRecovery conversion silently accepted fractional recovery")
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			var decoded v1.PostgresRecovery
+			var decoded v1.PostgresPointInTimeRecovery
 			if err := json.Unmarshal(data, &decoded); err != nil {
 				t.Fatal(err)
 			}
@@ -46,7 +46,7 @@ func TestPostgresRecoveryPrecisionAtWireBoundary(t *testing.T) {
 }
 
 func TestPostgresRecoveryRejectsFractionalWireInput(t *testing.T) {
-	var recovery v1.PostgresRecovery
+	var recovery v1.PostgresPointInTimeRecovery
 	if err := json.Unmarshal([]byte(`{"targetTime":"2026-11-16T13:10:00.750Z"}`), &recovery); err == nil {
 		t.Fatal("accepted unsupported fractional precision from JSON")
 	}
