@@ -114,7 +114,8 @@ func main() {
 		Recorder: recorder,
 		Scheme:   scheme,
 	}
-	postgresController := synchronizer.NewSynchronizer(postgresClient, mgr.GetScheme(), postgresReconciler, recorder, cachedOwnedLists)
+	postgresController := synchronizer.NewSynchronizer(
+		postgresClient, mgr.GetScheme(), postgresReconciler, recorder, cachedOwnedLists)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgres")
 		os.Exit(1)
