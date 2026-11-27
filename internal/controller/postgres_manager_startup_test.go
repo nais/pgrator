@@ -44,9 +44,9 @@ func TestPostgresControllersStartWithPublishedCRDs(t *testing.T) {
 	requireNoError(t, err)
 	cfg := &config.Config{APIServerIP: "172.16.0.2/32", CNPG: config.CNPG{ImageCatalogName: "postgresql", StorageClass: "hyperdisk-balanced"}}
 	r := &PostgresClusterReconciler{Config: cfg, Scheme: scheme.Scheme, Recorder: recorder}
-	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder).SetupWithManager(mgr))
-	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, &PostgresBindingReconciler{Scheme: scheme.Scheme, Recorder: recorder}, recorder).SetupWithManager(mgr))
-	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, makePostgresAccessReconciler(), recorder).SetupWithManager(mgr))
+	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, r, recorder, synchronizer.WithCachedOwnedLists(mgr.GetClient())).SetupWithManager(mgr))
+	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, &PostgresBindingReconciler{Scheme: scheme.Scheme, Recorder: recorder}, recorder, synchronizer.WithCachedOwnedLists(mgr.GetClient())).SetupWithManager(mgr))
+	requireNoError(t, synchronizer.NewSynchronizer(c, scheme.Scheme, makePostgresAccessReconciler(), recorder, synchronizer.WithCachedOwnedLists(mgr.GetClient())).SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(t.Context())
 	finished := make(chan error, 1)
 	go func() { defer close(finished); finished <- mgr.Start(ctx) }()

@@ -102,17 +102,20 @@ func main() {
 
 	// Ownership guards and binding snapshots must use API-server reads rather
 	// than a potentially stale cache across status and deletion checkpoints.
+	// Only listing of owned (and therefore watched) types goes through the cache.
 	postgresClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: scheme, DryRun: &cfg.DryRun})
 	if err != nil {
 		setupLog.Error(err, "unable to create Postgres API client")
 		os.Exit(1)
 	}
+	cachedOwnedLists := synchronizer.WithCachedOwnedLists(mgr.GetClient())
 	postgresReconciler := &controller.PostgresClusterReconciler{
 		Config:   cfg,
 		Recorder: recorder,
 		Scheme:   scheme,
 	}
-	postgresController := synchronizer.NewSynchronizer(postgresClient, mgr.GetScheme(), postgresReconciler, recorder)
+	postgresController := synchronizer.NewSynchronizer(
+		postgresClient, mgr.GetScheme(), postgresReconciler, recorder, cachedOwnedLists)
 	if err := postgresController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgres")
 		os.Exit(1)
@@ -123,7 +126,7 @@ func main() {
 		Scheme:   scheme,
 	}
 	postgresBindingController := synchronizer.NewSynchronizer(
-		postgresClient, mgr.GetScheme(), postgresBindingReconciler, recorder)
+		postgresClient, mgr.GetScheme(), postgresBindingReconciler, recorder, cachedOwnedLists)
 	if err := postgresBindingController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgresbinding")
 		os.Exit(1)
@@ -131,7 +134,7 @@ func main() {
 
 	postgresAccessReconciler := &controller.PostgresAccessReconciler{Recorder: recorder, Scheme: scheme}
 	postgresAccessController := synchronizer.NewSynchronizer(
-		postgresClient, mgr.GetScheme(), postgresAccessReconciler, recorder)
+		postgresClient, mgr.GetScheme(), postgresAccessReconciler, recorder, cachedOwnedLists)
 	if err := postgresAccessController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgresaccess")
 		os.Exit(1)
@@ -139,7 +142,7 @@ func main() {
 
 	postgresBackupReconciler := &controller.PostgresBackupReconciler{Config: cfg, Recorder: recorder, Scheme: scheme}
 	postgresBackupController := synchronizer.NewSynchronizer(
-		postgresClient, mgr.GetScheme(), postgresBackupReconciler, recorder)
+		postgresClient, mgr.GetScheme(), postgresBackupReconciler, recorder, cachedOwnedLists)
 	if err := postgresBackupController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "postgresbackup")
 		os.Exit(1)

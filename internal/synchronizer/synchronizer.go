@@ -44,9 +44,40 @@ type Synchronizer[T api.NaisObject, P any] struct {
 
 	ownerManager      ownership.OwnerManager
 	relevantListTypes map[schema.GroupVersionKind]reflect.Type
+
+	// ownedListReader, when set, serves List calls for owned types. Owned types
+	// are already watched, so listing them from the informer cache adds no
+	// informers, and any cache update triggers a new reconcile.
+	ownedListReader client.Reader
+	ownedListTypes  map[schema.GroupVersionKind]bool
 }
 
-func NewSynchronizer[T api.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder) *Synchronizer[T, P] {
+type Option func(*options)
+
+type options struct {
+	ownedListReader client.Reader
+}
+
+// WithCachedOwnedLists lists owned types through reader (typically the
+// manager's cached client) while all other reads and writes use the client
+// passed to NewSynchronizer.
+func WithCachedOwnedLists(reader client.Reader) Option {
+	return func(o *options) { o.ownedListReader = reader }
+}
+
+func NewSynchronizer[T api.NaisObject, P any](k8sClient client.Client, scheme *runtime.Scheme, r reconciler.Reconciler[T, P], recorder events.Recorder, opts ...Option) *Synchronizer[T, P] {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	owned := make([]client.Object, 0, len(r.OwnedTypes()))
+	for _, ownedType := range r.OwnedTypes() {
+		owned = append(owned, ownedType.Type)
+	}
+	ownedListTypes := make(map[schema.GroupVersionKind]bool)
+	for gvk := range listTypesFor(owned, scheme) {
+		ownedListTypes[gvk] = true
+	}
 	return &Synchronizer[T, P]{
 		client:     k8sClient,
 		scheme:     scheme,
@@ -55,7 +86,23 @@ func NewSynchronizer[T api.NaisObject, P any](k8sClient client.Client, scheme *r
 
 		ownerManager:      ownership.NewOwnerManager(fmt.Sprintf("%s/owner", r.Name())),
 		relevantListTypes: findRelevantListTypes(r, scheme),
+		ownedListReader:   o.ownedListReader,
+		ownedListTypes:    ownedListTypes,
 	}
+}
+
+// listRelevant lists one relevant type in namespace, from the cache for owned
+// types when configured and from the client otherwise.
+func (s *Synchronizer[T, P]) listRelevant(ctx context.Context, gvk schema.GroupVersionKind, list client.ObjectList, namespace string) error {
+	var listOpts []client.ListOption
+	if namespace != "" {
+		listOpts = append(listOpts, client.InNamespace(namespace))
+	}
+	var reader client.Reader = s.client
+	if s.ownedListReader != nil && s.ownedListTypes[gvk] {
+		reader = s.ownedListReader
+	}
+	return reader.List(ctx, list, listOpts...)
 }
 
 func findRelevantListTypes[T api.NaisObject, P any](r reconciler.Reconciler[T, P], scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
@@ -64,7 +111,10 @@ func findRelevantListTypes[T api.NaisObject, P any](r reconciler.Reconciler[T, P
 		relevantTypes = append(relevantTypes, ownedType.Type)
 	}
 	relevantTypes = append(relevantTypes, r.AdditionalTypes()...)
+	return listTypesFor(relevantTypes, scheme)
+}
 
+func listTypesFor(relevantTypes []client.Object, scheme *runtime.Scheme) map[schema.GroupVersionKind]reflect.Type {
 	listTypes := make(map[schema.GroupVersionKind]reflect.Type)
 	for groupVersionKind, r := range scheme.AllKnownTypes() {
 		for _, relevantType := range relevantTypes {
@@ -159,7 +209,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return result, err
 	}
 
-	relatedObjects, err := s.findRelatedObjects(ctx)
+	relatedObjects, err := s.findRelatedObjects(ctx, obj.GetNamespace())
 	if err != nil {
 		logger.Error(err, "failed to find related objects")
 		s.recorder.RecordErrorEvent(obj, "FindRelated", err)
@@ -491,7 +541,7 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		list.GetObjectKind().SetGroupVersionKind(gvk)
-		err := s.client.List(ctx, list)
+		err := s.listRelevant(ctx, gvk, list, owner.GetNamespace())
 		if err != nil {
 			if meta.IsNoMatchError(err) {
 				continue
@@ -544,15 +594,14 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	return actions, nil
 }
 
-func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler.RelatedObjects, error) {
-	// List all resources of owned or additional types
+func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, namespace string) (reconciler.RelatedObjects, error) {
+	// List all resources of owned or additional types in the target namespace
 	// Possible future improvement: Add app.kubernetes.io/managed-by label to all managed resources and filter to only care about those
-	// Possible future improvement: Extend Reconciler interface to return relevant namespaces for given object and filter to only those namespaces
 	related := relatedobjectsmap.NewRelatedObjectsMap(s.scheme)
 	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		list.GetObjectKind().SetGroupVersionKind(gvk)
-		err := s.client.List(ctx, list)
+		err := s.listRelevant(ctx, gvk, list, namespace)
 		if err != nil {
 			if meta.IsNoMatchError(err) {
 				continue

@@ -27,17 +27,19 @@ import (
 // update, when set, stands in for a reconciler that discovers something during reconciliation and
 // records it on the object it was handed.
 type stubReconciler struct {
-	prepare    func(*v1.Valkey) error
-	update     func(*v1.Valkey) []action.Action
-	checkpoint bool
+	prepare      func(*v1.Valkey) error
+	update       func(*v1.Valkey) []action.Action
+	ownedTypes   []reconciler.OwnedType
+	onUpdateSeen func(reconciler.RelatedObjects)
+	checkpoint   bool
 }
 
 func (s stubReconciler) StatusCheckpointRequired(_, _ *v1.Valkey) bool { return s.checkpoint }
 
-func (stubReconciler) Name() string                       { return "valkey" }
-func (stubReconciler) New() *v1.Valkey                    { return &v1.Valkey{} }
-func (stubReconciler) OwnedTypes() []reconciler.OwnedType { return nil }
-func (stubReconciler) AdditionalTypes() []client.Object   { return nil }
+func (stubReconciler) Name() string                         { return "valkey" }
+func (stubReconciler) New() *v1.Valkey                      { return &v1.Valkey{} }
+func (s stubReconciler) OwnedTypes() []reconciler.OwnedType { return s.ownedTypes }
+func (stubReconciler) AdditionalTypes() []client.Object     { return nil }
 
 func (s stubReconciler) Prepare(_ context.Context, _ client.Reader, obj *v1.Valkey) (struct{}, ctrl.Result, error) {
 	if s.prepare == nil {
@@ -46,7 +48,10 @@ func (s stubReconciler) Prepare(_ context.Context, _ client.Reader, obj *v1.Valk
 	return struct{}{}, ctrl.Result{}, s.prepare(obj)
 }
 
-func (s stubReconciler) Update(obj *v1.Valkey, _ struct{}, _ reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+func (s stubReconciler) Update(obj *v1.Valkey, _ struct{}, related reconciler.RelatedObjects) ([]action.Action, ctrl.Result, error) {
+	if s.onUpdateSeen != nil {
+		s.onUpdateSeen(related)
+	}
 	if s.update == nil {
 		return nil, ctrl.Result{}, nil
 	}
@@ -401,5 +406,111 @@ func TestReconcilePersistsConditionsSetByActions(t *testing.T) {
 	conditions := storedValkey(t, k8sClient, stored).GetStatus().GetConditions()
 	if len(conditions) != 1 || conditions[0].Type != conditionType {
 		t.Errorf("stored conditions = %v, want one %q", conditions, conditionType)
+	}
+}
+
+func TestReconcileScopesListQueriesToObjectNamespace(t *testing.T) {
+	sch := runtime.NewScheme()
+	if err := v1.AddToScheme(sch); err != nil {
+		t.Fatalf("adding types to scheme: %v", err)
+	}
+
+	owner := &v1.Valkey{
+		ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "team-a", UID: "target-uid"},
+		Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: v1.ValkeyVersionV9_1},
+	}
+	sameNSChild := &v1.Valkey{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "child-same-ns",
+			Namespace: "team-a",
+			UID:       "child-same-uid",
+			Annotations: map[string]string{
+				"valkey/owner": "team-a:target",
+			},
+		},
+	}
+	otherNSChild := &v1.Valkey{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "child-other-ns",
+			Namespace: "team-b",
+			UID:       "child-other-uid",
+			Annotations: map[string]string{
+				"valkey/owner": "team-a:target",
+			},
+		},
+	}
+
+	var listNamespaces []string
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(sch).
+		WithObjects(owner, sameNSChild, otherNSChild).
+		WithStatusSubresource(&v1.Valkey{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				listOpts := &client.ListOptions{}
+				for _, opt := range opts {
+					opt.ApplyToList(listOpts)
+				}
+				listNamespaces = append(listNamespaces, listOpts.Namespace)
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	var seenRelated reconciler.RelatedObjects
+	r := stubReconciler{
+		ownedTypes:   []reconciler.OwnedType{{Type: &v1.Valkey{}}},
+		onUpdateSeen: func(rel reconciler.RelatedObjects) { seenRelated = rel },
+	}
+	s := NewSynchronizer(k8sClient, sch, r, events.NewRecorder(kevents.NewFakeRecorder(100)))
+	if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(owner)}); err != nil {
+		t.Fatalf("reconciling: %v", err)
+	}
+
+	if len(listNamespaces) == 0 {
+		t.Fatal("expected List calls during reconcile")
+	}
+	for i, ns := range listNamespaces {
+		if ns != "team-a" {
+			t.Errorf("List call %d had namespace %q, want %q", i, ns, "team-a")
+		}
+	}
+	if seenRelated.GetMatching(sameNSChild) == nil {
+		t.Error("expected same-namespace object in relatedObjects")
+	}
+	if seenRelated.GetMatching(otherNSChild) != nil {
+		t.Error("did not expect other-namespace object in relatedObjects")
+	}
+}
+
+func TestReconcileListsOwnedTypesFromCachedReader(t *testing.T) {
+	sch := runtime.NewScheme()
+	if err := v1.AddToScheme(sch); err != nil {
+		t.Fatalf("adding types to scheme: %v", err)
+	}
+	owner := &v1.Valkey{
+		ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "team-a", UID: "target-uid"},
+		Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: v1.ValkeyVersionV9_1},
+	}
+	cachedChild := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "cached-child", Namespace: "team-a", UID: "cached-child-uid"}}
+
+	apiClient := fake.NewClientBuilder().WithScheme(sch).WithObjects(owner).WithStatusSubresource(&v1.Valkey{}).Build()
+	cache := fake.NewClientBuilder().WithScheme(sch).WithObjects(cachedChild).Build()
+
+	var seenRelated reconciler.RelatedObjects
+	r := stubReconciler{
+		ownedTypes:   []reconciler.OwnedType{{Type: &v1.Valkey{}}},
+		onUpdateSeen: func(rel reconciler.RelatedObjects) { seenRelated = rel },
+	}
+	s := NewSynchronizer(apiClient, sch, r, events.NewRecorder(kevents.NewFakeRecorder(100)), WithCachedOwnedLists(cache))
+	if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(owner)}); err != nil {
+		t.Fatalf("reconciling: %v", err)
+	}
+
+	if seenRelated.GetMatching(cachedChild) == nil {
+		t.Error("expected owned type to be listed from the cached reader")
+	}
+	if seenRelated.GetMatching(owner) != nil {
+		t.Error("did not expect owned type to be listed from the API client")
 	}
 }

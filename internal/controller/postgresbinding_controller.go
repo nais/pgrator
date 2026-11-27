@@ -135,14 +135,36 @@ func (r *PostgresBindingReconciler) RelationshipWatches() []reconciler.Relations
 	}
 }
 
+func isPotentialSourceSecret(secret *core_v1.Secret) bool {
+	if secret == nil || len(secret.Data) == 0 {
+		return false
+	}
+	if len(secret.Data["ca.crt"]) > 0 {
+		return true
+	}
+	return len(secret.Data["tls.crt"]) > 0 && len(secret.Data["tls.key"]) > 0
+}
+
 func sourceSecretEventFilter() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(event.CreateEvent) bool { return true },
-		DeleteFunc: func(event.DeleteEvent) bool { return true },
+		CreateFunc: func(e event.CreateEvent) bool {
+			secret, ok := e.Object.(*core_v1.Secret)
+			return ok && isPotentialSourceSecret(secret)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			secret, ok := e.Object.(*core_v1.Secret)
+			return ok && isPotentialSourceSecret(secret)
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldSecret, oldOK := e.ObjectOld.(*core_v1.Secret)
 			newSecret, newOK := e.ObjectNew.(*core_v1.Secret)
-			return oldOK && newOK && !reflect.DeepEqual(oldSecret.Data, newSecret.Data)
+			if !oldOK || !newOK {
+				return false
+			}
+			if !isPotentialSourceSecret(oldSecret) && !isPotentialSourceSecret(newSecret) {
+				return false
+			}
+			return !reflect.DeepEqual(oldSecret.Data, newSecret.Data)
 		},
 	}
 }
