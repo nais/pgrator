@@ -123,8 +123,14 @@ func (r *PostgresClusterReconciler) prepareDirectRecovery(ctx context.Context, r
 	}
 
 	pitr, backupRec, err := resolveRecoverySpecs(pg, companion, companionErr)
-	if err != nil || (pitr == nil && backupRec == nil) {
+	if err != nil {
 		return err
+	}
+	if pitr == nil && backupRec == nil {
+		if p.Cluster != nil && p.Cluster.Spec.Bootstrap != nil && p.Cluster.Spec.Bootstrap.Recovery != nil {
+			return fmt.Errorf("in-progress recovery cluster %q has no recovery source specification", p.Cluster.Name)
+		}
+		return nil
 	}
 
 	var targetSummary string

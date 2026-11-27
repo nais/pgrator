@@ -355,6 +355,25 @@ func TestPostgresRecoverySpecIsImmutableAndRequiresExactlyOneSource(t *testing.T
 	if err := k8sClient.Update(t.Context(), rec); err == nil {
 		t.Fatal("accepted mutation of immutable PostgresRecovery.spec")
 	}
+
+	// Legacy inline Postgres.spec.recovery cannot be added or modified after creation,
+	// but may be cleared on an existing restored database.
+	pgPlain := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "legacy-recovery-add", Namespace: "default"}, Spec: v1.PostgresSpec{MajorVersion: "18"}}
+	requireNoError(t, k8sClient.Create(t.Context(), pgPlain))
+	pgPlain.Spec.Recovery = pitr.DeepCopy()
+	if err := k8sClient.Update(t.Context(), pgPlain); err == nil {
+		t.Fatal("accepted adding legacy inline spec.recovery after creation")
+	}
+
+	pgInline := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "legacy-recovery-edit", Namespace: "default"}, Spec: v1.PostgresSpec{MajorVersion: "18", Recovery: pitr.DeepCopy()}}
+	requireNoError(t, k8sClient.Create(t.Context(), pgInline))
+	pgInline.Spec.Recovery.BucketName = "different-archive"
+	if err := k8sClient.Update(t.Context(), pgInline); err == nil {
+		t.Fatal("accepted changing legacy inline spec.recovery")
+	}
+	requireNoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(pgInline), pgInline))
+	pgInline.Spec.Recovery = nil
+	requireNoError(t, k8sClient.Update(t.Context(), pgInline))
 }
 
 func TestDirectRecoveryRefusesRebootstrapAfterClusterLoss(t *testing.T) {
@@ -808,6 +827,9 @@ func assertBackupRecoveryDetachCleansUp(
 	}
 
 	requireNoError(t, c.Status().Update(t.Context(), pg))
+	// Simulate the DeleteIfExists action on the companion PostgresRecovery so
+	// backup admission pruning exercises the missing-companion path.
+	requireNoError(t, c.Delete(t.Context(), mustGetCompanionRecovery(t, c, pg)))
 	bPrep, err := backupReconcilerPrepare(t, backupReconciler, c, backup)
 	requireNoError(t, err)
 	if len(bPrep.BlockingRecoveries) != 0 {
@@ -866,6 +888,18 @@ func TestRemovingLegacyInlineSpecRecoveryDoesNotChangeUnderlyingResources(t *tes
 				t.Fatalf("Cluster pg_hba lost isolated group %q: %v", wantGroup, obj.Spec.PostgresConfiguration.PgHBA)
 			}
 		}
+	}
+
+	// If an in-progress recovery cluster has not completed its own backup yet and its
+	// recovery specification was removed prematurely, Prepare refuses to reconcile it as initdb.
+	pg.Status.Conditions = nil
+	requireNoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(cluster), cluster))
+	cluster.Status.Conditions = nil
+	requireNoError(t, c.Status().Update(t.Context(), cluster))
+	cluster.Spec.Bootstrap = &cnpgv1.BootstrapConfiguration{Recovery: &cnpgv1.BootstrapRecovery{Source: "recovery-source"}}
+	requireNoError(t, c.Update(t.Context(), cluster))
+	if _, _, err := r.Prepare(t.Context(), c, pg); err == nil {
+		t.Fatal("accepted in-progress recovery cluster whose recovery source specification was removed")
 	}
 	_ = config.Config{}
 }

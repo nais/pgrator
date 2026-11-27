@@ -200,10 +200,10 @@ func (r *physicalRenderer) physicalActions(id physicalIdentity, owner api.NaisOb
 		}
 	}
 
-	specSource := newPhysicalSpecSource(id, owner, prepared)
+	specSource := newPhysicalSpecSource(id, owner, prepared, existingCluster)
 
 	wal := r.walArchive(id, prepared)
-	actions, err := r.physicalRoleActions(id, owner)
+	actions, err := r.physicalRoleActions(id, owner, specSource)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (r *physicalRenderer) physicalActions(id physicalIdentity, owner api.NaisOb
 	return actions, nil
 }
 
-func newPhysicalSpecSource(id physicalIdentity, owner api.NaisObject, prepared physicalInputs) *v1.Postgres {
+func newPhysicalSpecSource(id physicalIdentity, owner api.NaisObject, prepared physicalInputs, existingCluster *cnpgv1.Cluster) *v1.Postgres {
 	specSource := &v1.Postgres{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      id.Name,
@@ -303,7 +303,7 @@ func newPhysicalSpecSource(id physicalIdentity, owner api.NaisObject, prepared p
 		Spec: prepared.PostgresSpec,
 	}
 	if pg, ok := owner.(*v1.Postgres); ok {
-		if rccnpg.IsRecoveredPostgres(pg) {
+		if rccnpg.IsRecoveredPostgres(pg, existingCluster) {
 			specSource.Annotations[v1.PostgresRecoveryAnnotation] = pg.Name
 		}
 		if pg.Status != nil {
@@ -313,12 +313,12 @@ func newPhysicalSpecSource(id physicalIdentity, owner api.NaisObject, prepared p
 	return specSource
 }
 
-func (r *physicalRenderer) physicalRoleActions(id physicalIdentity, owner api.NaisObject) ([]action.Action, error) {
+func (r *physicalRenderer) physicalRoleActions(id physicalIdentity, owner api.NaisObject, specSource *v1.Postgres) ([]action.Action, error) {
 	actions := make([]action.Action, 0, 2)
 	for _, create := range []func(physicalIdentity) *cnpgv1.DatabaseRole{createPersonalAccessGroupRole, createDurableOwnerRole} {
 		role := create(id)
-		if pg, direct := owner.(*v1.Postgres); direct && role.Spec.Name == rccnpg.PersonalAccessRole(id.Name) {
-			role.Spec.Name = rccnpg.PersonalAccessRoleForPostgres(id.Name, pg)
+		if _, direct := owner.(*v1.Postgres); direct && role.Spec.Name == rccnpg.PersonalAccessRole(id.Name) {
+			role.Spec.Name = rccnpg.PersonalAccessRoleForPostgres(id.Name, specSource)
 		}
 		if err := transferControllerOwnership(owner, role, r.Scheme); err != nil {
 			return nil, err

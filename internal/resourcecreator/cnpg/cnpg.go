@@ -252,19 +252,24 @@ func PersonalAccessRole(instance string) string {
 }
 
 // IsRecoveredPostgres reports whether postgres is being or has been initialized
-// by recovery rather than fresh initdb.
-func IsRecoveredPostgres(postgres *v1.Postgres) bool {
-	if postgres == nil {
-		return false
-	}
-	if postgres.Spec.Recovery != nil || postgres.Annotations[v1.PostgresRecoveryAnnotation] != "" {
-		return true
-	}
-	if postgres.Status != nil {
-		for _, c := range postgres.Status.Conditions {
-			if c.Type == "RecoveryCompleted" || c.Type == "RecoveryFailed" {
-				return true
+// by recovery rather than fresh initdb, or whether existingCluster already
+// carries a recovery-scoped personal access group annotation.
+func IsRecoveredPostgres(postgres *v1.Postgres, existingCluster ...*cnpgv1.Cluster) bool {
+	if postgres != nil {
+		if postgres.Spec.Recovery != nil || postgres.Annotations[v1.PostgresRecoveryAnnotation] != "" {
+			return true
+		}
+		if postgres.Status != nil {
+			for _, c := range postgres.Status.Conditions {
+				if c.Type == "RecoveryCompleted" || c.Type == "RecoveryFailed" {
+					return true
+				}
 			}
+		}
+	}
+	for _, cluster := range existingCluster {
+		if cluster != nil && cluster.Annotations[PersonalAccessGroupAnnotation] != "" {
+			return true
 		}
 	}
 	return false

@@ -202,6 +202,9 @@ spec:
                     - sourceUID
                     - targetTime
                   type: object
+                  x-kubernetes-validations:
+                    - message: recovery is immutable
+                      rule: self == oldSelf
                 resources:
                   default: {}
                   description: Resources configures compute and disk for the Postgres cluster.
@@ -237,6 +240,9 @@ spec:
               required:
                 - majorVersion
               type: object
+              x-kubernetes-validations:
+                - message: recovery can only be selected at creation
+                  rule: '!has(self.recovery) || has(oldSelf.recovery)'
             status:
               description: status defines the observed state of Postgres
               properties:

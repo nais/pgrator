@@ -68,10 +68,12 @@ type PostgresBackupPolicy struct {
 type PostgresRecoveryConfig = PostgresPointInTimeRecovery
 
 // PostgresSpec defines the desired state of Postgres
+// +kubebuilder:validation:XValidation:rule="!has(self.recovery) || has(oldSelf.recovery)",message="recovery can only be selected at creation"
 type PostgresSpec struct {
 	// Recovery is deprecated: new restores use a companion PostgresRecovery
 	// resource so Postgres.spec stays identical for fresh and restored databases.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="recovery is immutable"
 	// +nais:doc:Deprecated=true
 	// +nais:doc:Hidden=true
 	Recovery *PostgresPointInTimeRecovery `json:"recovery,omitempty"`

@@ -154,7 +154,7 @@ func targetMatchesRecoverySource(ctx context.Context, reader client.Reader, targ
 		}
 		rec, err := getCompanionRecovery(ctx, reader, target)
 		if err != nil {
-			if apierrors.IsNotFound(err) && recoveryFinished(target, nil) {
+			if apierrors.IsNotFound(err) && completedRecoveryClusterUID(target) != "" {
 				return true, nil
 			}
 			return false, err
@@ -165,7 +165,7 @@ func targetMatchesRecoverySource(ctx context.Context, reader client.Reader, targ
 	case *v1.PostgresBackup:
 		rec, err := getCompanionRecovery(ctx, reader, target)
 		if err != nil {
-			if apierrors.IsNotFound(err) && recoveryFinished(target, nil) {
+			if apierrors.IsNotFound(err) && completedRecoveryClusterUID(target) != "" {
 				return true, nil
 			}
 			return false, err
