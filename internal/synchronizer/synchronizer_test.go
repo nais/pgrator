@@ -482,3 +482,35 @@ func TestReconcileScopesListQueriesToObjectNamespace(t *testing.T) {
 		t.Error("did not expect other-namespace object in relatedObjects")
 	}
 }
+
+func TestReconcileListsOwnedTypesFromCachedReader(t *testing.T) {
+	sch := runtime.NewScheme()
+	if err := v1.AddToScheme(sch); err != nil {
+		t.Fatalf("adding types to scheme: %v", err)
+	}
+	owner := &v1.Valkey{
+		ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "team-a", UID: "target-uid"},
+		Spec:       v1.ValkeySpec{Tier: v1.ValkeyTierSingleNode, Memory: v1.ValkeyMemory4GB, Version: v1.ValkeyVersionV9_1},
+	}
+	cachedChild := &v1.Valkey{ObjectMeta: metav1.ObjectMeta{Name: "cached-child", Namespace: "team-a", UID: "cached-child-uid"}}
+
+	apiClient := fake.NewClientBuilder().WithScheme(sch).WithObjects(owner).WithStatusSubresource(&v1.Valkey{}).Build()
+	cache := fake.NewClientBuilder().WithScheme(sch).WithObjects(cachedChild).Build()
+
+	var seenRelated reconciler.RelatedObjects
+	r := stubReconciler{
+		ownedTypes:   []reconciler.OwnedType{{Type: &v1.Valkey{}}},
+		onUpdateSeen: func(rel reconciler.RelatedObjects) { seenRelated = rel },
+	}
+	s := NewSynchronizer(apiClient, sch, r, events.NewRecorder(kevents.NewFakeRecorder(100)), WithCachedOwnedLists(cache))
+	if _, err := s.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(owner)}); err != nil {
+		t.Fatalf("reconciling: %v", err)
+	}
+
+	if seenRelated.GetMatching(cachedChild) == nil {
+		t.Error("expected owned type to be listed from the cached reader")
+	}
+	if seenRelated.GetMatching(owner) != nil {
+		t.Error("did not expect owned type to be listed from the API client")
+	}
+}

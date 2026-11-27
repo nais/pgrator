@@ -175,7 +175,7 @@ func TestPostgresBindingPostgresWatchPredicate(t *testing.T) {
 }
 
 func TestPostgresBindingSourceSecretWatchPredicate(t *testing.T) {
-	pred := (&PostgresBindingReconciler{}).RelationshipWatches()[1].Predicate
+	pred := sourceSecretEventFilter()
 
 	caSecret := &corev1.Secret{Data: map[string][]byte{"ca.crt": []byte("ca")}}
 	clientCertSecret := &corev1.Secret{Data: map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")}}
