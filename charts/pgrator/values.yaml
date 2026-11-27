@@ -59,7 +59,7 @@ rbac:
   # When adding resources, ensure that you're using the *plural* form of the resource name
   primaryResources:
     - apiGroups: [nais.io]
-      resources: [postgres, postgresbindings, postgresaccesses, postgresbackups, valkeys, opensearches]
+      resources: [postgres, postgresbindings, postgresaccesses, postgresbackups, postgresrecoveries, valkeys, opensearches]
 
 # [METRICS]: Set to true to generate manifests for exporting metrics.
 # To disable metrics export set false, and ensure that the

@@ -166,7 +166,9 @@ spec:
                       type: integer
                   type: object
                 recovery:
-                  description: Recovery initializes a new database from an immutable source archive.
+                  description: |-
+                    Recovery is deprecated: new restores use a companion PostgresRecovery
+                    resource so Postgres.spec stays identical for fresh and restored databases.
                   properties:
                     bucketName:
                       description: BucketName identifies the source Barman ObjectStore and bucket.
@@ -177,9 +179,13 @@ spec:
                       minLength: 1
                       type: string
                     sourcePostgres:
+                      description: SourcePostgres is the namespace-local source Postgres name.
                       minLength: 1
                       type: string
                     sourceUID:
+                      description: |-
+                        SourceUID pins the UID of the source Postgres so a deleted and recreated
+                        database with the same name cannot become the recovery source.
                       minLength: 1
                       type: string
                     targetTime:
@@ -236,7 +242,7 @@ spec:
               type: object
               x-kubernetes-validations:
                 - message: recovery can only be selected at creation
-                  rule: has(self.recovery) == has(oldSelf.recovery)
+                  rule: '!has(self.recovery) || has(oldSelf.recovery)'
             status:
               description: status defines the observed state of Postgres
               properties:

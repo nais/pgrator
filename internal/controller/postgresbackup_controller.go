@@ -53,6 +53,7 @@ type PostgresBackupPreparedData struct {
 	SourceBucket         string                         `yaml:"sourceBucket,omitempty"`
 	NamespaceTerminating bool                           `yaml:"namespaceTerminating,omitempty"`
 	DRBucketPresent      bool                           `yaml:"drBucketPresent,omitempty"`
+	BlockingRecoveries   []string                       `yaml:"blockingRecoveries,omitempty"`
 }
 
 var _ reconciler.Reconciler[*v1.PostgresBackup, PostgresBackupPreparedData] = &PostgresBackupReconciler{}
@@ -226,13 +227,17 @@ func (r *PostgresBackupReconciler) Prepare(ctx context.Context, reader client.Re
 	}
 
 	if !backup.DeletionTimestamp.IsZero() {
+		return r.prepareBackupDeletion(ctx, reader, backup, prep)
+	}
+	if err := pruneRecoveryAdmissions(ctx, reader, backup); err != nil {
+		return prep, ctrl.Result{}, err
+	}
+	if backup.Annotations[recoveryAdmissionsAnnotation] != "" {
 		var err error
-		prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name), drbackup.JobRoleCopy)
+		prep.BlockingRecoveries, err = blockingPostgresRecoveries(ctx, reader, backup)
 		if err != nil {
 			return prep, ctrl.Result{}, err
 		}
-		prep.CleanupJob, err = getBackupJob(ctx, reader, backup, drbackup.CleanupJobName(backup.Name), drbackup.JobRoleCleanup)
-		return prep, ctrl.Result{}, err
 	}
 
 	existing := &cnpgv1.Backup{}
@@ -289,6 +294,20 @@ func (r *PostgresBackupReconciler) Prepare(ctx context.Context, reader client.Re
 	prep.SourceBucket = resolveSourceBucketName(prep.CNPGBackup, cluster)
 	recordSourceSnapshot(backup.Status, postgres, cluster)
 	return prep, ctrl.Result{}, nil
+}
+
+func (r *PostgresBackupReconciler) prepareBackupDeletion(ctx context.Context, reader client.Reader, backup *v1.PostgresBackup, prep PostgresBackupPreparedData) (PostgresBackupPreparedData, ctrl.Result, error) {
+	var err error
+	prep.BlockingRecoveries, err = blockingPostgresRecoveries(ctx, reader, backup)
+	if err != nil {
+		return prep, ctrl.Result{}, err
+	}
+	prep.CopyJob, err = getBackupJob(ctx, reader, backup, drbackup.CopyJobName(backup.Name), drbackup.JobRoleCopy)
+	if err != nil {
+		return prep, ctrl.Result{}, err
+	}
+	prep.CleanupJob, err = getBackupJob(ctx, reader, backup, drbackup.CleanupJobName(backup.Name), drbackup.JobRoleCleanup)
+	return prep, ctrl.Result{}, err
 }
 
 func (r *PostgresBackupReconciler) prepareBackupNamespace(ctx context.Context, reader client.Reader, backup *v1.PostgresBackup, prep *PostgresBackupPreparedData) error {
@@ -394,6 +413,10 @@ func (r *PostgresBackupReconciler) Update(backup *v1.PostgresBackup, prepared Po
 		setBackupExpiry(backup, status)
 	}
 	if status.ExpiresAt != nil && !time.Now().Before(status.ExpiresAt.Time) {
+		if len(prepared.BlockingRecoveries) > 0 {
+			r.Recorder.RecordEvent(backup, corev1.EventTypeWarning, "ExpiryDeferred", "recovery databases still depend on this backup: %v", prepared.BlockingRecoveries)
+			return nil, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
 		status.SetCondition(metav1.Condition{
 			Type:               readyCondition,
 			Status:             metav1.ConditionFalse,
@@ -432,18 +455,7 @@ func (r *PostgresBackupReconciler) Update(backup *v1.PostgresBackup, prepared Po
 	}
 
 	if isTerminalPostgresBackup(backup) {
-		if cnpgBackup != nil {
-			desired, err := rccnpg.CreateBackup(r.Scheme, backup, cnpgBackup.Spec.Cluster.Name)
-			if err != nil {
-				return nil, ctrl.Result{}, err
-			}
-			actions = append(actions, action.Claim(desired, backup, existsConditionGetter, r.Recorder))
-		}
-		var requeue ctrl.Result
-		if status.ExpiresAt != nil {
-			requeue.RequeueAfter = max(time.Until(status.ExpiresAt.Time), time.Second)
-		}
-		return actions, requeue, nil
+		return r.updateTerminalBackup(backup, status, cnpgBackup, prepared, actions)
 	}
 
 	clusterName := rccnpg.ClusterNameFor(v1.PostgresPhysicalName(backup.Spec.Postgres))
@@ -477,6 +489,30 @@ func (r *PostgresBackupReconciler) Update(backup *v1.PostgresBackup, prepared Po
 
 	mirrorCNPGBackupPhase(backup, status, cnpgBackup)
 	return actions, ctrl.Result{}, nil
+}
+
+func (r *PostgresBackupReconciler) updateTerminalBackup(
+	backup *v1.PostgresBackup,
+	status *v1.PostgresBackupStatus,
+	cnpgBackup *cnpgv1.Backup,
+	prepared PostgresBackupPreparedData,
+	actions []action.Action,
+) ([]action.Action, ctrl.Result, error) {
+	if cnpgBackup != nil {
+		desired, err := rccnpg.CreateBackup(r.Scheme, backup, cnpgBackup.Spec.Cluster.Name)
+		if err != nil {
+			return nil, ctrl.Result{}, err
+		}
+		actions = append(actions, action.Claim(desired, backup, existsConditionGetter, r.Recorder))
+	}
+	var requeue ctrl.Result
+	if status.ExpiresAt != nil {
+		requeue.RequeueAfter = max(time.Until(status.ExpiresAt.Time), time.Second)
+	}
+	if len(prepared.BlockingRecoveries) > 0 && (requeue.RequeueAfter == 0 || requeue.RequeueAfter > 10*time.Second) {
+		requeue.RequeueAfter = 10 * time.Second
+	}
+	return actions, requeue, nil
 }
 
 func (r *PostgresBackupReconciler) reconcileDRCopy(
@@ -676,6 +712,10 @@ func (r *PostgresBackupReconciler) Delete(backup *v1.PostgresBackup, prepared Po
 		}
 		return nil, ctrl.Result{}, nil
 	}
+	if len(prepared.BlockingRecoveries) > 0 {
+		r.Recorder.RecordEvent(backup, corev1.EventTypeWarning, "DeleteBlocked", "recovery databases still depend on this backup: %v", prepared.BlockingRecoveries)
+		return nil, ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
 	var actions []action.Action
 	status := backup.GetStatus().(*v1.PostgresBackupStatus)
 	if copyJob := prepared.CopyJob; copyJob != nil {
@@ -741,16 +781,23 @@ func (r *PostgresBackupReconciler) Delete(backup *v1.PostgresBackup, prepared Po
 	if r.drEnabled() {
 		actions = append(actions, r.sharedDRInfrastructureActions(backup, prepared.TeamProjectID, false, related)...)
 	}
-	if related != nil {
-		for _, typ := range []client.Object{&cnpgv1.Backup{}, &batchv1.Job{}, &iamcnrm.IAMPolicyMember{}} {
-			for _, obj := range related.GetMatchingType(typ) {
-				if metav1.IsControlledBy(obj, backup) {
-					actions = append(actions, action.DeleteIfExists(obj, backup, existsConditionGetter, r.Recorder))
-				}
+	actions = append(actions, deleteControlledBackupChildren(backup, related, r.Recorder)...)
+	return actions, ctrl.Result{}, nil
+}
+
+func deleteControlledBackupChildren(backup *v1.PostgresBackup, related reconciler.RelatedObjects, recorder events.Recorder) []action.Action {
+	if related == nil {
+		return nil
+	}
+	var actions []action.Action
+	for _, typ := range []client.Object{&cnpgv1.Backup{}, &batchv1.Job{}, &iamcnrm.IAMPolicyMember{}} {
+		for _, obj := range related.GetMatchingType(typ) {
+			if metav1.IsControlledBy(obj, backup) {
+				actions = append(actions, action.DeleteIfExists(obj, backup, existsConditionGetter, recorder))
 			}
 		}
 	}
-	return actions, ctrl.Result{}, nil
+	return actions
 }
 
 func stopBackupJob(backup *v1.PostgresBackup, job *batchv1.Job, recorder events.Recorder) []action.Action {

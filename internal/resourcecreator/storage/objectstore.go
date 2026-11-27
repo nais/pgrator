@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cloudnative-pg/barman-cloud/pkg/api"
 	barmanv1 "github.com/cloudnative-pg/plugin-barman-cloud/api/v1"
@@ -47,5 +48,34 @@ func CreateObjectStore(bucketName string, objectMeta metav1.ObjectMeta, retentio
 		},
 	}
 	objectStore.Spec.RetentionPolicy = fmt.Sprintf("%dd", retentionDays)
+	return objectStore
+}
+
+// CreateRecoveryObjectStore configures a temporary read-only Barman ObjectStore
+// pointing at a standalone PostgresBackup's isolated prefix in the DR bucket.
+// It has no RetentionPolicy because pgrator manages DR backup lifecycle.
+func CreateRecoveryObjectStore(name, bucketName, prefix string, objectMeta metav1.ObjectMeta) *barmanv1.ObjectStore {
+	objectStore := MinimalObjectStore(name, objectMeta)
+	trimmedPrefix := strings.Trim(prefix, "/")
+	destination := fmt.Sprintf("gs://%s", bucketName)
+	if trimmedPrefix != "" {
+		destination = fmt.Sprintf("gs://%s/%s", bucketName, trimmedPrefix)
+	}
+	objectStore.Spec = barmanv1.ObjectStoreSpec{
+		Configuration: api.BarmanObjectStoreConfiguration{
+			BarmanCredentials: api.BarmanCredentials{
+				Google: &api.GoogleCredentials{
+					GKEEnvironment: true,
+				},
+			},
+			DestinationPath: destination,
+			Wal: &api.WalBackupConfiguration{
+				Compression: api.CompressionTypeLz4,
+			},
+			Data: &api.DataBackupConfiguration{
+				Compression: api.CompressionTypeLz4,
+			},
+		},
+	}
 	return objectStore
 }

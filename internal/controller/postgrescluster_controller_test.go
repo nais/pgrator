@@ -298,6 +298,6 @@ func directOwnershipFixture(t *testing.T, wal bool) (*PostgresClusterReconciler,
 	}
 	requireNoError(t, r.checkInventory(pg.Status.Ownership, children))
 	objects = append(objects, pg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: pg.Namespace, Labels: map[string]string{ProjectIDLabel: "team-project"}}})
-	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&v1.Postgres{}, &v1.PostgresBinding{}, &cnpgv1.Cluster{}).WithObjects(objects...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&v1.Postgres{}, &v1.PostgresBinding{}, &v1.PostgresBackup{}, &v1.PostgresRecovery{}, &cnpgv1.Cluster{}).WithObjects(objects...).Build()
 	return r, c, pg, identity.Name, children
 }

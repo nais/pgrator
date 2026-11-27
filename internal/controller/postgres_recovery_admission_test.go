@@ -111,14 +111,26 @@ func admissionServerFixture(t *testing.T, suffix string) (*v1.Postgres, *v1.Post
 	t.Helper()
 	source := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "admission-source-" + suffix, Namespace: "default", Finalizers: []string{"postgres.nais.io"}}, Spec: v1.PostgresSpec{MajorVersion: "18"}}
 	requireNoError(t, k8sClient.Create(t.Context(), source))
-	target := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "admission-target-" + suffix, Namespace: "default", Finalizers: []string{"postgres.nais.io"}}, Spec: v1.PostgresSpec{MajorVersion: "18", Recovery: &v1.PostgresRecovery{SourcePostgres: source.Name, SourceUID: string(source.UID), BucketName: "archive", ServerName: "source-cluster", TargetTime: metav1.NewTime(time.Now().Truncate(time.Second))}}}
+	target := &v1.Postgres{ObjectMeta: metav1.ObjectMeta{Name: "admission-target-" + suffix, Namespace: "default", Finalizers: []string{"postgres.nais.io"}, Annotations: map[string]string{v1.PostgresRecoveryAnnotation: "admission-target-" + suffix}}, Spec: v1.PostgresSpec{MajorVersion: "18"}}
 	requireNoError(t, k8sClient.Create(t.Context(), target))
+	rec := &v1.PostgresRecovery{
+		ObjectMeta: metav1.ObjectMeta{Name: target.Name, Namespace: target.Namespace},
+		Spec: v1.PostgresRecoverySpec{
+			Postgres:    target.Name,
+			PointInTime: &v1.PostgresPointInTimeRecovery{SourcePostgres: source.Name, SourceUID: string(source.UID), BucketName: "archive", ServerName: "source-cluster", TargetTime: metav1.NewTime(time.Now().Truncate(time.Second))},
+		},
+	}
+	requireNoError(t, k8sClient.Create(t.Context(), rec))
 	return source, target
+}
+
+func newTestAcceptPostgresRecovery(target *v1.Postgres, source *v1.Postgres) *acceptPostgresRecovery {
+	return newAcceptPostgresRecovery(target, source, source.UID, "postgres.nais.io")
 }
 
 func TestRecoveryAdmissionConflictsWhenSourceDeletionWins(t *testing.T) {
 	source, target := admissionServerFixture(t, "race")
-	a := newAcceptPostgresRecovery(target)
+	a := newTestAcceptPostgresRecovery(target, source)
 	err := a.Do(t.Context(), deleteBeforeRecoveryAdmission{k8sClient}, nil, nil)
 	if !apierrors.IsConflict(err) {
 		t.Fatalf("admission racing deletion must conflict: %v", err)
@@ -137,7 +149,7 @@ func TestRecoveryAdmissionConflictsWhenSourceDeletionWins(t *testing.T) {
 func TestRecoveryAdmissionSurvivesConcurrentStatusRetry(t *testing.T) {
 	source, target := admissionServerFixture(t, "status")
 	stale := source.DeepCopy()
-	requireNoError(t, newAcceptPostgresRecovery(target).Do(t.Context(), k8sClient, nil, nil))
+	requireNoError(t, newTestAcceptPostgresRecovery(target, source).Do(t.Context(), k8sClient, nil, nil))
 	stale.GetStatus().SetReconcilePhase("Completed")
 	if err := k8sClient.Status().Update(t.Context(), stale); !apierrors.IsConflict(err) {
 		t.Fatalf("stale status write must conflict: %v", err)
@@ -155,16 +167,23 @@ func TestRecoveryAdmissionSurvivesConcurrentStatusRetry(t *testing.T) {
 }
 
 func TestRecoveryCRDRejectsFractionalTargetBeforeTypedDecoding(t *testing.T) {
-	_, target := admissionServerFixture(t, "precision")
-	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(target)
+	source, target := admissionServerFixture(t, "precision")
+	rec := &v1.PostgresRecovery{
+		ObjectMeta: metav1.ObjectMeta{Name: target.Name + "-fractional", Namespace: target.Namespace},
+		Spec: v1.PostgresRecoverySpec{
+			Postgres:    target.Name + "-fractional",
+			PointInTime: &v1.PostgresPointInTimeRecovery{SourcePostgres: source.Name, SourceUID: string(source.UID), BucketName: "archive", ServerName: "source-cluster", TargetTime: metav1.NewTime(time.Now().Truncate(time.Second))},
+		},
+	}
+	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(rec)
 	requireNoError(t, err)
 	u := &unstructured.Unstructured{Object: content}
 	u.SetAPIVersion(v1.GroupVersion.String())
-	u.SetKind("Postgres")
-	u.SetName(target.Name + "-fractional")
+	u.SetKind("PostgresRecovery")
+	u.SetName(rec.Name)
 	u.SetUID("")
 	u.SetResourceVersion("")
-	requireNoError(t, unstructured.SetNestedField(u.Object, "2026-11-16T13:10:00.750Z", "spec", "recovery", "targetTime"))
+	requireNoError(t, unstructured.SetNestedField(u.Object, "2026-11-16T13:10:00.750Z", "spec", "pointInTime", "targetTime"))
 	if err := k8sClient.Create(t.Context(), u); !apierrors.IsInvalid(err) {
 		t.Fatalf("CRD must reject unsupported precision, not admit an object typed clients cannot read: %v", err)
 	}
@@ -187,13 +206,14 @@ func TestConcurrentRecoveryAdmissionsCannotOverwriteEachOther(t *testing.T) {
 	source, first := admissionServerFixture(t, "concurrent")
 	second := first.DeepCopy()
 	second.Name, second.UID, second.ResourceVersion = first.Name+"-second", "", ""
+	second.Annotations = map[string]string{v1.PostgresRecoveryAnnotation: second.Name}
 	requireNoError(t, k8sClient.Create(t.Context(), second))
-	requireNoError(t, newAcceptPostgresRecovery(first).Do(t.Context(), k8sClient, nil, nil))
-	err := newAcceptPostgresRecovery(second).Do(t.Context(), staleAdmissionSource{Client: k8sClient, snapshot: source.DeepCopy()}, nil, nil)
+	requireNoError(t, newTestAcceptPostgresRecovery(first, source).Do(t.Context(), k8sClient, nil, nil))
+	err := newTestAcceptPostgresRecovery(second, source).Do(t.Context(), staleAdmissionSource{Client: k8sClient, snapshot: source.DeepCopy()}, nil, nil)
 	if !apierrors.IsConflict(err) {
 		t.Fatalf("concurrent admission must conflict rather than overwrite its peer: %v", err)
 	}
-	requireNoError(t, newAcceptPostgresRecovery(second).Do(t.Context(), k8sClient, nil, nil))
+	requireNoError(t, newTestAcceptPostgresRecovery(second, source).Do(t.Context(), k8sClient, nil, nil))
 	requireNoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(source), source))
 	for _, target := range []*v1.Postgres{first, second} {
 		accepted, err := recoveryWasAccepted(source, target)

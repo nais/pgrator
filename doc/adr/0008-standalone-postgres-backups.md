@@ -101,10 +101,15 @@ A new `Postgres` can be initialized from a completed `PostgresBackup` in the
 same team and environment, even after the original `Postgres` and its Barman
 bucket have been deleted:
 
-1. `Postgres.spec.recovery` references the source `PostgresBackup`.
+1. A companion `PostgresRecovery` (`postgresrecoveries.nais.io`, owned by the
+   new `Postgres` and gated by the `postgres.nais.io/recovery` annotation) pins
+   either a point-in-time recovery source (`spec.pointInTime`) or a standalone
+   `PostgresBackup` (`spec.backup`), keeping `Postgres.spec` identical for fresh
+   and restored databases.
 2. Pgrator validates that the new `Postgres` matches `majorVersion`, has at
    least the `diskSize`, and includes all `extensions` recorded on
-   `PostgresBackup.status`.
+   `PostgresBackup.status`, and reserves an admission on `PostgresBackup` so it
+   cannot expire or be deleted while bootstrap is in flight.
 3. Pgrator creates a temporary `barmanv1.ObjectStore` pointing at the backup's
    isolated prefix in the DR bucket and grants the new database's Google
    Service Account `roles/storage.objectViewer` on the DR bucket during
@@ -115,7 +120,8 @@ bucket have been deleted:
    been replayed.
 5. Once the new database is up and has completed its first own base backup to
    its own Barman bucket, pgrator detaches the external cluster, removes the
-   temporary `ObjectStore`, and revokes the temporary DR bucket IAM grant.
+   temporary `ObjectStore`, revokes the temporary DR bucket IAM grant, and
+   deletes the companion `PostgresRecovery` resource.
 
 ## 4. Export and User Interfaces
 

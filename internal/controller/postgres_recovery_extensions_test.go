@@ -40,7 +40,7 @@ func TestRecoveryRejectsSourceWithPendingExtensionRemoval(t *testing.T) {
 
 func TestInProgressRecoveryIgnoresLaterSourceExtensionRemoval(t *testing.T) {
 	r, c, source, target := directRecoveryFixture(t)
-	requireNoError(t, c.Create(t.Context(), recoveryClusterForPostgres(t, r, target)))
+	requireNoError(t, c.Create(t.Context(), recoveryClusterForPostgres(t, r, c, target)))
 	database := &cnpgv1.Database{}
 	requireNoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: source.Namespace, Name: source.Status.ClusterName + "-app"}, database))
 	database.Spec.Extensions = []cnpgv1.ExtensionSpec{{DatabaseObjectSpec: cnpgv1.DatabaseObjectSpec{Name: "timescaledb", Ensure: cnpgv1.EnsureAbsent}}}
