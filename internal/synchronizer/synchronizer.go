@@ -159,7 +159,7 @@ func (s *Synchronizer[T, P]) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return result, err
 	}
 
-	relatedObjects, err := s.findRelatedObjects(ctx)
+	relatedObjects, err := s.findRelatedObjects(ctx, obj.GetNamespace())
 	if err != nil {
 		logger.Error(err, "failed to find related objects")
 		s.recorder.RecordErrorEvent(obj, "FindRelated", err)
@@ -491,7 +491,11 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		list.GetObjectKind().SetGroupVersionKind(gvk)
-		err := s.client.List(ctx, list)
+		var listOpts []client.ListOption
+		if owner.GetNamespace() != "" {
+			listOpts = append(listOpts, client.InNamespace(owner.GetNamespace()))
+		}
+		err := s.client.List(ctx, list, listOpts...)
 		if err != nil {
 			if meta.IsNoMatchError(err) {
 				continue
@@ -544,15 +548,18 @@ func (s *Synchronizer[T, P]) DetectUnreferenced(ctx context.Context, owner T, ac
 	return actions, nil
 }
 
-func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context) (reconciler.RelatedObjects, error) {
-	// List all resources of owned or additional types
+func (s *Synchronizer[T, P]) findRelatedObjects(ctx context.Context, namespace string) (reconciler.RelatedObjects, error) {
+	// List all resources of owned or additional types in the target namespace
 	// Possible future improvement: Add app.kubernetes.io/managed-by label to all managed resources and filter to only care about those
-	// Possible future improvement: Extend Reconciler interface to return relevant namespaces for given object and filter to only those namespaces
 	related := relatedobjectsmap.NewRelatedObjectsMap(s.scheme)
 	for gvk, t := range s.relevantListTypes {
 		list := reflect.New(t).Interface().(client.ObjectList)
 		list.GetObjectKind().SetGroupVersionKind(gvk)
-		err := s.client.List(ctx, list)
+		var listOpts []client.ListOption
+		if namespace != "" {
+			listOpts = append(listOpts, client.InNamespace(namespace))
+		}
+		err := s.client.List(ctx, list, listOpts...)
 		if err != nil {
 			if meta.IsNoMatchError(err) {
 				continue

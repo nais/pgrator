@@ -174,6 +174,56 @@ func TestPostgresBindingPostgresWatchPredicate(t *testing.T) {
 	})
 }
 
+func TestPostgresBindingSourceSecretWatchPredicate(t *testing.T) {
+	pred := (&PostgresBindingReconciler{}).RelationshipWatches()[1].Predicate
+
+	caSecret := &corev1.Secret{Data: map[string][]byte{"ca.crt": []byte("ca")}}
+	clientCertSecret := &corev1.Secret{Data: map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")}}
+	unrelatedSecret := &corev1.Secret{Data: map[string][]byte{"FOO": []byte("bar")}}
+	incompleteCertSecret := &corev1.Secret{Data: map[string][]byte{"tls.crt": []byte("cert")}}
+
+	t.Run("create fires for CA and client cert secrets", func(t *testing.T) {
+		if !pred.Create(event.CreateEvent{Object: caSecret}) {
+			t.Error("Create should fire for CA secret")
+		}
+		if !pred.Create(event.CreateEvent{Object: clientCertSecret}) {
+			t.Error("Create should fire for client cert secret")
+		}
+	})
+
+	t.Run("create is filtered for unrelated or incomplete secrets", func(t *testing.T) {
+		if pred.Create(event.CreateEvent{Object: unrelatedSecret}) {
+			t.Error("Create should be filtered for unrelated secret")
+		}
+		if pred.Create(event.CreateEvent{Object: incompleteCertSecret}) {
+			t.Error("Create should be filtered for incomplete cert secret")
+		}
+	})
+
+	t.Run("delete fires only for relevant secrets", func(t *testing.T) {
+		if !pred.Delete(event.DeleteEvent{Object: caSecret}) {
+			t.Error("Delete should fire for CA secret")
+		}
+		if pred.Delete(event.DeleteEvent{Object: unrelatedSecret}) {
+			t.Error("Delete should be filtered for unrelated secret")
+		}
+	})
+
+	t.Run("update fires only when relevant secret data changes", func(t *testing.T) {
+		updatedCA := &corev1.Secret{Data: map[string][]byte{"ca.crt": []byte("new-ca")}}
+		if !pred.Update(event.UpdateEvent{ObjectOld: caSecret, ObjectNew: updatedCA}) {
+			t.Error("Update should fire when CA data changes")
+		}
+		if pred.Update(event.UpdateEvent{ObjectOld: caSecret, ObjectNew: caSecret.DeepCopy()}) {
+			t.Error("Update should be filtered when CA data is unchanged")
+		}
+		updatedUnrelated := &corev1.Secret{Data: map[string][]byte{"FOO": []byte("baz")}}
+		if pred.Update(event.UpdateEvent{ObjectOld: unrelatedSecret, ObjectNew: updatedUnrelated}) {
+			t.Error("Update should be filtered for unrelated secrets")
+		}
+	})
+}
+
 func TestValidateBindingSnapshot(t *testing.T) {
 	binding := &v1.PostgresBinding{ObjectMeta: metav1.ObjectMeta{Name: "reporter", Namespace: "team"}, Spec: v1.PostgresBindingSpec{
 		Consumer:    v1.PostgresBindingConsumer{Workload: &v1.PostgresBindingWorkload{Name: "reporter", Type: v1.PostgresBindingWorkloadTypeApplication}},
