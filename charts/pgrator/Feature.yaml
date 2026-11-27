@@ -13,6 +13,21 @@ values:
     displayName: Image tag
     config:
       type: string
+  controllerManager.container.resources.requests.cpu:
+    displayName: CPU request
+    description: Requested CPU for the pgrator controller manager container
+    config:
+      type: string
+  controllerManager.container.resources.requests.memory:
+    displayName: Memory request
+    description: Requested memory for the pgrator controller manager container
+    config:
+      type: string
+  controllerManager.container.resources.limits.memory:
+    displayName: Memory limit
+    description: Memory limit for the pgrator controller manager container
+    config:
+      type: string
   google.projectId:
     displayName: Google project ID
     computed:
